@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from dyn_evt_pdm.types import FloatArray
+
 
 def logistic_map(
     n_steps: int,
@@ -11,7 +13,7 @@ def logistic_map(
     x0: float = 0.123456789,
     parameter: float = 4.0,
     burn_in: int = 1_000,
-) -> np.ndarray:
+) -> FloatArray:
     """Simulate the logistic map ``x[t+1] = r*x[t]*(1-x[t])``."""
 
     if n_steps < 1:

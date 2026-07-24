@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from dyn_evt_pdm.types import BoolArray
+
 
 @dataclass(frozen=True, slots=True)
 class LaggedExtremePattern:
@@ -26,9 +28,9 @@ class LaggedExtremePattern:
 
 
 def detect_lagged_pattern(
-    exceedances: np.ndarray,
+    exceedances: BoolArray,
     pattern: LaggedExtremePattern,
-) -> np.ndarray:
+) -> BoolArray:
     """Detect an exact lagged logical pattern in a component-by-time matrix.
 
     Parameters

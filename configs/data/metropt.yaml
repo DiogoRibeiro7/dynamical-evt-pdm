@@ -1,7 +1,7 @@
 dataset:
   name: metropt
   source_record: https://zenodo.org/records/6854240
-  local_path: data/raw/metropt/MetroPT.csv
+  local_path: data/raw/metropt/dataset_train.csv
   sampling_frequency_hz: 1
   timestamp_column: timestamp
   expected_sensor_families:

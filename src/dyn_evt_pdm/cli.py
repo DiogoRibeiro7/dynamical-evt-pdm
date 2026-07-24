@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Annotated
 
 import pandas as pd
 import typer
 
+from dyn_evt_pdm.data.acquisition import fetch_datasets, planned_files
 from dyn_evt_pdm.pipelines.analyse import analyse_series
 from dyn_evt_pdm.simulation.cyclic import CyclicSimulationConfig, simulate_cyclic_machine
 
@@ -16,9 +18,9 @@ app = typer.Typer(no_args_is_help=True, add_completion=False)
 
 @app.command("simulate")
 def simulate_command(
-    output: Path = typer.Option(..., help="Output CSV or Parquet path."),
-    n_steps: int = typer.Option(20_000, min=1_000),
-    seed: int = typer.Option(42),
+    output: Annotated[Path, typer.Option(help="Output CSV or Parquet path.")],
+    n_steps: Annotated[int, typer.Option(min=1_000)] = 20_000,
+    seed: Annotated[int, typer.Option()] = 42,
 ) -> None:
     """Generate the cyclic degradation benchmark."""
 
@@ -35,12 +37,12 @@ def simulate_command(
 
 @app.command("analyse-series")
 def analyse_series_command(
-    input_path: Path = typer.Option(..., "--input", exists=True, dir_okay=False),
-    value_column: str = typer.Option("observable"),
-    regime_column: str = typer.Option("regime"),
-    quantile: float = typer.Option(0.98, min=0.5, max=0.9999),
-    run_length: int = typer.Option(10, min=0),
-    output: Path = typer.Option(..., help="JSON summary output."),
+    input_path: Annotated[Path, typer.Option("--input", exists=True, dir_okay=False)],
+    output: Annotated[Path, typer.Option(help="JSON summary output.")],
+    value_column: Annotated[str, typer.Option()] = "observable",
+    regime_column: Annotated[str, typer.Option()] = "regime",
+    quantile: Annotated[float, typer.Option(min=0.5, max=0.9999)] = 0.98,
+    run_length: Annotated[int, typer.Option(min=0)] = 10,
 ) -> None:
     """Analyse a scalar observable with regime-conditioned EVT."""
 
@@ -61,6 +63,38 @@ def analyse_series_command(
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     typer.echo(f"wrote analysis to {output}")
+
+
+@app.command("fetch-data")
+def fetch_data_command(
+    dataset: Annotated[
+        str,
+        typer.Option(
+            help="Dataset to fetch: all, metropt, metropt2, scania or scania_component_x."
+        ),
+    ] = "all",
+    raw_root: Annotated[Path, typer.Option(help="Raw-data root directory.")] = Path("data/raw"),
+    overwrite: Annotated[bool, typer.Option(help="Replace existing local raw files.")] = False,
+    list_only: Annotated[bool, typer.Option(help="List source files without downloading.")] = False,
+) -> None:
+    """Fetch public real datasets into the local raw-data directory."""
+
+    dataset_names = [name.strip() for name in dataset.split(",") if name.strip()]
+    files = planned_files(dataset_names or ["all"], raw_root=raw_root)
+    if list_only:
+        for remote in files:
+            size = (
+                f"{remote.size_bytes:,} bytes" if remote.size_bytes is not None else "size unknown"
+            )
+            typer.echo(f"{remote.dataset}: {remote.filename} -> {remote.destination} ({size})")
+        return
+
+    results = fetch_datasets(dataset_names or ["all"], raw_root=raw_root, overwrite=overwrite)
+    for result in results:
+        typer.echo(
+            f"{result.status}: {result.dataset}/{result.filename} "
+            f"({result.size_bytes:,} bytes) -> {result.path}"
+        )
 
 
 if __name__ == "__main__":

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import numpy as np
 
+from dyn_evt_pdm.types import BoolArray, IntArray
 
-def first_hitting_time(indicator: np.ndarray, *, start: int = 0) -> int | None:
+
+def first_hitting_time(indicator: BoolArray, *, start: int = 0) -> int | None:
     """Return samples until the first target hit at or after ``start``."""
 
     flags = np.asarray(indicator, dtype=bool)
@@ -15,7 +17,7 @@ def first_hitting_time(indicator: np.ndarray, *, start: int = 0) -> int | None:
     return None if len(relative) == 0 else int(relative[0])
 
 
-def return_times(indicator: np.ndarray) -> np.ndarray:
+def return_times(indicator: BoolArray) -> IntArray:
     """Return positive intervals between successive target hits."""
 
     hit_indices = np.flatnonzero(np.asarray(indicator, dtype=bool))
@@ -23,10 +25,10 @@ def return_times(indicator: np.ndarray) -> np.ndarray:
 
 
 def empirical_hit_probability(
-    indicator: np.ndarray,
+    indicator: BoolArray,
     *,
     horizon: int,
-    eligible_starts: np.ndarray | None = None,
+    eligible_starts: IntArray | None = None,
 ) -> float:
     """Estimate probability of at least one hit within a forward horizon."""
 
@@ -37,6 +39,7 @@ def empirical_hit_probability(
     if max_start <= 0:
         raise ValueError("series is shorter than the requested horizon")
 
+    starts: IntArray
     if eligible_starts is None:
         starts = np.arange(max_start, dtype=np.int64)
     else:

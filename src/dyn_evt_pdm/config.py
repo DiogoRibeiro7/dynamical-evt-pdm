@@ -26,7 +26,7 @@ class SplitConfig(BaseModel):
     test: float = Field(default=0.20, gt=0.0, lt=1.0)
 
     @model_validator(mode="after")
-    def validate_total(self) -> "SplitConfig":
+    def validate_total(self) -> SplitConfig:
         if abs(self.train + self.validation + self.test - 1.0) > 1e-9:
             raise ValueError("split proportions must sum to 1")
         return self

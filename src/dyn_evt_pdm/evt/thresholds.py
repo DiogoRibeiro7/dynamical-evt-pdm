@@ -7,6 +7,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from dyn_evt_pdm.types import FloatArray
+
 
 @dataclass(frozen=True, slots=True)
 class RegimeThresholds:
@@ -17,7 +19,7 @@ class RegimeThresholds:
     fallback: float
 
 
-def fit_quantile_threshold(values: np.ndarray, *, quantile: float) -> float:
+def fit_quantile_threshold(values: FloatArray, *, quantile: float) -> float:
     """Fit a finite empirical quantile threshold."""
 
     if not 0.0 < quantile < 1.0:

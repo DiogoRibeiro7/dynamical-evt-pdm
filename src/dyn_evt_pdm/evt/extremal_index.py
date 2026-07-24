@@ -5,9 +5,10 @@ from __future__ import annotations
 import numpy as np
 
 from dyn_evt_pdm.evt.clusters import extract_clusters
+from dyn_evt_pdm.types import BoolArray, IntArray
 
 
-def runs_extremal_index(exceedances: np.ndarray, *, run_length: int) -> float:
+def runs_extremal_index(exceedances: BoolArray, *, run_length: int) -> float:
     """Estimate the extremal index as clusters divided by exceedances.
 
     This estimator is transparent and operationally interpretable, but sensitive to
@@ -22,7 +23,7 @@ def runs_extremal_index(exceedances: np.ndarray, *, run_length: int) -> float:
     return float(cluster_count / exceedance_count)
 
 
-def intervals_extremal_index(exceedance_indices: np.ndarray) -> float:
+def intervals_extremal_index(exceedance_indices: IntArray) -> float:
     """Estimate the extremal index with the Ferro-Segers intervals estimator.
 
     The estimator is bounded to ``(0, 1]``. At least two exceedance times are

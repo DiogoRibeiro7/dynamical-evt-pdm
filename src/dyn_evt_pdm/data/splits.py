@@ -7,14 +7,16 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from dyn_evt_pdm.types import IntArray
+
 
 @dataclass(frozen=True, slots=True)
 class TemporalSplit:
     """Index arrays for ordered train, validation and test partitions."""
 
-    train: np.ndarray
-    validation: np.ndarray
-    test: np.ndarray
+    train: IntArray
+    validation: IntArray
+    test: IntArray
 
 
 def ordered_split_indices(

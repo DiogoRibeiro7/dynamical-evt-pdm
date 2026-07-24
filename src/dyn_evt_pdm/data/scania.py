@@ -34,4 +34,6 @@ def compute_counter_increments(
     increments = grouped.diff()
     increments = increments.mask(increments < 0)
     increments.columns = [f"{column}__increment" for column in counter_columns]
-    return pd.concat([sorted_frame.reset_index(drop=True), increments.reset_index(drop=True)], axis=1)
+    return pd.concat(
+        [sorted_frame.reset_index(drop=True), increments.reset_index(drop=True)], axis=1
+    )

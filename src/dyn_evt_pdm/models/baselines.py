@@ -8,6 +8,8 @@ import numpy as np
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import RobustScaler
 
+from dyn_evt_pdm.types import FloatArray
+
 
 @dataclass(slots=True)
 class IsolationForestBaseline:
@@ -31,7 +33,7 @@ class IsolationForestBaseline:
         )
         self._is_fitted = False
 
-    def fit(self, features: np.ndarray) -> "IsolationForestBaseline":
+    def fit(self, features: FloatArray) -> IsolationForestBaseline:
         """Fit scaler and model on a normal training period."""
 
         values = np.asarray(features, dtype=float)
@@ -42,7 +44,7 @@ class IsolationForestBaseline:
         self._is_fitted = True
         return self
 
-    def score(self, features: np.ndarray) -> np.ndarray:
+    def score(self, features: FloatArray) -> FloatArray:
         """Return scores where larger values are more anomalous."""
 
         if not self._is_fitted:

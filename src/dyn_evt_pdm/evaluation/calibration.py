@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from dyn_evt_pdm.types import BoolArray, FloatArray
+
 
 @dataclass(frozen=True, slots=True)
 class CalibrationBin:
@@ -18,7 +20,7 @@ class CalibrationBin:
     event_rate: float
 
 
-def brier_score(probabilities: np.ndarray, outcomes: np.ndarray) -> float:
+def brier_score(probabilities: FloatArray, outcomes: BoolArray) -> float:
     """Compute the mean squared probability error."""
 
     probability_array = np.asarray(probabilities, dtype=float)
@@ -33,8 +35,8 @@ def brier_score(probabilities: np.ndarray, outcomes: np.ndarray) -> float:
 
 
 def reliability_bins(
-    probabilities: np.ndarray,
-    outcomes: np.ndarray,
+    probabilities: FloatArray,
+    outcomes: BoolArray,
     *,
     n_bins: int = 10,
 ) -> list[CalibrationBin]:

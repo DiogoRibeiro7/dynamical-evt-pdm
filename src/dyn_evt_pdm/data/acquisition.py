@@ -1,0 +1,234 @@
+"""Raw dataset acquisition from public research-data records."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import urllib.request
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
+
+ZENODO_API = "https://zenodo.org/api/records/{record_id}"
+SCANIA_DATASET_PAGE = "https://researchdata.se/en/catalogue/dataset/2024-34"
+
+
+@dataclass(frozen=True, slots=True)
+class RemoteFile:
+    """One public source file to download into the raw-data tree."""
+
+    dataset: str
+    filename: str
+    url: str
+    destination: Path
+    size_bytes: int | None = None
+    checksum: str | None = None
+    source_record: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DownloadResult:
+    """Local acquisition result with integrity metadata."""
+
+    dataset: str
+    filename: str
+    path: str
+    url: str
+    size_bytes: int
+    sha256: str
+    checksum: str | None
+    status: str
+
+
+def planned_files(
+    dataset_names: list[str], *, raw_root: Path = Path("data/raw")
+) -> list[RemoteFile]:
+    """Resolve dataset names to concrete public files."""
+
+    selected = _normalize_dataset_names(dataset_names)
+    plans: list[RemoteFile] = []
+    if "metropt" in selected:
+        plans.extend(
+            _zenodo_files("metropt", "6854240", raw_root / "metropt", only={"dataset_train.csv"})
+        )
+    if "metropt2" in selected:
+        plans.extend(
+            _zenodo_files("metropt2", "7766691", raw_root / "metropt2", only={"MetroPT2.csv"})
+        )
+    if "scania_component_x" in selected:
+        plans.extend(_scania_files(raw_root / "scania_component_x"))
+    return plans
+
+
+def fetch_datasets(
+    dataset_names: list[str],
+    *,
+    raw_root: Path = Path("data/raw"),
+    overwrite: bool = False,
+) -> list[DownloadResult]:
+    """Download selected public datasets and write per-dataset manifests."""
+
+    files = planned_files(dataset_names, raw_root=raw_root)
+    results: list[DownloadResult] = []
+    for remote in files:
+        results.append(download_file(remote, overwrite=overwrite))
+
+    by_dataset: dict[str, list[DownloadResult]] = {}
+    for result in results:
+        by_dataset.setdefault(result.dataset, []).append(result)
+    for dataset, dataset_results in by_dataset.items():
+        manifest_path = raw_root / dataset / "manifest.json"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(
+            json.dumps([asdict(result) for result in dataset_results], indent=2),
+            encoding="utf-8",
+        )
+    return results
+
+
+def download_file(remote: RemoteFile, *, overwrite: bool = False) -> DownloadResult:
+    """Download one file, reusing a valid existing local copy when possible."""
+
+    remote.destination.parent.mkdir(parents=True, exist_ok=True)
+    if remote.destination.exists() and not overwrite:
+        result = _local_result(remote, status="exists")
+        _validate_result(result, remote)
+        return result
+
+    temporary = remote.destination.with_suffix(remote.destination.suffix + ".part")
+    if overwrite and temporary.exists():
+        temporary.unlink()
+
+    request = urllib.request.Request(remote.url, headers={"User-Agent": "dyn-evt-pdm/0.1"})
+    with urllib.request.urlopen(request, timeout=60) as response, temporary.open("wb") as handle:
+        while True:
+            chunk = response.read(1024 * 1024)
+            if not chunk:
+                break
+            handle.write(chunk)
+
+    temporary.replace(remote.destination)
+    result = _local_result(remote, status="downloaded")
+    _validate_result(result, remote)
+    return result
+
+
+def _normalize_dataset_names(dataset_names: list[str]) -> set[str]:
+    aliases = {
+        "all": {"metropt", "metropt2", "scania_component_x"},
+        "scania": {"scania_component_x"},
+        "scania_component_x": {"scania_component_x"},
+        "metropt": {"metropt"},
+        "metropt2": {"metropt2"},
+    }
+    selected: set[str] = set()
+    for name in dataset_names:
+        key = name.strip().lower().replace("-", "_")
+        if key not in aliases:
+            valid = ", ".join(sorted(aliases))
+            raise ValueError(f"unknown dataset {name!r}; expected one of: {valid}")
+        selected.update(aliases[key])
+    return selected or aliases["all"]
+
+
+def _zenodo_files(
+    dataset: str,
+    record_id: str,
+    destination_root: Path,
+    *,
+    only: set[str],
+) -> list[RemoteFile]:
+    with urllib.request.urlopen(ZENODO_API.format(record_id=record_id), timeout=30) as response:
+        record: dict[str, Any] = json.load(response)
+
+    files: list[RemoteFile] = []
+    for entry in record.get("files", []):
+        filename = str(entry["key"])
+        if filename not in only:
+            continue
+        files.append(
+            RemoteFile(
+                dataset=dataset,
+                filename=filename,
+                url=str(entry["links"]["self"]),
+                destination=destination_root / filename,
+                size_bytes=int(entry["size"]),
+                checksum=str(entry.get("checksum")) if entry.get("checksum") else None,
+                source_record=f"https://zenodo.org/records/{record_id}",
+            )
+        )
+    if len(files) != len(only):
+        found = {file.filename for file in files}
+        missing = ", ".join(sorted(only - found))
+        raise RuntimeError(f"Zenodo record {record_id} did not expose expected file(s): {missing}")
+    return files
+
+
+def _scania_files(destination_root: Path) -> list[RemoteFile]:
+    html = urllib.request.urlopen(SCANIA_DATASET_PAGE, timeout=30).read().decode("utf-8", "replace")
+    urls = sorted(set(re.findall(r'https://api\.researchdata\.se/[^"]+', html)))
+    selected: list[RemoteFile] = []
+    for url in urls:
+        clean_url = url.replace("&amp;", "&")
+        if "filePath=" not in clean_url:
+            continue
+        filename = clean_url.split("filePath=", 1)[1]
+        if "/" in filename or "\\" in filename:
+            raise RuntimeError(f"unexpected Scania filename from source page: {filename}")
+        selected.append(
+            RemoteFile(
+                dataset="scania_component_x",
+                filename=filename,
+                url=clean_url,
+                destination=destination_root / filename,
+                source_record=SCANIA_DATASET_PAGE,
+            )
+        )
+    if not selected:
+        raise RuntimeError("Scania dataset page did not expose any downloadable files")
+    return selected
+
+
+def _local_result(remote: RemoteFile, *, status: str) -> DownloadResult:
+    digest = hashlib.sha256()
+    size = 0
+    with remote.destination.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            digest.update(chunk)
+    return DownloadResult(
+        dataset=remote.dataset,
+        filename=remote.filename,
+        path=str(remote.destination),
+        url=remote.url,
+        size_bytes=size,
+        sha256=digest.hexdigest(),
+        checksum=remote.checksum,
+        status=status,
+    )
+
+
+def _validate_result(result: DownloadResult, remote: RemoteFile) -> None:
+    if remote.size_bytes is not None and result.size_bytes != remote.size_bytes:
+        raise RuntimeError(
+            f"{remote.filename} has {result.size_bytes} bytes; expected {remote.size_bytes}"
+        )
+    if not remote.checksum:
+        return
+    algorithm, _, expected = remote.checksum.partition(":")
+    if algorithm.lower() != "md5" or not expected:
+        raise RuntimeError(f"unsupported checksum format for {remote.filename}: {remote.checksum}")
+    digest = hashlib.md5(usedforsecurity=False)
+    with remote.destination.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    actual = digest.hexdigest()
+    if actual != expected:
+        raise RuntimeError(f"{remote.filename} md5 mismatch: expected {expected}, got {actual}")

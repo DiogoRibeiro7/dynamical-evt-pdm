@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from dyn_evt_pdm.types import EventInterval
+from dyn_evt_pdm.types import BoolArray, EventInterval
 
 
-def flags_to_events(flags: np.ndarray, *, label: str = "alarm") -> list[EventInterval]:
+def flags_to_events(flags: BoolArray, *, label: str = "alarm") -> list[EventInterval]:
     """Convert consecutive true samples into inclusive intervals."""
 
     values = np.asarray(flags, dtype=bool)
@@ -30,11 +30,7 @@ def match_events(
     unmatched_predictions = set(range(len(predicted)))
     true_positives = 0
     for actual in observed:
-        candidates = [
-            index
-            for index in unmatched_predictions
-            if predicted[index].overlaps(actual)
-        ]
+        candidates = [index for index in unmatched_predictions if predicted[index].overlaps(actual)]
         if candidates:
             best = min(candidates, key=lambda index: abs(predicted[index].start - actual.start))
             unmatched_predictions.remove(best)

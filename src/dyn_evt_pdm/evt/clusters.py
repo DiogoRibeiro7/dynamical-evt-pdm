@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import pairwise
 
 import numpy as np
 
-from dyn_evt_pdm.types import EventInterval
+from dyn_evt_pdm.types import BoolArray, EventInterval, FloatArray
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,7 +24,7 @@ class ExtremeCluster:
         return len(self.exceedance_indices)
 
 
-def extract_clusters(exceedances: np.ndarray, *, run_length: int) -> list[ExtremeCluster]:
+def extract_clusters(exceedances: BoolArray, *, run_length: int) -> list[ExtremeCluster]:
     """Group exceedances when consecutive exceedances are at most ``run_length`` apart.
 
     ``run_length`` is the maximum number of non-exceedance samples allowed between
@@ -39,7 +40,7 @@ def extract_clusters(exceedances: np.ndarray, *, run_length: int) -> list[Extrem
         return []
 
     grouped: list[list[int]] = [[int(indices[0])]]
-    for previous, current in zip(indices[:-1], indices[1:], strict=True):
+    for previous, current in pairwise(indices):
         gap = int(current - previous - 1)
         if gap <= run_length:
             grouped[-1].append(int(current))
@@ -55,7 +56,7 @@ def extract_clusters(exceedances: np.ndarray, *, run_length: int) -> list[Extrem
     ]
 
 
-def cluster_maxima(values: np.ndarray, clusters: list[ExtremeCluster]) -> np.ndarray:
+def cluster_maxima(values: FloatArray, clusters: list[ExtremeCluster]) -> FloatArray:
     """Return the maximum value observed in each cluster."""
 
     array = np.asarray(values, dtype=float)

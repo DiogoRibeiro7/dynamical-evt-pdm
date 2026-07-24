@@ -14,7 +14,11 @@ def test_regime_inference() -> None:
     current = pd.Series([0.0, 2.0, 2.0])
     pressure = pd.Series([1.0, 1.1, 2.0])
     rules = CompressorRegimeRules(current_on_threshold=1.0, pressure_recovery_derivative=0.5)
-    assert infer_compressor_regime(current, pressure, rules).tolist() == ["off", "loaded", "recovery"]
+    assert infer_compressor_regime(current, pressure, rules).tolist() == [
+        "off",
+        "loaded",
+        "recovery",
+    ]
     with pytest.raises(ValueError):
         infer_compressor_regime(current.iloc[:2], pressure, rules)
 
@@ -55,7 +59,9 @@ def test_analysis_pipeline() -> None:
     assert summary["n_exceedances"] > 0
     assert summary["n_clusters"] > 0
     with pytest.raises(ValueError):
-        analyse_series(frame, value_column="missing", regime_column="regime", quantile=0.98, run_length=5)
+        analyse_series(
+            frame, value_column="missing", regime_column="regime", quantile=0.98, run_length=5
+        )
 
 
 def test_logistic_map_is_bounded_and_validated() -> None:

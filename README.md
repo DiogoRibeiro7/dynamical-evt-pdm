@@ -26,6 +26,7 @@ The repository contains:
 - lagged multivariate extreme signatures;
 - event-level predictive-maintenance metrics;
 - adapters for MetroPT, MetroPT2, and SCANIA Component X;
+- real-data acquisition commands for MetroPT, MetroPT2, and SCANIA Component X;
 - classical anomaly-detection baselines;
 - reproducible experiment configurations;
 - a paper protocol and implementation backlog.
@@ -54,7 +55,17 @@ poetry install --with dev
 poetry run pre-commit install
 ```
 
-## First executable experiment
+## Real Data Acquisition
+
+Fetch the public raw datasets into the ignored `data/raw/` tree:
+
+```bash
+poetry run dyn-evt fetch-data --dataset all
+```
+
+You can fetch one dataset at a time with `--dataset metropt`, `--dataset metropt2`, or `--dataset scania_component_x`. Each run writes a local `manifest.json` with source URLs, byte counts, SHA-256 hashes, and any published checksum.
+
+## Smoke Experiment
 
 Generate a cyclic system with an injected degradation episode:
 

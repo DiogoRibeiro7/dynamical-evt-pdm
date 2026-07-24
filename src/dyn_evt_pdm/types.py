@@ -34,7 +34,7 @@ class EventInterval:
 
         return self.end - self.start + 1
 
-    def overlaps(self, other: "EventInterval") -> bool:
+    def overlaps(self, other: EventInterval) -> bool:
         """Return whether this interval overlaps another interval."""
 
         return self.start <= other.end and other.start <= self.end

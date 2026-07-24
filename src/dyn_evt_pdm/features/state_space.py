@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import RobustScaler
 
+from dyn_evt_pdm.types import FloatArray
+
 
 class StateSpaceTransformer:
     """Fit a robust state-space representation without temporal leakage."""
@@ -17,7 +19,7 @@ class StateSpaceTransformer:
         self.scaler = RobustScaler()
         self._is_fitted = False
 
-    def fit(self, frame: pd.DataFrame) -> "StateSpaceTransformer":
+    def fit(self, frame: pd.DataFrame) -> StateSpaceTransformer:
         """Fit scaling statistics on training data only."""
 
         missing = sorted(set(self.columns).difference(frame.columns))
@@ -30,7 +32,7 @@ class StateSpaceTransformer:
         self._is_fitted = True
         return self
 
-    def transform(self, frame: pd.DataFrame) -> np.ndarray:
+    def transform(self, frame: pd.DataFrame) -> FloatArray:
         """Transform data using previously fitted robust scaling."""
 
         if not self._is_fitted:

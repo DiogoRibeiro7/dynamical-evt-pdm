@@ -73,9 +73,7 @@ def simulate_cyclic_machine(config: CyclicSimulationConfig) -> pd.DataFrame:
     normalized_current = np.maximum(0.0, (current - 3.0) / 1.2)
     normalized_temperature = np.maximum(0.0, (temperature - 50.0) / 7.0)
     observable = (
-        0.45 * normalized_pressure_drop
-        + 0.30 * normalized_current
-        + 0.25 * normalized_temperature
+        0.45 * normalized_pressure_drop + 0.30 * normalized_current + 0.25 * normalized_temperature
     )
 
     return pd.DataFrame(

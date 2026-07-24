@@ -34,7 +34,9 @@ def event_metrics(
     recall = true_positives / len(observed) if observed else 0.0
     f1 = 2.0 * precision * recall / (precision + recall) if precision + recall else 0.0
 
-    overlaps_per_observed = [sum(prediction.overlaps(actual) for prediction in predicted) for actual in observed]
+    overlaps_per_observed = [
+        sum(prediction.overlaps(actual) for prediction in predicted) for actual in observed
+    ]
     duplicates = sum(max(0, count - 1) for count in overlaps_per_observed)
     duplicate_rate = duplicates / len(observed) if observed else 0.0
 

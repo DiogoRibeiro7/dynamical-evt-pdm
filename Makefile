@@ -1,4 +1,4 @@
-.PHONY: install format lint typecheck test check simulate
+.PHONY: install format lint typecheck test check fetch-data simulate
 
 install:
 	poetry install --with dev
@@ -17,6 +17,9 @@ test:
 	poetry run pytest
 
 check: lint typecheck test
+
+fetch-data:
+	poetry run dyn-evt fetch-data --dataset all
 
 simulate:
 	poetry run dyn-evt simulate --output data/processed/synthetic_cyclic.csv --n-steps 20000 --seed 42

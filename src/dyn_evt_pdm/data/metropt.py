@@ -49,7 +49,9 @@ def load_metropt(path: Path, *, timestamp_column: str = "timestamp") -> pd.DataF
             f"timestamp column {timestamp_column!r} not found; update the dataset config"
         )
     frame = frame.copy()
-    frame[timestamp_column] = pd.to_datetime(frame[timestamp_column], errors="raise", format="mixed")
+    frame[timestamp_column] = pd.to_datetime(
+        frame[timestamp_column], errors="raise", format="mixed"
+    )
     return frame.sort_values(timestamp_column, kind="stable").reset_index(drop=True)
 
 

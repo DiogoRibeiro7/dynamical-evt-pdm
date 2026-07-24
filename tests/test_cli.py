@@ -10,7 +10,9 @@ runner = CliRunner()
 
 def test_cli_simulate_and_analyse(tmp_path: Path) -> None:
     data_path = tmp_path / "simulation.csv"
-    result = runner.invoke(app, ["simulate", "--output", str(data_path), "--n-steps", "1000", "--seed", "5"])
+    result = runner.invoke(
+        app, ["simulate", "--output", str(data_path), "--n-steps", "1000", "--seed", "5"]
+    )
     assert result.exit_code == 0, result.output
     assert data_path.exists()
 
