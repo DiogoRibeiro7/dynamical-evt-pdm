@@ -65,6 +65,14 @@ poetry run dyn-evt fetch-data --dataset all
 
 You can fetch one dataset at a time with `--dataset metropt`, `--dataset metropt2`, or `--dataset scania_component_x`. Each run writes a local `manifest.json` with source URLs, byte counts, SHA-256 hashes, and any published checksum.
 
+Prepare the raw files into processed Parquet parts:
+
+```bash
+poetry run dyn-evt prepare-metropt
+poetry run dyn-evt prepare-metropt2
+poetry run dyn-evt prepare-scania
+```
+
 ## Smoke Experiment
 
 Generate a cyclic system with an injected degradation episode:

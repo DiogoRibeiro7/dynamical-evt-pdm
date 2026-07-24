@@ -10,6 +10,7 @@ import pandas as pd
 import typer
 
 from dyn_evt_pdm.data.acquisition import fetch_datasets, planned_files
+from dyn_evt_pdm.data.prepare import prepare_metropt, prepare_scania
 from dyn_evt_pdm.pipelines.analyse import analyse_series
 from dyn_evt_pdm.simulation.cyclic import CyclicSimulationConfig, simulate_cyclic_machine
 
@@ -95,6 +96,77 @@ def fetch_data_command(
             f"{result.status}: {result.dataset}/{result.filename} "
             f"({result.size_bytes:,} bytes) -> {result.path}"
         )
+
+
+@app.command("prepare-metropt")
+def prepare_metropt_command(
+    raw_path: Annotated[Path, typer.Option(exists=True, dir_okay=False)] = Path(
+        "data/raw/metropt/dataset_train.csv"
+    ),
+    output_root: Annotated[Path, typer.Option(help="Processed output directory.")] = Path(
+        "data/processed/metropt"
+    ),
+    failure_yaml: Annotated[Path, typer.Option(help="MetroPT failure-label YAML.")] = Path(
+        "docs/datasets/metropt_failures.yaml"
+    ),
+    chunk_size: Annotated[int, typer.Option(min=1_000)] = 500_000,
+) -> None:
+    """Prepare the real MetroPT raw CSV into Parquet parts."""
+
+    result = prepare_metropt(
+        dataset="metropt",
+        raw_path=raw_path,
+        output_root=output_root,
+        failure_yaml=failure_yaml,
+        chunk_size=chunk_size,
+    )
+    typer.echo(
+        f"prepared {result.dataset}: {result.rows:,} rows across {result.chunks} parts; "
+        f"manifest {result.manifest_path}"
+    )
+
+
+@app.command("prepare-metropt2")
+def prepare_metropt2_command(
+    raw_path: Annotated[Path, typer.Option(exists=True, dir_okay=False)] = Path(
+        "data/raw/metropt2/MetroPT2.csv"
+    ),
+    output_root: Annotated[Path, typer.Option(help="Processed output directory.")] = Path(
+        "data/processed/metropt2"
+    ),
+    chunk_size: Annotated[int, typer.Option(min=1_000)] = 500_000,
+) -> None:
+    """Prepare the real MetroPT2 raw CSV into Parquet parts."""
+
+    result = prepare_metropt(
+        dataset="metropt2",
+        raw_path=raw_path,
+        output_root=output_root,
+        chunk_size=chunk_size,
+    )
+    typer.echo(
+        f"prepared {result.dataset}: {result.rows:,} rows across {result.chunks} parts; "
+        f"manifest {result.manifest_path}"
+    )
+
+
+@app.command("prepare-scania")
+def prepare_scania_command(
+    raw_root: Annotated[Path, typer.Option(exists=True, file_okay=False)] = Path(
+        "data/raw/scania_component_x"
+    ),
+    output_root: Annotated[Path, typer.Option(help="Processed output directory.")] = Path(
+        "data/processed/scania_component_x"
+    ),
+    chunk_size: Annotated[int, typer.Option(min=1_000)] = 100_000,
+) -> None:
+    """Prepare the real SCANIA Component X raw CSV files into Parquet parts."""
+
+    result = prepare_scania(raw_root=raw_root, output_root=output_root, chunk_size=chunk_size)
+    typer.echo(
+        f"prepared {result.dataset}: {result.rows:,} rows across {result.chunks} parts; "
+        f"manifest {result.manifest_path}"
+    )
 
 
 if __name__ == "__main__":

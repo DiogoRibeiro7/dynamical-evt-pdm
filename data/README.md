@@ -66,3 +66,15 @@ data/raw/scania_component_x/
 4. Fit scaling, thresholds, regimes and dangerous-state prototypes on training data only.
 5. Preserve timestamps and entity identifiers.
 6. Save all exclusion windows and label transformations as machine-readable metadata.
+
+## Preparation
+
+After fetching raw files, build processed Parquet parts with:
+
+```bash
+poetry run dyn-evt prepare-metropt
+poetry run dyn-evt prepare-metropt2
+poetry run dyn-evt prepare-scania
+```
+
+Each command writes `part-*.parquet` files and a `manifest.json` under `data/processed/<dataset>/`. The manifests record raw hashes, schema statistics, source-to-canonical mappings, timestamp checks, failure-label provenance and Scania vehicle-split leakage checks.

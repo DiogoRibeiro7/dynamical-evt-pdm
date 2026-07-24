@@ -15,6 +15,7 @@
 - Isolation Forest baseline wrapper;
 - memory-aware CSV ingestion and Parquet output helpers;
 - real-data acquisition for MetroPT, MetroPT2 and SCANIA Component X into `data/raw/`;
+- chunked raw-to-Parquet preparation with schema manifests and quality checks;
 - MetroPT/MetroPT2 failure metadata helpers;
 - SCANIA counter-reset handling;
 - command-line simulation and series analysis;
@@ -29,7 +30,7 @@
 
 ## Deferred paper-level work
 
-- processed Parquet conversion and schema manifests for full multi-gigabyte datasets;
+- richer data dictionaries with verified units and source-to-canonical mappings;
 - GPD fitting and uncertainty intervals;
 - theoretical simulation targets with known periodic-point extremal indices;
 - SPOT/DSPOT, change-point, autoencoder and conformal baselines;
