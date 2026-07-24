@@ -13,6 +13,14 @@ import yaml
 from dyn_evt_pdm.data.acquisition import fetch_datasets, planned_files
 from dyn_evt_pdm.data.prepare import prepare_metropt, prepare_scania
 from dyn_evt_pdm.evt.univariate import fit_univariate_evt
+from dyn_evt_pdm.features.regimes import (
+    ChangePointRegimeConfig,
+    CompressorRegimeRules,
+    HiddenStateRegimeModel,
+    infer_changepoint_regime,
+    infer_compressor_regime,
+    regime_report,
+)
 from dyn_evt_pdm.pipelines.analyse import analyse_series
 from dyn_evt_pdm.simulation.cyclic import CyclicSimulationConfig, simulate_cyclic_machine
 from dyn_evt_pdm.simulation.study import (
@@ -53,12 +61,7 @@ def analyse_series_command(
 ) -> None:
     """Analyse a scalar observable with regime-conditioned EVT."""
 
-    if input_path.suffix.lower() == ".csv":
-        frame = pd.read_csv(input_path)
-    elif input_path.suffix.lower() in {".parquet", ".pq"}:
-        frame = pd.read_parquet(input_path)
-    else:
-        raise typer.BadParameter("input suffix must be .csv, .parquet or .pq")
+    frame = _read_cli_table(input_path)
 
     summary = analyse_series(
         frame,
@@ -84,12 +87,7 @@ def analyse_univariate_command(
 ) -> None:
     """Fit structured univariate EVT diagnostics for one scalar column."""
 
-    if input_path.suffix.lower() == ".csv":
-        frame = pd.read_csv(input_path)
-    elif input_path.suffix.lower() in {".parquet", ".pq"}:
-        frame = pd.read_parquet(input_path)
-    else:
-        raise typer.BadParameter("input suffix must be .csv, .parquet or .pq")
+    frame = _read_cli_table(input_path)
     if value_column not in frame:
         raise typer.BadParameter(f"value column {value_column!r} not found")
     result = fit_univariate_evt(
@@ -102,6 +100,59 @@ def analyse_univariate_command(
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result.to_dict(), indent=2), encoding="utf-8")
     typer.echo(f"wrote univariate EVT analysis to {output}")
+
+
+@app.command("analyse-regimes")
+def analyse_regimes_command(
+    input_path: Annotated[Path, typer.Option("--input", exists=True, dir_okay=False)],
+    value_column: Annotated[str, typer.Option()],
+    output: Annotated[Path, typer.Option(help="JSON regime report output.")],
+    method: Annotated[str, typer.Option(help="rules, hidden-state, or changepoint.")] = "rules",
+    current_column: Annotated[
+        str, typer.Option(help="Current column for rule regimes.")
+    ] = "current",
+    pressure_column: Annotated[
+        str, typer.Option(help="Pressure column for rule regimes.")
+    ] = "pressure",
+    feature_columns: Annotated[
+        str, typer.Option(help="Comma-separated feature columns for hidden-state regimes.")
+    ] = "",
+    quantile: Annotated[float, typer.Option(min=0.5, max=0.9999)] = 0.98,
+    n_states: Annotated[int, typer.Option(min=1)] = 3,
+) -> None:
+    """Compare regime diagnostics and thresholds for one regime method."""
+
+    frame = _read_cli_table(input_path)
+    if value_column not in frame:
+        raise typer.BadParameter(f"value column {value_column!r} not found")
+    if method == "rules":
+        for column in (current_column, pressure_column):
+            if column not in frame:
+                raise typer.BadParameter(f"rule column {column!r} not found")
+        regimes = infer_compressor_regime(
+            frame[current_column],
+            frame[pressure_column],
+            CompressorRegimeRules(current_on_threshold=1.0, pressure_recovery_derivative=0.05),
+        )
+    elif method == "hidden-state":
+        columns = [column.strip() for column in feature_columns.split(",") if column.strip()]
+        if not columns:
+            raise typer.BadParameter("--feature-columns is required for hidden-state")
+        missing = sorted(set(columns).difference(frame.columns))
+        if missing:
+            raise typer.BadParameter(f"missing feature columns: {missing}")
+        model = HiddenStateRegimeModel(n_states=n_states).fit(frame[columns])
+        regimes = model.predict(frame[columns])
+    elif method == "changepoint":
+        regimes = infer_changepoint_regime(
+            frame, ChangePointRegimeConfig(value_column=value_column)
+        )
+    else:
+        raise typer.BadParameter("method must be rules, hidden-state, or changepoint")
+    report = regime_report(frame[value_column], regimes, quantile=quantile)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    typer.echo(f"wrote regime report to {output}")
 
 
 @app.command("fetch-data")
@@ -226,6 +277,14 @@ def run_simulation_study_command(
     study_config = simulation_study_config_from_mapping(raw, smoke=smoke, n_jobs=n_jobs)
     result = write_simulation_study(study_config, output)
     typer.echo(f"wrote {len(result):,} simulation rows to {output}")
+
+
+def _read_cli_table(input_path: Path) -> pd.DataFrame:
+    if input_path.suffix.lower() == ".csv":
+        return pd.read_csv(input_path)
+    if input_path.suffix.lower() in {".parquet", ".pq"}:
+        return pd.read_parquet(input_path)
+    raise typer.BadParameter("input suffix must be .csv, .parquet or .pq")
 
 
 if __name__ == "__main__":

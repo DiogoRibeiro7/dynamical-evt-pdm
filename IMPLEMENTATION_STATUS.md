@@ -8,6 +8,8 @@
 - logistic-map simulation utility;
 - dangerous-region `-log(distance)` observable;
 - global and regime-conditioned empirical thresholds;
+- auditable rule, unsupervised hidden-state and causal change-point regime definitions;
+- regime occupancy, transition, duration and threshold-ablation reports;
 - run declustering and cluster maxima;
 - runs and Ferro-Segers intervals extremal-index estimators;
 - empirical hitting and return-time utilities;
@@ -33,9 +35,8 @@
 ## Deferred paper-level work
 
 - richer data dictionaries with verified units and source-to-canonical mappings;
-- GPD fitting and uncertainty intervals;
 - theoretical simulation targets with known periodic-point extremal indices;
-- SPOT/DSPOT, change-point, autoencoder and conformal baselines;
+- SPOT/DSPOT, autoencoder and conformal baselines;
 - optimal event matching and early-warning-window utilities;
 - nested temporal model selection;
 - paper figures, tables and manuscript assets;

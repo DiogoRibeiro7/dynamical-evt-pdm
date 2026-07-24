@@ -107,6 +107,18 @@ poetry run dyn-evt analyse-univariate \
   --output artifacts/synthetic_univariate_evt.json
 ```
 
+Compare operating-regime definitions and thresholds:
+
+```bash
+poetry run dyn-evt analyse-regimes \
+  --input data/processed/synthetic_cyclic.csv \
+  --value-column observable \
+  --method rules \
+  --current-column current \
+  --pressure-column pressure \
+  --output artifacts/synthetic_regime_report.json
+```
+
 Run tests:
 
 ```bash
