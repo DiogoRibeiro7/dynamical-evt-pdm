@@ -319,15 +319,29 @@ def _event_timeline_assets(
     alarms = np.asarray(frame[config.value_column].to_numpy(dtype=float) > threshold, dtype=bool)
     failures = frame[config.failure_column].astype(bool).to_numpy()
     x = (
-        frame[config.timestamp_column]
+        frame[config.timestamp_column].to_numpy()
         if config.timestamp_column in frame
         else np.arange(len(frame))
     )
+    values = frame[config.value_column].to_numpy(dtype=float)
+    plot_stride = max(1, int(np.ceil(len(frame) / 20_000)))
+    plot_index = np.arange(0, len(frame), plot_stride)
     figure, axis = plt.subplots(figsize=(9.0, 3.6))
-    axis.plot(x, frame[config.value_column], color="#4C78A8", linewidth=0.9, label="observable")
+    axis.plot(x[plot_index], values[plot_index], color="#4C78A8", linewidth=0.9, label="observable")
     axis.axhline(threshold, color="#E15759", linewidth=0.9, label="threshold")
     _shade_flags(axis, x, failures, color="#F28E2B", alpha=0.20, label="failure")
-    _shade_flags(axis, x, alarms, color="#59A14F", alpha=0.13, label="alarm")
+    alarm_indices = np.flatnonzero(alarms)
+    if len(alarm_indices):
+        alarm_stride = max(1, int(np.ceil(len(alarm_indices) / 2_000)))
+        shown = alarm_indices[::alarm_stride]
+        axis.scatter(
+            x[shown],
+            values[shown],
+            s=6,
+            color="#59A14F",
+            alpha=0.35,
+            label="alarm",
+        )
     axis.set_xlabel(config.timestamp_column if config.timestamp_column in frame else "sample")
     axis.set_ylabel(config.value_column)
     axis.legend(frameon=False, ncols=4, fontsize=8)

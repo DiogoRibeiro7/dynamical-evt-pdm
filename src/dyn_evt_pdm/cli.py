@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Annotated
 
+import numpy as np
 import pandas as pd
 import typer
 import yaml
@@ -197,7 +198,20 @@ def analyse_dangerous_region_command(
     missing = sorted(set([*columns, target_column]).difference(frame.columns))
     if missing:
         raise typer.BadParameter(f"missing columns: {missing}")
-    states = frame[columns].to_numpy(dtype=float)
+    state_frame = (
+        frame.loc[:, columns]
+        .apply(pd.to_numeric, errors="coerce")
+        .replace([np.inf, -np.inf], np.nan)
+    )
+    if split_column and split_column in frame:
+        train_mask = frame[split_column].astype("string").eq(train_split).fillna(False)
+    else:
+        train_mask = pd.Series(True, index=frame.index)
+    training_medians = state_frame.loc[train_mask].median(numeric_only=True)
+    global_medians = state_frame.median(numeric_only=True)
+    medians = training_medians.fillna(global_medians).fillna(0.0)
+    imputed_state_values = int(state_frame.isna().sum().sum())
+    states = state_frame.fillna(medians).to_numpy(dtype=float)
     target_flags = frame[target_column].astype(bool).to_numpy()
     provenance = _build_cli_provenance(
         frame,
@@ -241,6 +255,7 @@ def analyse_dangerous_region_command(
         "region_method": region.method,
         "n_references": len(region.references),
         "metadata": region.metadata,
+        "imputed_state_values": imputed_state_values,
         "score_output": str(output),
         "horizon_risk": {
             "horizons": risk.horizons,

@@ -637,12 +637,15 @@ def _score_to_horizon_risk(
     outcomes = _future_positive(bundle.target, horizon=config.horizon)
     validation_outcomes = outcomes[validation]
     global_rate = float(np.mean(validation_outcomes)) if len(validation_outcomes) else 0.0
-    risks = np.empty(len(scores), dtype=np.float64)
-    for index, score in enumerate(scores):
-        comparable = validation_scores >= score
-        risks[index] = (
-            float(np.mean(validation_outcomes[comparable])) if np.any(comparable) else global_rate
-        )
+    order = np.argsort(validation_scores)
+    sorted_scores = validation_scores[order]
+    sorted_outcomes = validation_outcomes[order].astype(np.float64)
+    suffix_counts = np.arange(len(sorted_scores), 0, -1, dtype=np.float64)
+    suffix_events = np.cumsum(sorted_outcomes[::-1])[::-1]
+    positions = np.searchsorted(sorted_scores, scores, side="left")
+    risks = np.full(len(scores), global_rate, dtype=np.float64)
+    valid = positions < len(sorted_scores)
+    risks[valid] = suffix_events[positions[valid]] / suffix_counts[positions[valid]]
     return cast(FloatArray, np.clip(risks, 0.0, 1.0).astype(np.float64))
 
 

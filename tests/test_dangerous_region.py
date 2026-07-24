@@ -118,7 +118,7 @@ def test_analyse_dangerous_region_cli(tmp_path: Path) -> None:
     frame = pd.DataFrame(
         {
             "x": [0.0, 1.0, 2.0, 1.1],
-            "y": [0.0, 1.0, 2.0, 1.1],
+            "y": [0.0, 1.0, np.nan, 1.1],
             "target": [False, True, False, False],
             "split": ["train", "train", "test", "test"],
             "failure_id": [None, "f1", "f2", "f2"],
@@ -157,4 +157,5 @@ def test_analyse_dangerous_region_cli(tmp_path: Path) -> None:
     payload = json.loads(report.read_text())
     assert scores.shape[0] == len(frame)
     assert payload["n_references"] == 1
+    assert payload["imputed_state_values"] == 1
     assert payload["metadata"]["allowed_failure_ids"] == ["f1"]

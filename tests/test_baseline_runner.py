@@ -1,9 +1,11 @@
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from typer.testing import CliRunner
 
 from dyn_evt_pdm.cli import app
+from dyn_evt_pdm.models import baseline_runner
 from dyn_evt_pdm.models.baseline_runner import (
     BaselineRunConfig,
     baseline_metadata_to_frame,
@@ -111,3 +113,34 @@ def test_run_baselines_cli_writes_predictions_and_metadata(tmp_path: Path) -> No
     predictions = pd.read_parquet(output_path)
     assert {"model", "score", "threshold", "alarm_flag", "episode_id"}.issubset(predictions.columns)
     assert metadata_path.exists()
+
+
+def test_horizon_risk_matches_tail_mean_definition() -> None:
+    scores = np.array([0.1, 0.5, 0.9, 0.4, 0.8], dtype=np.float64)
+    target = np.array([False, False, True, False, False])
+    validation_mask = np.array([False, True, True, True, False])
+    bundle = baseline_runner._FeatureBundle(
+        matrix=np.zeros((5, 1), dtype=np.float64),
+        signal=scores,
+        names=("x",),
+        train_mask=np.array([True, False, False, False, False]),
+        validation_mask=validation_mask,
+        test_mask=np.array([False, False, False, False, True]),
+        allowed_mask=np.ones(5, dtype=bool),
+        target=target,
+    )
+    config = BaselineRunConfig(feature_columns=("x",), horizon=1)
+
+    risks = baseline_runner._score_to_horizon_risk(scores, bundle, config)
+    validation_scores = scores[validation_mask]
+    validation_outcomes = baseline_runner._future_positive(target, horizon=1)[validation_mask]
+    expected = np.array(
+        [
+            validation_outcomes[validation_scores >= score].mean()
+            if np.any(validation_scores >= score)
+            else validation_outcomes.mean()
+            for score in scores
+        ]
+    )
+
+    np.testing.assert_allclose(risks, expected)
