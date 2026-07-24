@@ -96,6 +96,17 @@ poetry run dyn-evt analyse-series \
   --output artifacts/synthetic_summary.json
 ```
 
+Fit structured univariate EVT diagnostics for a scalar column:
+
+```bash
+poetry run dyn-evt analyse-univariate \
+  --input data/processed/synthetic_cyclic.csv \
+  --value-column observable \
+  --quantile 0.98 \
+  --run-length 10 \
+  --output artifacts/synthetic_univariate_evt.json
+```
+
 Run tests:
 
 ```bash

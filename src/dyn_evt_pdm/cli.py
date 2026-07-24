@@ -12,6 +12,7 @@ import yaml
 
 from dyn_evt_pdm.data.acquisition import fetch_datasets, planned_files
 from dyn_evt_pdm.data.prepare import prepare_metropt, prepare_scania
+from dyn_evt_pdm.evt.univariate import fit_univariate_evt
 from dyn_evt_pdm.pipelines.analyse import analyse_series
 from dyn_evt_pdm.simulation.cyclic import CyclicSimulationConfig, simulate_cyclic_machine
 from dyn_evt_pdm.simulation.study import (
@@ -69,6 +70,38 @@ def analyse_series_command(
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     typer.echo(f"wrote analysis to {output}")
+
+
+@app.command("analyse-univariate")
+def analyse_univariate_command(
+    input_path: Annotated[Path, typer.Option("--input", exists=True, dir_okay=False)],
+    value_column: Annotated[str, typer.Option()],
+    output: Annotated[Path, typer.Option(help="JSON EVT result output.")],
+    quantile: Annotated[float, typer.Option(min=0.5, max=0.9999)] = 0.98,
+    run_length: Annotated[int, typer.Option(min=0)] = 10,
+    min_exceedances: Annotated[int, typer.Option(min=3)] = 30,
+    bootstrap_repetitions: Annotated[int, typer.Option(min=0)] = 0,
+) -> None:
+    """Fit structured univariate EVT diagnostics for one scalar column."""
+
+    if input_path.suffix.lower() == ".csv":
+        frame = pd.read_csv(input_path)
+    elif input_path.suffix.lower() in {".parquet", ".pq"}:
+        frame = pd.read_parquet(input_path)
+    else:
+        raise typer.BadParameter("input suffix must be .csv, .parquet or .pq")
+    if value_column not in frame:
+        raise typer.BadParameter(f"value column {value_column!r} not found")
+    result = fit_univariate_evt(
+        frame[value_column].to_numpy(dtype=float),
+        threshold_quantile=quantile,
+        run_length=run_length,
+        min_exceedances=min_exceedances,
+        bootstrap_repetitions=bootstrap_repetitions,
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(result.to_dict(), indent=2), encoding="utf-8")
+    typer.echo(f"wrote univariate EVT analysis to {output}")
 
 
 @app.command("fetch-data")

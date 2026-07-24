@@ -23,6 +23,33 @@ def runs_extremal_index(exceedances: BoolArray, *, run_length: int) -> float:
     return float(cluster_count / exceedance_count)
 
 
+def disjoint_blocks_extremal_index(exceedances: BoolArray, *, block_size: int) -> float:
+    """Estimate the extremal index using disjoint no-exceedance block probability.
+
+    For a high threshold, ``P(max block <= u)`` is approximated by
+    ``exp(-theta * block_size * exceedance_rate)``. The estimate is transparent
+    and useful for stability checks, but it is sensitive to block size.
+    """
+
+    if block_size < 1:
+        raise ValueError("block_size must be positive")
+    flags = np.asarray(exceedances, dtype=bool)
+    if flags.ndim != 1:
+        raise ValueError("exceedances must be one-dimensional")
+    if len(flags) < block_size:
+        raise ValueError("series must contain at least one complete block")
+    exceedance_rate = float(np.mean(flags))
+    if exceedance_rate <= 0.0:
+        raise ValueError("at least one exceedance is required")
+    n_blocks = len(flags) // block_size
+    blocks = flags[: n_blocks * block_size].reshape(n_blocks, block_size)
+    no_exceedance_probability = float(np.mean(~np.any(blocks, axis=1)))
+    if no_exceedance_probability <= 0.0:
+        return 1.0
+    estimate = -np.log(no_exceedance_probability) / (block_size * exceedance_rate)
+    return float(np.clip(estimate, np.finfo(float).eps, 1.0))
+
+
 def intervals_extremal_index(exceedance_indices: IntArray) -> float:
     """Estimate the extremal index with the Ferro-Segers intervals estimator.
 

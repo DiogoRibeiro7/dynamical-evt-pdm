@@ -31,3 +31,25 @@ def test_cli_simulate_and_analyse(tmp_path: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     assert json.loads(summary_path.read_text())["n_samples"] == 1000
+
+    evt_path = tmp_path / "univariate_evt.json"
+    result = runner.invoke(
+        app,
+        [
+            "analyse-univariate",
+            "--input",
+            str(data_path),
+            "--value-column",
+            "observable",
+            "--output",
+            str(evt_path),
+            "--run-length",
+            "5",
+            "--min-exceedances",
+            "3",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(evt_path.read_text())
+    assert payload["n_samples"] == 1000
+    assert payload["gpd"]["n_excesses"] == payload["n_exceedances"]
