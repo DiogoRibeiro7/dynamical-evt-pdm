@@ -171,6 +171,14 @@ poetry run dyn-evt run-simulation-study \
   --output artifacts/simulation_study_smoke.parquet
 ```
 
+Rebuild manuscript figures, CSV tables, LaTeX tables and provenance manifests:
+
+```bash
+make paper-assets
+```
+
+The generated assets are written under `reports/paper/` and each run records the experiment ID, Git commit hash and configuration hash in `asset_manifest.json`.
+
 ## Data
 
 Large datasets are not committed. Acquisition notes and expected schemas are in [`data/README.md`](data/README.md) and dataset configurations are under [`configs/data`](configs/data).

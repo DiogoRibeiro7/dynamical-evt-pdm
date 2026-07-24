@@ -18,6 +18,8 @@
 - per-baseline runtime, peak-memory and parameter-count reporting;
 - rigorous event-level evaluation with merge-gap alarm events, early-warning policy windows, greedy/optimal matching, duplicate/false-alarm accounting, utility and calibration metrics;
 - group-level bootstrap helpers for complete failures, days or vehicles;
+- reproducible paper asset builder for publication figures, CSV/LaTeX tables, computational benchmarks and provenance manifests;
+- `make paper-assets` target that rebuilds generated manuscript artifacts from cached processed data;
 - auditable rule, unsupervised hidden-state and causal change-point regime definitions;
 - regime occupancy, transition, duration and threshold-ablation reports;
 - run declustering and cluster maxima;
@@ -49,7 +51,6 @@
 - SPOT/DSPOT, autoencoder and conformal baselines;
 - optimal event matching and early-warning-window utilities;
 - nested temporal model selection;
-- paper figures, tables and manuscript assets;
 - external validation on downloaded SCANIA data.
 
 These are specified in detail in `docs/implementation_backlog.md` and `docs/research_protocol.md`.

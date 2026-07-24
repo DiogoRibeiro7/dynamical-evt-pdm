@@ -33,6 +33,7 @@ from dyn_evt_pdm.models.baseline_runner import (
     baseline_metadata_to_frame,
     run_baseline_experiment,
 )
+from dyn_evt_pdm.paper.assets import PaperAssetConfig, build_paper_assets
 from dyn_evt_pdm.pipelines.analyse import analyse_series
 from dyn_evt_pdm.simulation.cyclic import CyclicSimulationConfig, simulate_cyclic_machine
 from dyn_evt_pdm.simulation.study import (
@@ -367,6 +368,46 @@ def run_baselines_command(
         encoding="utf-8",
     )
     typer.echo(f"wrote baseline predictions to {output} and metadata to {metadata_output}")
+
+
+@app.command("build-paper-assets")
+def build_paper_assets_command(
+    input_path: Annotated[
+        Path, typer.Option("--input", exists=True, dir_okay=False, help="Cached processed table.")
+    ] = Path("data/processed/synthetic_cyclic.csv"),
+    output_root: Annotated[
+        Path, typer.Option(help="Output root for figures, tables and manifest.")
+    ] = Path("reports/paper"),
+    simulation_study_path: Annotated[
+        Path, typer.Option(help="Cached or generated simulation-study Parquet.")
+    ] = Path("artifacts/simulation_study_smoke.parquet"),
+    value_column: Annotated[str, typer.Option()] = "observable",
+    timestamp_column: Annotated[str, typer.Option()] = "time",
+    regime_column: Annotated[str, typer.Option()] = "regime",
+    failure_column: Annotated[str, typer.Option()] = "is_fault",
+    split_column: Annotated[str, typer.Option()] = "split",
+) -> None:
+    """Build publication figures, tables and provenance manifest from cached data."""
+
+    try:
+        manifest = build_paper_assets(
+            PaperAssetConfig(
+                input_path=input_path,
+                output_root=output_root,
+                simulation_study_path=simulation_study_path,
+                value_column=value_column,
+                timestamp_column=timestamp_column,
+                regime_column=regime_column,
+                failure_column=failure_column,
+                split_column=split_column,
+            )
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    typer.echo(
+        f"wrote {len(manifest.generated_files)} paper assets; "
+        f"manifest {output_root / 'asset_manifest.json'}"
+    )
 
 
 @app.command("fetch-data")

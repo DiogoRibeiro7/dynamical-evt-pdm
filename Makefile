@@ -1,4 +1,4 @@
-.PHONY: install format lint typecheck test check fetch-data prepare-data simulate simulation-study
+.PHONY: install format lint typecheck test check fetch-data prepare-data simulate simulation-study paper-assets
 
 install:
 	poetry install --with dev
@@ -31,3 +31,9 @@ simulate:
 
 simulation-study:
 	poetry run dyn-evt run-simulation-study --smoke --output artifacts/simulation_study_smoke.parquet
+
+paper-assets: simulate simulation-study
+	poetry run dyn-evt build-paper-assets \
+		--input data/processed/synthetic_cyclic.csv \
+		--output-root reports/paper \
+		--simulation-study-path artifacts/simulation_study_smoke.parquet
