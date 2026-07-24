@@ -1,0 +1,118 @@
+# Dynamical EVT for Predictive Maintenance
+
+Research repository for **regime-conditioned, cluster-aware predictive maintenance using dynamical extreme value theory (EVT)**.
+
+The project translates ideas from dynamical EVT—extremal indices, hitting and return times, recurrence near periodic states, and multivariate lagged extremes—into an event-level monitoring framework for cyclic industrial systems.
+
+## Research question
+
+> Does dynamical recurrence information distinguish ordinary cyclic extremes from persistent pre-failure episodes, while reducing duplicate alarms and preserving useful warning lead time?
+
+## Core hypotheses
+
+1. **Fault-related extremes cluster more strongly** than normal operating extremes, so their extremal index is lower.
+2. **Dynamical declustering reduces duplicate alarms** without materially reducing failure-episode recall.
+3. **Lagged multivariate extreme patterns warn earlier** than simultaneous thresholds and univariate EVT.
+4. **Regime conditioning improves calibration** by avoiding thresholds that mix incompatible operating states.
+
+## Scope
+
+The repository contains:
+
+- deterministic and noisy simulation systems with known recurrence structure;
+- univariate peaks-over-threshold and extremal-index estimators;
+- regime-conditioned thresholds and cluster extraction;
+- hitting-time and dangerous-region observables;
+- lagged multivariate extreme signatures;
+- event-level predictive-maintenance metrics;
+- adapters for MetroPT, MetroPT2, and SCANIA Component X;
+- classical anomaly-detection baselines;
+- reproducible experiment configurations;
+- a paper protocol and implementation backlog.
+
+## Why this is not a standard anomaly-detection project
+
+Pointwise anomaly scores can produce hundreds of alarms during one physical event. Here, the primary unit of evaluation is the **extreme episode**. The system estimates whether an episode is beginning, how severe and persistent it is, and how soon the trajectory may enter a dangerous region.
+
+## Repository layout
+
+```text
+configs/                 Reproducible experiment configurations
+data/                    Local raw/interim/processed data; never committed
+notebooks/               Research walkthroughs
+src/dyn_evt_pdm/         Typed Python package
+tests/                   Unit tests for statistical and event logic
+docs/                    Research protocol, paper outline, claims and data notes
+```
+
+## Installation
+
+Python 3.11 or 3.12 is recommended.
+
+```bash
+poetry install --with dev
+poetry run pre-commit install
+```
+
+## First executable experiment
+
+Generate a cyclic system with an injected degradation episode:
+
+```bash
+poetry run dyn-evt simulate \
+  --output data/processed/synthetic_cyclic.csv \
+  --n-steps 20000 \
+  --seed 42
+```
+
+Estimate regime-conditioned thresholds, clusters, and extremal indices:
+
+```bash
+poetry run dyn-evt analyse-series \
+  --input data/processed/synthetic_cyclic.csv \
+  --value-column observable \
+  --regime-column regime \
+  --quantile 0.98 \
+  --run-length 10 \
+  --output artifacts/synthetic_summary.json
+```
+
+Run tests:
+
+```bash
+poetry run pytest
+```
+
+## Data
+
+Large datasets are not committed. Acquisition notes and expected schemas are in [`data/README.md`](data/README.md) and dataset configurations are under [`configs/data`](configs/data).
+
+- **MetroPT**: 1 Hz APU telemetry, roughly 10.98 million observations and three reported catastrophic failures.
+- **MetroPT2**: 1 Hz APU telemetry, roughly 7.12 million observations and two reported failures.
+- **SCANIA Component X**: fleet-level operational readouts, repair information and vehicle specifications.
+
+## Scientific guardrails
+
+- MetroPT has too few independent failures to support broad superiority claims by itself.
+- Thresholds and model choices are fit on training periods only.
+- Validation is temporal and event-level; random row splitting is prohibited.
+- Simulations establish estimator behaviour under known ground truth.
+- Real datasets establish operational plausibility and external validity.
+- Simple engineering thresholds remain mandatory baselines.
+
+See [`docs/statistical_claims.md`](docs/statistical_claims.md) before interpreting results.
+
+## Primary references
+
+- Freitas, Freitas & Todd, *Hitting Time Statistics and Extreme Value Theory*.
+- Freitas, Freitas & Todd, *Extremal Index, Hitting Time Statistics and Periodicity*.
+- Faranda et al., *Extreme Value Statistics for Dynamical Systems with Noise*.
+- Aimino, Freitas, Freitas & Todd, *Multivariate Extreme Values for Dynamical Systems*.
+- Veloso et al., *The MetroPT Dataset for Predictive Maintenance*.
+- Kharazian, Lindgren & Andersson Reyna, *SCANIA Component X Dataset*.
+
+Full links and the role of each source are documented in [`docs/literature_map.md`](docs/literature_map.md).
+
+## Status
+
+The repository is a **research-grade scaffold with an executable statistical core**. It intentionally separates implemented foundations from paper-level extensions that require further methodological validation.

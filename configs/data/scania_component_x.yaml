@@ -1,0 +1,13 @@
+dataset:
+  name: scania_component_x
+  article: https://www.nature.com/articles/s41597-025-04802-6
+  local_root: data/raw/scania_component_x
+  operational_file: train_operational_readouts.csv
+  tte_file: train_tte.csv
+  entity_column: vehicle_id
+  time_column: time_step
+  validation_strategy: entity_holdout_with_forward_chaining
+  notes:
+    - Sampling intervals are not assumed regular.
+    - Counter resets must be flagged, not clipped silently.
+    - Evaluation must include the published maintenance cost function when reconstructed.

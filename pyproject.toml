@@ -1,0 +1,77 @@
+[tool.poetry]
+name = "dyn-evt-pdm"
+version = "0.1.0"
+description = "Regime-conditioned dynamical extreme value theory for cluster-aware predictive maintenance"
+authors = ["Diogo <diogo@example.invalid>"]
+readme = "README.md"
+license = "BSD-3-Clause"
+packages = [{ include = "dyn_evt_pdm", from = "src" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.13"
+numpy = "^2.0"
+pandas = "^2.2"
+scipy = "^1.14"
+scikit-learn = "^1.5"
+pydantic = "^2.8"
+pyyaml = "^6.0"
+click = ">=8.0,<8.2"
+typer = { version = "^0.12", extras = ["all"] }
+pyarrow = "^17.0"
+joblib = "^1.4"
+matplotlib = "^3.9"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3"
+pytest-cov = "^5.0"
+ruff = "^0.6"
+mypy = "^1.11"
+pandas-stubs = "^2.2"
+types-pyyaml = "^6.0"
+pre-commit = "^3.8"
+nbformat = "^5.10"
+
+[tool.poetry.scripts]
+dyn-evt = "dyn_evt_pdm.cli:app"
+
+[build-system]
+requires = ["poetry-core>=1.9.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+show_error_codes = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["sklearn.*", "scipy.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers --cov=dyn_evt_pdm --cov-report=term-missing"
+testpaths = ["tests"]
+markers = [
+  "integration: requires external data or a long-running experiment",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["dyn_evt_pdm"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 80

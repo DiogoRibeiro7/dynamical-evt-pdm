@@ -1,0 +1,32 @@
+experiment:
+  name: metropt_primary
+  dataset_config: configs/data/metropt.yaml
+  base_config: configs/base.yaml
+  training_policy: earliest_stable_normal_period
+  validation_policy: forward_chaining_by_time
+  state_columns:
+    - pressure_placeholder
+    - temperature_placeholder
+    - current_placeholder
+  regimes:
+    method: rules_then_hidden_state_ablation
+  dangerous_region:
+    method: pre_failure_prototypes
+    exclusion_gap_hours: 2
+    prototype_method: k_medoids
+  comparisons:
+    - engineering_thresholds
+    - global_pot
+    - fixed_run_declustering
+    - isolation_forest
+    - change_point_detection
+    - autoencoder
+    - conformal_anomaly_detection
+    - regime_conditioned_dynamical_evt
+  primary_metrics:
+    - event_recall
+    - false_alarm_events_per_day
+    - duplicate_alarms_per_failure
+    - warning_lead_time
+    - time_under_warning
+    - brier_score_within_horizon

@@ -1,0 +1,14 @@
+dataset:
+  name: metropt2
+  source_record: https://zenodo.org/records/7766691
+  local_path: data/raw/metropt2/MetroPT2.csv
+  md5: 056e04fd1874eaef4697d6b6657502c3
+  sampling_frequency_hz: 1
+  timestamp_column: timestamp
+  reported_failures:
+    - start: "2022-06-04 10:19:24.300"
+      end: "2022-06-04 14:22:39.188"
+      type: air_leak
+    - start: "2022-07-11 10:10:18.948"
+      end: "2022-07-14 10:22:08.046"
+      type: oil_leak

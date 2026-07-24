@@ -1,0 +1,44 @@
+# Implementation status
+
+## Implemented and executable
+
+- cyclic degradation simulation with normal operating regimes;
+- logistic-map simulation utility;
+- dangerous-region `-log(distance)` observable;
+- global and regime-conditioned empirical thresholds;
+- run declustering and cluster maxima;
+- runs and Ferro-Segers intervals extremal-index estimators;
+- empirical hitting and return-time utilities;
+- lagged multivariate extreme-pattern detection;
+- event conversion, event matching and operational metrics;
+- calibration diagnostics;
+- Isolation Forest baseline wrapper;
+- memory-aware CSV ingestion and Parquet output helpers;
+- MetroPT/MetroPT2 failure metadata helpers;
+- SCANIA counter-reset handling;
+- command-line simulation and series analysis;
+- research protocol, paper outline and staged implementation backlog.
+
+## Validation completed in the build environment
+
+- Python compilation: passed.
+- Unit and smoke tests: 29 passed.
+- Measured line/branch coverage: 83.19%, above the configured 80% gate.
+- CLI smoke workflow: passed for simulation and analysis.
+
+## Deferred paper-level work
+
+- full multi-gigabyte dataset ingestion and checksums;
+- GPD fitting and uncertainty intervals;
+- theoretical simulation targets with known periodic-point extremal indices;
+- SPOT/DSPOT, change-point, autoencoder and conformal baselines;
+- optimal event matching and early-warning-window utilities;
+- nested temporal model selection;
+- paper figures, tables and manuscript assets;
+- external validation on downloaded SCANIA data.
+
+These are specified in detail in `docs/implementation_backlog.md` and `docs/research_protocol.md`.
+
+## Tooling note
+
+Ruff and mypy are configured in `pyproject.toml` and GitHub Actions. They were not installed in the build container, so local static-analysis execution was not available during artifact generation. Syntax compilation and the complete pytest suite passed.

@@ -1,0 +1,13 @@
+random_seed: 42
+evt:
+  quantile: 0.98
+  run_length: 10
+  min_exceedances: 30
+  estimator: intervals
+split:
+  train: 0.60
+  validation: 0.20
+  test: 0.20
+metadata:
+  project: dynamical-evt-pdm
+  primary_unit: event_episode

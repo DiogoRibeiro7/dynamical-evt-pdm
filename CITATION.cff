@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "Please cite this software and the associated paper when available."
+title: "Dynamical EVT for Predictive Maintenance"
+type: software
+authors:
+  - family-names: "Diogo"
+version: 0.1.0
+date-released: 2026-07-23
+license: BSD-3-Clause
+repository-code: "https://github.com/REPLACE_ME/dynamical-evt-pdm"
+keywords:
+  - extreme value theory
+  - dynamical systems
+  - extremal index
+  - predictive maintenance
+  - anomaly detection

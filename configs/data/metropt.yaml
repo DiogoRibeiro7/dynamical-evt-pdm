@@ -1,0 +1,16 @@
+dataset:
+  name: metropt
+  source_record: https://zenodo.org/records/6854240
+  local_path: data/raw/metropt/MetroPT.csv
+  sampling_frequency_hz: 1
+  timestamp_column: timestamp
+  expected_sensor_families:
+    - pressure
+    - temperature
+    - motor_current
+    - digital_control
+    - gps
+  failure_labels: docs/datasets/metropt_failures.yaml
+  notes:
+    - Map the source timestamp field explicitly after inspecting the downloaded version.
+    - Do not infer train/test labels from future maintenance reports during feature construction.

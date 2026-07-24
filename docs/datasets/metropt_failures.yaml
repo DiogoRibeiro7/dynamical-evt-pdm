@@ -1,0 +1,17 @@
+# Populate exact MetroPT failure timestamps directly from the released article/table
+# and verify them against the downloaded dataset timezone and timestamp resolution.
+dataset: metropt
+status: requires_source_verification
+failures:
+  - id: failure_1
+    type: air_leak_clients
+    start: null
+    end: null
+  - id: failure_2
+    type: air_leak_recovered
+    start: null
+    end: null
+  - id: failure_3
+    type: oil_leak_compressor
+    start: null
+    end: null

@@ -1,0 +1,18 @@
+simulation:
+  name: cyclic_degradation
+  n_steps: 20000
+  period: 120
+  fault_start_fraction: 0.70
+  fault_duration_fraction: 0.12
+  noise_scale: 0.08
+  seed: 42
+experiment:
+  thresholds: [0.95, 0.97, 0.98, 0.99, 0.995]
+  run_lengths: [0, 2, 5, 10, 20, 40]
+  repetitions: 100
+  estimands:
+    - extremal_index
+    - mean_cluster_size
+    - event_recall
+    - false_alarm_events
+    - warning_lead_time
