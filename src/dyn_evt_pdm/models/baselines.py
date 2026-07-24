@@ -17,6 +17,7 @@ class IsolationForestBaseline:
 
     contamination: float = 0.01
     random_state: int = 42
+    n_estimators: int = 300
     scaler: RobustScaler = field(init=False, repr=False)
     model: IsolationForest = field(init=False, repr=False)
     _is_fitted: bool = field(init=False, default=False, repr=False)
@@ -24,11 +25,13 @@ class IsolationForestBaseline:
     def __post_init__(self) -> None:
         if not 0.0 < self.contamination <= 0.5:
             raise ValueError("contamination must be in (0, 0.5]")
+        if self.n_estimators < 1:
+            raise ValueError("n_estimators must be positive")
         self.scaler = RobustScaler()
         self.model = IsolationForest(
             contamination=self.contamination,
             random_state=self.random_state,
-            n_estimators=300,
+            n_estimators=self.n_estimators,
             n_jobs=-1,
         )
         self._is_fitted = False

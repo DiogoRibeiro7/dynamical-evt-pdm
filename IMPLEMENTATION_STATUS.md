@@ -13,6 +13,9 @@
 - empirical simultaneous, lagged, tail-dependence and multivariate extremal-index diagnostics;
 - clustering-preserving lag-pattern null models with Benjamini-Hochberg correction;
 - nested-validation lag-pattern selection with held-out exploratory labelling;
+- fair baseline runner with standardized prediction tables and validation-only selection;
+- engineering-threshold, global empirical, POT/GPD, fixed-run declustering, SPOT-style, Isolation Forest, robust change-point, linear autoencoder and conformal baselines;
+- per-baseline runtime, peak-memory and parameter-count reporting;
 - auditable rule, unsupervised hidden-state and causal change-point regime definitions;
 - regime occupancy, transition, duration and threshold-ablation reports;
 - run declustering and cluster maxima;

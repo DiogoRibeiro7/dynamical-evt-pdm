@@ -28,6 +28,11 @@ from dyn_evt_pdm.features.regimes import (
     infer_compressor_regime,
     regime_report,
 )
+from dyn_evt_pdm.models.baseline_runner import (
+    BaselineRunConfig,
+    baseline_metadata_to_frame,
+    run_baseline_experiment,
+)
 from dyn_evt_pdm.pipelines.analyse import analyse_series
 from dyn_evt_pdm.simulation.cyclic import CyclicSimulationConfig, simulate_cyclic_machine
 from dyn_evt_pdm.simulation.study import (
@@ -305,6 +310,63 @@ def analyse_multivariate_extremes_command(
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2), encoding="utf-8")
     typer.echo(f"wrote multivariate EVT report to {output}")
+
+
+@app.command("run-baselines")
+def run_baselines_command(
+    input_path: Annotated[Path, typer.Option("--input", exists=True, dir_okay=False)],
+    feature_columns: Annotated[
+        str, typer.Option(help="Comma-separated feature columns shared by all baselines.")
+    ],
+    output: Annotated[Path, typer.Option(help="Parquet standardized prediction table output.")],
+    metadata_output: Annotated[Path, typer.Option(help="JSON metadata output.")],
+    timestamp_column: Annotated[str, typer.Option(help="Optional timestamp column.")] = "",
+    regime_column: Annotated[str, typer.Option(help="Optional regime column.")] = "regime",
+    split_column: Annotated[str, typer.Option(help="Split column.")] = "split",
+    target_column: Annotated[str, typer.Option(help="Optional boolean target column.")] = "",
+    exclusion_column: Annotated[str, typer.Option(help="Optional exclusion mask column.")] = "",
+    train_split: Annotated[str, typer.Option()] = "train",
+    validation_split: Annotated[str, typer.Option()] = "validation",
+    test_split: Annotated[str, typer.Option()] = "test",
+    window_size: Annotated[int, typer.Option(min=1)] = 1,
+    horizon: Annotated[int, typer.Option(min=1)] = 60,
+    isolation_estimators: Annotated[int, typer.Option(min=1)] = 100,
+    seed: Annotated[int, typer.Option()] = 42,
+) -> None:
+    """Run fair baselines and write standardized prediction rows."""
+
+    frame = _read_cli_table(input_path)
+    columns = tuple(column.strip() for column in feature_columns.split(",") if column.strip())
+    if not columns:
+        raise typer.BadParameter("--feature-columns must name at least one column")
+    config = BaselineRunConfig(
+        feature_columns=columns,
+        timestamp_column=timestamp_column or None,
+        regime_column=regime_column or None,
+        split_column=split_column,
+        target_column=target_column or None,
+        exclusion_column=exclusion_column or None,
+        train_split=train_split,
+        validation_split=validation_split,
+        test_split=test_split,
+        window_size=window_size,
+        horizon=horizon,
+        isolation_n_estimators=isolation_estimators,
+        random_state=seed,
+    )
+    try:
+        result = run_baseline_experiment(frame, config)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    output.parent.mkdir(parents=True, exist_ok=True)
+    result.predictions.to_parquet(output, index=False)
+    metadata_output.parent.mkdir(parents=True, exist_ok=True)
+    metadata_frame = baseline_metadata_to_frame(result.metadata)
+    metadata_output.write_text(
+        json.dumps(metadata_frame.to_dict(orient="records"), indent=2),
+        encoding="utf-8",
+    )
+    typer.echo(f"wrote baseline predictions to {output} and metadata to {metadata_output}")
 
 
 @app.command("fetch-data")

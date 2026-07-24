@@ -142,6 +142,21 @@ poetry run dyn-evt analyse-multivariate-extremes \
   --output artifacts/synthetic_multivariate_evt.json
 ```
 
+Run the fair baseline suite with one shared causal feature window and split-aware selection:
+
+```bash
+poetry run dyn-evt run-baselines \
+  --input data/processed/synthetic_cyclic.csv \
+  --feature-columns pressure,current,temperature \
+  --timestamp-column time \
+  --regime-column regime \
+  --split-column split \
+  --target-column is_fault \
+  --window-size 2 \
+  --output artifacts/synthetic_baseline_predictions.parquet \
+  --metadata-output artifacts/synthetic_baseline_metadata.json
+```
+
 Run tests:
 
 ```bash
