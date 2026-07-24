@@ -130,6 +130,18 @@ poetry run dyn-evt analyse-dangerous-region \
   --report-output artifacts/synthetic_dangerous_region.json
 ```
 
+Analyse simultaneous and lagged multivariate extreme patterns with train-only thresholds:
+
+```bash
+poetry run dyn-evt analyse-multivariate-extremes \
+  --input data/processed/synthetic_cyclic.csv \
+  --component-columns current,temperature,pressure \
+  --regime-column regime \
+  --split-column split \
+  --max-lag 10 \
+  --output artifacts/synthetic_multivariate_evt.json
+```
+
 Run tests:
 
 ```bash

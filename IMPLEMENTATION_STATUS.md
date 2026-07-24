@@ -9,12 +9,16 @@
 - dangerous-region `-log(distance)` observable;
 - training-provenance-checked dangerous-region construction and horizon-risk scoring;
 - global and regime-conditioned empirical thresholds;
+- component-specific regime-conditioned multivariate thresholds;
+- empirical simultaneous, lagged, tail-dependence and multivariate extremal-index diagnostics;
+- clustering-preserving lag-pattern null models with Benjamini-Hochberg correction;
+- nested-validation lag-pattern selection with held-out exploratory labelling;
 - auditable rule, unsupervised hidden-state and causal change-point regime definitions;
 - regime occupancy, transition, duration and threshold-ablation reports;
 - run declustering and cluster maxima;
 - runs and Ferro-Segers intervals extremal-index estimators;
 - empirical hitting and return-time utilities;
-- lagged multivariate extreme-pattern detection;
+- lagged multivariate extreme-pattern detection and CLI reporting;
 - event conversion, event matching and operational metrics;
 - calibration diagnostics;
 - Isolation Forest baseline wrapper;

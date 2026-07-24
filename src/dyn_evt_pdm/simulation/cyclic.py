@@ -55,6 +55,11 @@ def simulate_cyclic_machine(config: CyclicSimulationConfig) -> pd.DataFrame:
     fault_duration = int(config.n_steps * config.fault_duration_fraction)
     fault_end = min(config.n_steps - 1, fault_start + fault_duration)
     is_fault = (time >= fault_start) & (time <= fault_end)
+    train_end = int(config.n_steps * 0.60)
+    validation_end = int(config.n_steps * 0.80)
+    split = np.where(
+        time < train_end, "train", np.where(time < validation_end, "validation", "test")
+    )
 
     progress = np.zeros(config.n_steps, dtype=np.float64)
     progress[is_fault] = np.linspace(0.0, 1.0, int(np.count_nonzero(is_fault)))
@@ -86,5 +91,6 @@ def simulate_cyclic_machine(config: CyclicSimulationConfig) -> pd.DataFrame:
             "degradation": progress,
             "observable": observable,
             "is_fault": is_fault,
+            "split": pd.Series(split, dtype="string"),
         }
     )

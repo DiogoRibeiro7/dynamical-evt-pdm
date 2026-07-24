@@ -8,3 +8,5 @@ def test_simulation_is_reproducible() -> None:
     assert first.equals(second)
     assert first["is_fault"].any()
     assert set(first["regime"].unique()) == {"off", "loaded", "recovery"}
+    assert first["split"].tolist().count("train") == 600
+    assert set(first["split"].unique()) == {"train", "validation", "test"}

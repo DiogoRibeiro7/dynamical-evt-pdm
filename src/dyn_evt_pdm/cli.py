@@ -18,6 +18,7 @@ from dyn_evt_pdm.evt.dangerous_region import (
     estimate_horizon_risk,
     score_dangerous_region,
 )
+from dyn_evt_pdm.evt.multivariate import multivariate_evt_report
 from dyn_evt_pdm.evt.univariate import fit_univariate_evt
 from dyn_evt_pdm.features.regimes import (
     ChangePointRegimeConfig,
@@ -245,6 +246,65 @@ def analyse_dangerous_region_command(
     report_output.parent.mkdir(parents=True, exist_ok=True)
     report_output.write_text(json.dumps(report, indent=2), encoding="utf-8")
     typer.echo(f"wrote dangerous-region scores to {output} and report to {report_output}")
+
+
+@app.command("analyse-multivariate-extremes")
+def analyse_multivariate_extremes_command(
+    input_path: Annotated[Path, typer.Option("--input", exists=True, dir_okay=False)],
+    component_columns: Annotated[
+        str, typer.Option(help="Comma-separated component columns to threshold.")
+    ],
+    regime_column: Annotated[str, typer.Option(help="Operating-regime column.")],
+    split_column: Annotated[str, typer.Option(help="Train/validation/heldout split column.")],
+    output: Annotated[Path, typer.Option(help="JSON multivariate EVT report output.")],
+    train_split: Annotated[str, typer.Option()] = "train",
+    validation_split: Annotated[str, typer.Option()] = "validation",
+    heldout_split: Annotated[str, typer.Option()] = "test",
+    quantile: Annotated[float, typer.Option(min=0.5, max=0.9999)] = 0.98,
+    max_lag: Annotated[int, typer.Option(min=0)] = 10,
+    n_null: Annotated[int, typer.Option(min=0)] = 199,
+    null_model: Annotated[
+        str, typer.Option(help="time_shift or cluster_permutation.")
+    ] = "time_shift",
+    alpha: Annotated[float, typer.Option(min=0.001, max=1.0)] = 0.1,
+    min_regime_samples: Annotated[int, typer.Option(min=1)] = 100,
+    seed: Annotated[int, typer.Option()] = 0,
+) -> None:
+    """Analyse simultaneous and lagged multivariate extreme patterns."""
+
+    frame = _read_cli_table(input_path)
+    columns = tuple(column.strip() for column in component_columns.split(",") if column.strip())
+    if len(columns) < 2:
+        raise typer.BadParameter("--component-columns must name at least two columns")
+    missing = sorted(set([*columns, regime_column, split_column]).difference(frame.columns))
+    if missing:
+        raise typer.BadParameter(f"missing columns: {missing}")
+    splits = frame[split_column].astype("string")
+    train_mask = (splits == train_split).fillna(False).to_numpy(dtype=bool)
+    validation_mask = (splits == validation_split).fillna(False).to_numpy(dtype=bool)
+    heldout_mask = (splits == heldout_split).fillna(False).to_numpy(dtype=bool)
+    if not train_mask.any():
+        raise typer.BadParameter("train split has no rows")
+    if not validation_mask.any():
+        raise typer.BadParameter("validation split has no rows")
+    report = multivariate_evt_report(
+        frame,
+        component_columns=columns,
+        regime_column=regime_column,
+        train_mask=train_mask,
+        validation_mask=validation_mask,
+        heldout_mask=heldout_mask if heldout_mask.any() else None,
+        quantile=quantile,
+        max_lag=max_lag,
+        n_null=n_null,
+        null_model=null_model,
+        alpha=alpha,
+        min_regime_samples=min_regime_samples,
+        random_state=seed,
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    typer.echo(f"wrote multivariate EVT report to {output}")
 
 
 @app.command("fetch-data")
