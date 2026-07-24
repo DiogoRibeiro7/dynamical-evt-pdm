@@ -102,6 +102,14 @@ Run tests:
 poetry run pytest
 ```
 
+Run the finite-sample simulation-study smoke grid:
+
+```bash
+poetry run dyn-evt run-simulation-study \
+  --smoke \
+  --output artifacts/simulation_study_smoke.parquet
+```
+
 ## Data
 
 Large datasets are not committed. Acquisition notes and expected schemas are in [`data/README.md`](data/README.md) and dataset configurations are under [`configs/data`](configs/data).

@@ -1,4 +1,4 @@
-.PHONY: install format lint typecheck test check fetch-data prepare-data simulate
+.PHONY: install format lint typecheck test check fetch-data prepare-data simulate simulation-study
 
 install:
 	poetry install --with dev
@@ -28,3 +28,6 @@ prepare-data:
 
 simulate:
 	poetry run dyn-evt simulate --output data/processed/synthetic_cyclic.csv --n-steps 20000 --seed 42
+
+simulation-study:
+	poetry run dyn-evt run-simulation-study --smoke --output artifacts/simulation_study_smoke.parquet

@@ -8,11 +8,16 @@ from typing import Annotated
 
 import pandas as pd
 import typer
+import yaml
 
 from dyn_evt_pdm.data.acquisition import fetch_datasets, planned_files
 from dyn_evt_pdm.data.prepare import prepare_metropt, prepare_scania
 from dyn_evt_pdm.pipelines.analyse import analyse_series
 from dyn_evt_pdm.simulation.cyclic import CyclicSimulationConfig, simulate_cyclic_machine
+from dyn_evt_pdm.simulation.study import (
+    simulation_study_config_from_mapping,
+    write_simulation_study,
+)
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
@@ -167,6 +172,27 @@ def prepare_scania_command(
         f"prepared {result.dataset}: {result.rows:,} rows across {result.chunks} parts; "
         f"manifest {result.manifest_path}"
     )
+
+
+@app.command("run-simulation-study")
+def run_simulation_study_command(
+    config_path: Annotated[Path, typer.Option("--config", exists=True, dir_okay=False)] = Path(
+        "configs/simulation/cyclic_degradation.yaml"
+    ),
+    output: Annotated[Path, typer.Option(help="Tidy Parquet result path.")] = Path(
+        "artifacts/simulation_study.parquet"
+    ),
+    smoke: Annotated[bool, typer.Option(help="Use a small CI-friendly grid.")] = False,
+    n_jobs: Annotated[int, typer.Option(help="Parallel jobs for repetitions.")] = 1,
+) -> None:
+    """Run a deterministic finite-sample simulation study."""
+
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise typer.BadParameter("simulation config root must be a mapping")
+    study_config = simulation_study_config_from_mapping(raw, smoke=smoke, n_jobs=n_jobs)
+    result = write_simulation_study(study_config, output)
+    typer.echo(f"wrote {len(result):,} simulation rows to {output}")
 
 
 if __name__ == "__main__":

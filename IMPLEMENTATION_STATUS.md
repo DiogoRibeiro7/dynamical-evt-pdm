@@ -3,6 +3,8 @@
 ## Implemented and executable
 
 - cyclic degradation simulation with normal operating regimes;
+- IID Pareto, logistic target and lagged multivariate simulation systems;
+- deterministic simulation-study runner with tidy Parquet outputs;
 - logistic-map simulation utility;
 - dangerous-region `-log(distance)` observable;
 - global and regime-conditioned empirical thresholds;
