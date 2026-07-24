@@ -119,6 +119,17 @@ poetry run dyn-evt analyse-regimes \
   --output artifacts/synthetic_regime_report.json
 ```
 
+Score recurrence to a training-defined dangerous region:
+
+```bash
+poetry run dyn-evt analyse-dangerous-region \
+  --input data/processed/synthetic_cyclic.csv \
+  --state-columns pressure,current,temperature \
+  --target-column is_fault \
+  --output artifacts/synthetic_dangerous_region.parquet \
+  --report-output artifacts/synthetic_dangerous_region.json
+```
+
 Run tests:
 
 ```bash

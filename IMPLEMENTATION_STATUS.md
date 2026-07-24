@@ -7,6 +7,7 @@
 - deterministic simulation-study runner with tidy Parquet outputs;
 - logistic-map simulation utility;
 - dangerous-region `-log(distance)` observable;
+- training-provenance-checked dangerous-region construction and horizon-risk scoring;
 - global and regime-conditioned empirical thresholds;
 - auditable rule, unsupervised hidden-state and causal change-point regime definitions;
 - regime occupancy, transition, duration and threshold-ablation reports;

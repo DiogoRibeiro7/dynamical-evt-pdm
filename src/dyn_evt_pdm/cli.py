@@ -12,6 +12,12 @@ import yaml
 
 from dyn_evt_pdm.data.acquisition import fetch_datasets, planned_files
 from dyn_evt_pdm.data.prepare import prepare_metropt, prepare_scania
+from dyn_evt_pdm.evt.dangerous_region import (
+    StateProvenance,
+    dangerous_region_from_training_failures,
+    estimate_horizon_risk,
+    score_dangerous_region,
+)
 from dyn_evt_pdm.evt.univariate import fit_univariate_evt
 from dyn_evt_pdm.features.regimes import (
     ChangePointRegimeConfig,
@@ -27,6 +33,7 @@ from dyn_evt_pdm.simulation.study import (
     simulation_study_config_from_mapping,
     write_simulation_study,
 )
+from dyn_evt_pdm.types import BoolArray
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
@@ -153,6 +160,91 @@ def analyse_regimes_command(
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2), encoding="utf-8")
     typer.echo(f"wrote regime report to {output}")
+
+
+@app.command("analyse-dangerous-region")
+def analyse_dangerous_region_command(
+    input_path: Annotated[Path, typer.Option("--input", exists=True, dir_okay=False)],
+    state_columns: Annotated[str, typer.Option(help="Comma-separated numeric state columns.")],
+    target_column: Annotated[str, typer.Option(help="Boolean training target-state column.")],
+    output: Annotated[Path, typer.Option(help="Parquet score output.")],
+    report_output: Annotated[Path, typer.Option(help="JSON report output.")],
+    split_column: Annotated[str, typer.Option(help="Optional split column.")] = "",
+    failure_id_column: Annotated[
+        str, typer.Option(help="Optional failure/provenance column.")
+    ] = "",
+    train_split: Annotated[
+        str, typer.Option(help="Split value allowed for target states.")
+    ] = "train",
+    hit_radius: Annotated[float, typer.Option(min=0.0)] = 0.1,
+    horizons: Annotated[
+        str, typer.Option(help="Comma-separated positive integer horizons.")
+    ] = "900,1800,3600,7200",
+) -> None:
+    """Score recurrence to a dangerous region built from training target states."""
+
+    frame = _read_cli_table(input_path)
+    columns = [column.strip() for column in state_columns.split(",") if column.strip()]
+    if not columns:
+        raise typer.BadParameter("--state-columns must name at least one column")
+    missing = sorted(set([*columns, target_column]).difference(frame.columns))
+    if missing:
+        raise typer.BadParameter(f"missing columns: {missing}")
+    states = frame[columns].to_numpy(dtype=float)
+    target_flags = frame[target_column].astype(bool).to_numpy()
+    provenance = _build_cli_provenance(
+        frame,
+        target_flags=target_flags,
+        split_column=split_column,
+        failure_id_column=failure_id_column,
+        train_split=train_split,
+    )
+    allowed_ids = {
+        item.failure_id
+        for item, flag in zip(provenance, target_flags, strict=True)
+        if flag and item.split == "train" and item.failure_id is not None
+    }
+    if not allowed_ids:
+        allowed_ids = {"training_target"}
+        provenance = tuple(
+            StateProvenance(
+                index=item.index,
+                source=item.source,
+                failure_id="training_target" if target_flags[item.index] else item.failure_id,
+                split=item.split,
+            )
+            for item in provenance
+        )
+    region = dangerous_region_from_training_failures(
+        states,
+        provenance,
+        allowed_failure_ids=set(allowed_ids),
+        max_references=250,
+    )
+    scores = score_dangerous_region(states, region)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    scores.to_parquet(output, index=False)
+    horizon_values = tuple(int(value.strip()) for value in horizons.split(",") if value.strip())
+    risk = estimate_horizon_risk(
+        scores["distance_to_dangerous_region"].to_numpy(dtype=float),
+        hit_radius=hit_radius,
+        horizons=horizon_values,
+    )
+    report = {
+        "region_method": region.method,
+        "n_references": len(region.references),
+        "metadata": region.metadata,
+        "score_output": str(output),
+        "horizon_risk": {
+            "horizons": risk.horizons,
+            "probabilities": risk.probabilities,
+            "brier_scores": risk.brier_scores,
+            "calibration_bins": risk.calibration_bins,
+        },
+    }
+    report_output.parent.mkdir(parents=True, exist_ok=True)
+    report_output.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    typer.echo(f"wrote dangerous-region scores to {output} and report to {report_output}")
 
 
 @app.command("fetch-data")
@@ -285,6 +377,37 @@ def _read_cli_table(input_path: Path) -> pd.DataFrame:
     if input_path.suffix.lower() in {".parquet", ".pq"}:
         return pd.read_parquet(input_path)
     raise typer.BadParameter("input suffix must be .csv, .parquet or .pq")
+
+
+def _build_cli_provenance(
+    frame: pd.DataFrame,
+    *,
+    target_flags: BoolArray,
+    split_column: str,
+    failure_id_column: str,
+    train_split: str,
+) -> tuple[StateProvenance, ...]:
+    if split_column and split_column not in frame:
+        raise typer.BadParameter(f"split column {split_column!r} not found")
+    if failure_id_column and failure_id_column not in frame:
+        raise typer.BadParameter(f"failure id column {failure_id_column!r} not found")
+    provenance: list[StateProvenance] = []
+    for position, (_index, row) in enumerate(frame.iterrows()):
+        split = str(row[split_column]) if split_column else train_split
+        failure_id = (
+            str(row[failure_id_column])
+            if target_flags[position] and failure_id_column and pd.notna(row[failure_id_column])
+            else None
+        )
+        provenance.append(
+            StateProvenance(
+                index=position,
+                source="cli_input",
+                failure_id=failure_id,
+                split="train" if split == train_split else split,
+            )
+        )
+    return tuple(provenance)
 
 
 if __name__ == "__main__":
