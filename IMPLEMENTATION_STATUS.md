@@ -20,6 +20,8 @@
 - group-level bootstrap helpers for complete failures, days or vehicles;
 - reproducible paper asset builder for publication figures, CSV/LaTeX tables, computational benchmarks and provenance manifests;
 - `make paper-assets` target that rebuilds generated manuscript artifacts from cached processed data;
+- `make end-to-end-smoke` target that runs the full synthetic workflow from simulation through paper asset generation;
+- master implementation plan mapping code paths to paper hypotheses and remaining submission blockers;
 - adversarial scientific review with fatal-flaw, revision, missing-experiment and claim-weakening gates;
 - auditable rule, unsupervised hidden-state and causal change-point regime definitions;
 - regime occupancy, transition, duration and threshold-ablation reports;
@@ -42,7 +44,7 @@
 
 - Ruff linting: passed.
 - Mypy strict type checking: passed.
-- Unit and smoke tests: 70 passed.
+- Unit and smoke tests: 72 passed.
 - Measured line/branch coverage: 85.23%, above the configured 80% gate.
 - CLI smoke workflows: passed for simulation, analysis, baseline, event/paper assets and `make paper-assets`.
 

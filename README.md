@@ -75,6 +75,12 @@ poetry run dyn-evt prepare-scania
 
 ## Smoke Experiment
 
+Run the complete synthetic smoke workflow:
+
+```bash
+make end-to-end-smoke
+```
+
 Generate a cyclic system with an injected degradation episode:
 
 ```bash
@@ -197,6 +203,7 @@ Large datasets are not committed. Acquisition notes and expected schemas are in 
 - Simple engineering thresholds remain mandatory baselines.
 
 See [`docs/statistical_claims.md`](docs/statistical_claims.md) before interpreting results.
+The prompt-to-hypothesis implementation map is in [`docs/implementation_plan.md`](docs/implementation_plan.md).
 The pre-submission rejection checklist is in [`docs/adversarial_review.md`](docs/adversarial_review.md).
 
 ## Primary references

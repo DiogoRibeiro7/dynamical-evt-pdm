@@ -1,4 +1,4 @@
-.PHONY: install format lint typecheck test check fetch-data prepare-data simulate simulation-study paper-assets
+.PHONY: install format lint typecheck test check fetch-data prepare-data simulate simulation-study end-to-end-smoke paper-assets
 
 install:
 	poetry install --with dev
@@ -31,6 +31,17 @@ simulate:
 
 simulation-study:
 	poetry run dyn-evt run-simulation-study --smoke --output artifacts/simulation_study_smoke.parquet
+
+end-to-end-smoke:
+	poetry run dyn-evt simulate --output data/processed/master_smoke.csv --n-steps 1000 --seed 42
+	poetry run dyn-evt analyse-series --input data/processed/master_smoke.csv --output artifacts/master_smoke_summary.json --value-column observable --regime-column regime --run-length 5
+	poetry run dyn-evt analyse-univariate --input data/processed/master_smoke.csv --value-column observable --output artifacts/master_smoke_univariate.json --run-length 5 --min-exceedances 3
+	poetry run dyn-evt analyse-regimes --input data/processed/master_smoke.csv --value-column observable --method rules --current-column current --pressure-column pressure --output artifacts/master_smoke_regimes.json
+	poetry run dyn-evt analyse-dangerous-region --input data/processed/master_smoke.csv --state-columns pressure,current,temperature --target-column is_fault --output artifacts/master_smoke_dangerous.parquet --report-output artifacts/master_smoke_dangerous.json --horizons 10,20
+	poetry run dyn-evt analyse-multivariate-extremes --input data/processed/master_smoke.csv --component-columns current,temperature,pressure --regime-column regime --split-column split --output artifacts/master_smoke_multivariate.json --max-lag 2 --n-null 3 --min-regime-samples 20
+	poetry run dyn-evt run-baselines --input data/processed/master_smoke.csv --feature-columns pressure,current,temperature --timestamp-column time --regime-column regime --split-column split --target-column is_fault --window-size 2 --horizon 20 --isolation-estimators 20 --output artifacts/master_smoke_baselines.parquet --metadata-output artifacts/master_smoke_baselines.json
+	poetry run dyn-evt run-simulation-study --smoke --output artifacts/master_smoke_simulation_study.parquet
+	poetry run dyn-evt build-paper-assets --input data/processed/master_smoke.csv --output-root reports/master_smoke --simulation-study-path artifacts/master_smoke_simulation_study.parquet
 
 paper-assets: simulate simulation-study
 	poetry run dyn-evt build-paper-assets \
