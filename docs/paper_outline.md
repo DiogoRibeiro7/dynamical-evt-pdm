@@ -8,7 +8,7 @@
 
 1. Industrial telemetry is cyclic and produces dependent alarms.
 2. Pointwise methods over-count physical events and often ignore recurrence structure.
-3. Introduce regime-conditioned dynamical EVT with extremal-index-aware clustering and dangerous-region hitting probabilities.
+3. Introduce a regime-conditioned, dynamical-EVT-inspired finite-sample workflow with extremal-index-aware clustering and training-defined dangerous-region hitting probabilities.
 4. Validate estimator behaviour in deterministic, noisy and degradation simulations.
 5. Evaluate on MetroPT/MetroPT2 and transfer to SCANIA Component X.
 6. Report event-level alarm burden, warning lead time and calibration.
@@ -71,11 +71,11 @@
 ## 8. Discussion
 
 - when the extremal index is mechanically informative;
-- when it is only a dependence diagnostic;
+- when it is only an empirical dependence diagnostic;
 - operational trade-offs;
 - dataset scarcity and label uncertainty;
 - future theoretical work.
 
 ## 9. Conclusion
 
-State the narrow supported contribution: dynamical recurrence can provide a useful episode representation and risk diagnostic for cyclic industrial telemetry under the studied conditions.
+State the narrow supported contribution: recurrence diagnostics can provide a useful episode representation and risk diagnostic for cyclic industrial telemetry under the studied conditions.

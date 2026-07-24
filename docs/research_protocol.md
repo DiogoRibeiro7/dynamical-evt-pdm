@@ -2,7 +2,7 @@
 
 ## 1. Target contribution
 
-The paper introduces a **regime-conditioned dynamical EVT monitoring framework** that converts pointwise extremes into physically interpretable episodes and estimates recurrence to dangerous operating regions.
+The paper introduces a **regime-conditioned, dynamical-EVT-inspired monitoring framework** that converts pointwise extremes into operational episodes and estimates empirical recurrence to training-defined dangerous regions.
 
 The method is considered successful only when it demonstrates all of the following:
 
@@ -10,7 +10,7 @@ The method is considered successful only when it demonstrates all of the followi
 - fewer duplicate alarm episodes than pointwise and fixed-threshold baselines;
 - comparable or better event recall at an operationally useful warning horizon;
 - stable conclusions over threshold, run-length and regime specifications;
-- credible transfer from a single APU to a fleet-level dataset.
+- credible external validation from a single APU to a structurally different fleet-level dataset, without claiming the same mechanism unless supported by entity-level evidence.
 
 ## 2. Estimands
 

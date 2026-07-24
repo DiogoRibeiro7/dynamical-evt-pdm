@@ -20,6 +20,7 @@
 - group-level bootstrap helpers for complete failures, days or vehicles;
 - reproducible paper asset builder for publication figures, CSV/LaTeX tables, computational benchmarks and provenance manifests;
 - `make paper-assets` target that rebuilds generated manuscript artifacts from cached processed data;
+- adversarial scientific review with fatal-flaw, revision, missing-experiment and claim-weakening gates;
 - auditable rule, unsupervised hidden-state and causal change-point regime definitions;
 - regime occupancy, transition, duration and threshold-ablation reports;
 - run declustering and cluster maxima;
@@ -39,18 +40,16 @@
 
 ## Validation completed in the build environment
 
-- Python compilation: passed.
-- Unit and smoke tests: 29 passed.
-- Measured line/branch coverage: 83.19%, above the configured 80% gate.
-- CLI smoke workflow: passed for simulation and analysis.
+- Ruff linting: passed.
+- Mypy strict type checking: passed.
+- Unit and smoke tests: 70 passed.
+- Measured line/branch coverage: 85.23%, above the configured 80% gate.
+- CLI smoke workflows: passed for simulation, analysis, baseline, event/paper assets and `make paper-assets`.
 
 ## Deferred paper-level work
 
 - richer data dictionaries with verified units and source-to-canonical mappings;
 - theoretical simulation targets with known periodic-point extremal indices;
-- SPOT/DSPOT, autoencoder and conformal baselines;
-- optimal event matching and early-warning-window utilities;
-- nested temporal model selection;
 - external validation on downloaded SCANIA data.
 
 These are specified in detail in `docs/implementation_backlog.md` and `docs/research_protocol.md`.

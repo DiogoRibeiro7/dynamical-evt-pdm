@@ -197,6 +197,7 @@ Large datasets are not committed. Acquisition notes and expected schemas are in 
 - Simple engineering thresholds remain mandatory baselines.
 
 See [`docs/statistical_claims.md`](docs/statistical_claims.md) before interpreting results.
+The pre-submission rejection checklist is in [`docs/adversarial_review.md`](docs/adversarial_review.md).
 
 ## Primary references
 
