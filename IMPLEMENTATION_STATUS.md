@@ -16,6 +16,8 @@
 - fair baseline runner with standardized prediction tables and validation-only selection;
 - engineering-threshold, global empirical, POT/GPD, fixed-run declustering, SPOT-style, Isolation Forest, robust change-point, linear autoencoder and conformal baselines;
 - per-baseline runtime, peak-memory and parameter-count reporting;
+- rigorous event-level evaluation with merge-gap alarm events, early-warning policy windows, greedy/optimal matching, duplicate/false-alarm accounting, utility and calibration metrics;
+- group-level bootstrap helpers for complete failures, days or vehicles;
 - auditable rule, unsupervised hidden-state and causal change-point regime definitions;
 - regime occupancy, transition, duration and threshold-ablation reports;
 - run declustering and cluster maxima;
