@@ -45,6 +45,10 @@ from dyn_evt_pdm.models.baseline_runner import (
 )
 from dyn_evt_pdm.paper.assets import PaperAssetConfig, build_paper_assets
 from dyn_evt_pdm.pipelines.analyse import analyse_series
+from dyn_evt_pdm.pipelines.experiment_matrix import (
+    ExperimentMatrixConfig,
+    run_experiment_matrix,
+)
 from dyn_evt_pdm.simulation.cyclic import CyclicSimulationConfig, simulate_cyclic_machine
 from dyn_evt_pdm.simulation.study import (
     simulation_study_config_from_mapping,
@@ -759,6 +763,37 @@ def run_simulation_study_command(
     study_config = simulation_study_config_from_mapping(raw, smoke=smoke, n_jobs=n_jobs)
     result = write_simulation_study(study_config, output)
     typer.echo(f"wrote {len(result):,} simulation rows to {output}")
+
+
+@app.command("run-experiment-matrix")
+def run_experiment_matrix_command(
+    output_root: Annotated[Path, typer.Option(help="Experiment artifact root.")] = Path(
+        "artifacts/experiment_matrix"
+    ),
+    protocol_config_path: Annotated[
+        Path, typer.Option("--protocol-config", exists=True, dir_okay=False)
+    ] = Path("configs/evaluation/base.yaml"),
+    simulation_config_path: Annotated[
+        Path, typer.Option("--simulation-config", exists=True, dir_okay=False)
+    ] = Path("configs/simulation/cyclic_degradation.yaml"),
+    smoke: Annotated[bool, typer.Option(help="Use CI-friendly simulation settings.")] = True,
+    n_jobs: Annotated[int, typer.Option(help="Parallel jobs for simulation cells.")] = 1,
+) -> None:
+    """Run the registered reproducibility-subset experiment matrix."""
+
+    manifest = run_experiment_matrix(
+        ExperimentMatrixConfig(
+            output_root=output_root,
+            protocol_config_path=protocol_config_path,
+            simulation_config_path=simulation_config_path,
+            smoke=smoke,
+            n_jobs=n_jobs,
+        )
+    )
+    typer.echo(
+        f"wrote experiment matrix {manifest.matrix_id} status={manifest.status} "
+        f"to {output_root / 'experiment_manifest.json'}"
+    )
 
 
 def _read_cli_table(input_path: Path) -> pd.DataFrame:

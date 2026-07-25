@@ -1,4 +1,4 @@
-.PHONY: install format lint typecheck test check fetch-data prepare-data simulate simulation-study end-to-end-smoke paper-assets
+.PHONY: install format lint typecheck test check fetch-data prepare-data simulate simulation-study experiment-matrix end-to-end-smoke paper-assets
 
 install:
 	poetry install --with dev
@@ -31,6 +31,9 @@ simulate:
 
 simulation-study:
 	poetry run dyn-evt run-simulation-study --smoke --output artifacts/simulation_study_smoke.parquet
+
+experiment-matrix:
+	poetry run dyn-evt run-experiment-matrix --output-root artifacts/experiment_matrix
 
 end-to-end-smoke:
 	poetry run dyn-evt simulate --output data/processed/master_smoke.csv --n-steps 1000 --seed 42
