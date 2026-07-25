@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 import numpy as np
 import pandas as pd
@@ -13,6 +14,13 @@ import yaml
 
 from dyn_evt_pdm.data.acquisition import fetch_datasets, planned_files
 from dyn_evt_pdm.data.prepare import prepare_metropt, prepare_scania
+from dyn_evt_pdm.data.registry import (
+    build_data_report,
+    normalize_dataset_ids,
+    registry_records,
+    render_dataset_latex_table,
+    verify_dataset,
+)
 from dyn_evt_pdm.evt.dangerous_region import (
     StateProvenance,
     dangerous_region_from_training_failures,
@@ -44,6 +52,176 @@ from dyn_evt_pdm.simulation.study import (
 from dyn_evt_pdm.types import BoolArray
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
+data_app = typer.Typer(no_args_is_help=True, help="Real-data acquisition and provenance.")
+app.add_typer(data_app, name="data")
+
+
+@data_app.command("list")
+def data_list_command(
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Emit machine-readable JSON.")
+    ] = False,
+) -> None:
+    """List registered real datasets and access metadata."""
+
+    records = registry_records()
+    if json_output:
+        typer.echo(json.dumps(records, indent=2))
+        return
+    for record in records:
+        typer.echo(
+            f"{record['dataset_id']}: {record['version']} " f"({record['official_landing_page']})"
+        )
+
+
+@data_app.command("fetch")
+def data_fetch_command(
+    dataset: Annotated[
+        str,
+        typer.Option(
+            "--dataset",
+            help="Dataset to fetch: all, metropt, metropt2, scania, scania-component-x.",
+        ),
+    ] = "all",
+    raw_root: Annotated[Path, typer.Option(help="Raw-data root directory.")] = Path("data/raw"),
+    dry_run: Annotated[bool, typer.Option(help="Resolve files without downloading.")] = False,
+    force: Annotated[bool, typer.Option(help="Replace existing local raw files.")] = False,
+    timeout_seconds: Annotated[int, typer.Option(min=1, help="Per-request timeout.")] = 60,
+    retries: Annotated[int, typer.Option(min=0, help="Bounded retry count per file.")] = 2,
+) -> None:
+    """Fetch registered raw datasets, or show the acquisition plan."""
+
+    dataset_ids = list(normalize_dataset_ids(dataset))
+    files = planned_files(dataset_ids, raw_root=raw_root)
+    if dry_run:
+        for remote in files:
+            size = (
+                f"{remote.size_bytes:,} bytes" if remote.size_bytes is not None else "size unknown"
+            )
+            typer.echo(f"{remote.dataset}: {remote.filename} -> {remote.destination} ({size})")
+        return
+    results = fetch_datasets(
+        dataset_ids,
+        raw_root=raw_root,
+        overwrite=force,
+        timeout_seconds=timeout_seconds,
+        retries=retries,
+    )
+    for result in results:
+        typer.echo(
+            f"{result.status}: {result.dataset}/{result.filename} "
+            f"({result.size_bytes:,} bytes) -> {result.path}"
+        )
+
+
+@data_app.command("verify")
+def data_verify_command(
+    dataset: Annotated[
+        str,
+        typer.Option("--dataset", help="Dataset to verify: all, metropt, metropt2, scania."),
+    ] = "all",
+    raw_root: Annotated[Path, typer.Option(help="Raw-data root directory.")] = Path("data/raw"),
+    processed_root: Annotated[Path, typer.Option(help="Processed-data root directory.")] = Path(
+        "data/processed"
+    ),
+    output: Annotated[Path | None, typer.Option(help="Optional JSON verification output.")] = None,
+) -> None:
+    """Verify raw and processed dataset manifests and file checksums."""
+
+    payload = [
+        verify_dataset(dataset_id, raw_root=raw_root, processed_root=processed_root)
+        for dataset_id in normalize_dataset_ids(dataset)
+    ]
+    text = json.dumps([asdict(item) for item in payload], indent=2)
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(text, encoding="utf-8")
+    for item in payload:
+        typer.echo(f"{item.dataset_id}: {item.status}")
+
+
+@data_app.command("prepare")
+def data_prepare_command(
+    dataset: Annotated[
+        str,
+        typer.Option(
+            "--dataset", help="Dataset to prepare: metropt, metropt2, scania-component-x."
+        ),
+    ],
+    config_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--config", exists=True, dir_okay=False, help="Optional YAML preparation config."
+        ),
+    ] = None,
+    raw_root: Annotated[Path, typer.Option(help="Raw-data root directory.")] = Path("data/raw"),
+    processed_root: Annotated[Path, typer.Option(help="Processed-data root directory.")] = Path(
+        "data/processed"
+    ),
+    chunk_size: Annotated[int, typer.Option(min=1_000)] = 500_000,
+) -> None:
+    """Prepare one registered raw dataset into deterministic Parquet artifacts."""
+
+    dataset_id = normalize_dataset_ids(dataset)[0]
+    config = _load_optional_yaml_mapping(config_path)
+    configured_chunk_size = _config_int(config, "chunk_size", chunk_size)
+    output_root = _config_path(config, "output_root", processed_root / dataset_id)
+    if dataset_id == "metropt":
+        raw_path = _config_path(config, "raw_path", raw_root / "metropt" / "dataset_train.csv")
+        failure_yaml = _config_path(
+            config, "failure_yaml", Path("docs/datasets/metropt_failures.yaml")
+        )
+        result = prepare_metropt(
+            dataset="metropt",
+            raw_path=raw_path,
+            output_root=output_root,
+            failure_yaml=failure_yaml,
+            chunk_size=configured_chunk_size,
+        )
+    elif dataset_id == "metropt2":
+        raw_path = _config_path(config, "raw_path", raw_root / "metropt2" / "MetroPT2.csv")
+        result = prepare_metropt(
+            dataset="metropt2",
+            raw_path=raw_path,
+            output_root=output_root,
+            chunk_size=configured_chunk_size,
+        )
+    elif dataset_id == "scania_component_x":
+        configured_scania_chunk_size = _config_int(config, "chunk_size", min(chunk_size, 100_000))
+        result = prepare_scania(
+            raw_root=_config_path(config, "raw_root", raw_root / "scania_component_x"),
+            output_root=output_root,
+            chunk_size=configured_scania_chunk_size,
+        )
+    else:
+        raise typer.BadParameter(f"unsupported dataset for preparation: {dataset_id}")
+    typer.echo(
+        f"prepared {result.dataset}: {result.rows:,} rows across {result.chunks} parts; "
+        f"manifest {result.manifest_path}"
+    )
+
+
+@data_app.command("report")
+def data_report_command(
+    output: Annotated[Path, typer.Option(help="JSON dataset report output.")] = Path(
+        "artifacts/data/dataset_report.json"
+    ),
+    latex_output: Annotated[Path, typer.Option(help="LaTeX dataset table output.")] = Path(
+        "reports/paper/tables/dataset_characteristics.tex"
+    ),
+    raw_root: Annotated[Path, typer.Option(help="Raw-data root directory.")] = Path("data/raw"),
+    processed_root: Annotated[Path, typer.Option(help="Processed-data root directory.")] = Path(
+        "data/processed"
+    ),
+) -> None:
+    """Generate machine-readable and LaTeX dataset provenance reports."""
+
+    report = build_data_report(raw_root=raw_root, processed_root=processed_root)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    latex_output.parent.mkdir(parents=True, exist_ok=True)
+    latex_output.write_text(render_dataset_latex_table(report), encoding="utf-8")
+    typer.echo(f"wrote dataset report to {output} and table to {latex_output}")
 
 
 @app.command("simulate")
@@ -436,6 +614,8 @@ def fetch_data_command(
     raw_root: Annotated[Path, typer.Option(help="Raw-data root directory.")] = Path("data/raw"),
     overwrite: Annotated[bool, typer.Option(help="Replace existing local raw files.")] = False,
     list_only: Annotated[bool, typer.Option(help="List source files without downloading.")] = False,
+    timeout_seconds: Annotated[int, typer.Option(min=1, help="Per-request timeout.")] = 60,
+    retries: Annotated[int, typer.Option(min=0, help="Bounded retry count per file.")] = 2,
 ) -> None:
     """Fetch public real datasets into the local raw-data directory."""
 
@@ -449,7 +629,13 @@ def fetch_data_command(
             typer.echo(f"{remote.dataset}: {remote.filename} -> {remote.destination} ({size})")
         return
 
-    results = fetch_datasets(dataset_names or ["all"], raw_root=raw_root, overwrite=overwrite)
+    results = fetch_datasets(
+        dataset_names or ["all"],
+        raw_root=raw_root,
+        overwrite=overwrite,
+        timeout_seconds=timeout_seconds,
+        retries=retries,
+    )
     for result in results:
         typer.echo(
             f"{result.status}: {result.dataset}/{result.filename} "
@@ -555,6 +741,35 @@ def _read_cli_table(input_path: Path) -> pd.DataFrame:
     if input_path.suffix.lower() in {".parquet", ".pq"}:
         return pd.read_parquet(input_path)
     raise typer.BadParameter("input suffix must be .csv, .parquet or .pq")
+
+
+def _load_optional_yaml_mapping(path: Path | None) -> dict[str, object]:
+    if path is None:
+        return {}
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise typer.BadParameter("preparation config root must be a mapping")
+    return cast(dict[str, object], raw)
+
+
+def _config_int(config: dict[str, object], key: str, default: int) -> int:
+    value = config.get(key, default)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float | str):
+        return int(value)
+    raise typer.BadParameter(f"config value {key!r} must be an integer")
+
+
+def _config_path(config: dict[str, object], key: str, default: Path) -> Path:
+    value = config.get(key, default)
+    if isinstance(value, Path):
+        return value
+    if isinstance(value, str):
+        return Path(value)
+    raise typer.BadParameter(f"config value {key!r} must be a path string")
 
 
 def _build_cli_provenance(

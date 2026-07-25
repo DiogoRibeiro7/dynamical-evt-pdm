@@ -5,8 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 import urllib.request
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +41,7 @@ class DownloadResult:
     sha256: str
     checksum: str | None
     status: str
+    acquisition_timestamp_utc: str
 
 
 def planned_files(
@@ -66,13 +69,22 @@ def fetch_datasets(
     *,
     raw_root: Path = Path("data/raw"),
     overwrite: bool = False,
+    timeout_seconds: int = 60,
+    retries: int = 2,
 ) -> list[DownloadResult]:
     """Download selected public datasets and write per-dataset manifests."""
 
     files = planned_files(dataset_names, raw_root=raw_root)
     results: list[DownloadResult] = []
     for remote in files:
-        results.append(download_file(remote, overwrite=overwrite))
+        results.append(
+            download_file(
+                remote,
+                overwrite=overwrite,
+                timeout_seconds=timeout_seconds,
+                retries=retries,
+            )
+        )
 
     by_dataset: dict[str, list[DownloadResult]] = {}
     for result in results:
@@ -87,9 +99,19 @@ def fetch_datasets(
     return results
 
 
-def download_file(remote: RemoteFile, *, overwrite: bool = False) -> DownloadResult:
+def download_file(
+    remote: RemoteFile,
+    *,
+    overwrite: bool = False,
+    timeout_seconds: int = 60,
+    retries: int = 2,
+) -> DownloadResult:
     """Download one file, reusing a valid existing local copy when possible."""
 
+    if timeout_seconds < 1:
+        raise ValueError("timeout_seconds must be positive")
+    if retries < 0:
+        raise ValueError("retries must be non-negative")
     remote.destination.parent.mkdir(parents=True, exist_ok=True)
     if remote.destination.exists() and not overwrite:
         result = _local_result(remote, status="exists")
@@ -101,12 +123,29 @@ def download_file(remote: RemoteFile, *, overwrite: bool = False) -> DownloadRes
         temporary.unlink()
 
     request = urllib.request.Request(remote.url, headers={"User-Agent": "dyn-evt-pdm/0.1"})
-    with urllib.request.urlopen(request, timeout=60) as response, temporary.open("wb") as handle:
-        while True:
-            chunk = response.read(1024 * 1024)
-            if not chunk:
+    last_error: BaseException | None = None
+    for attempt in range(retries + 1):
+        try:
+            with (
+                urllib.request.urlopen(request, timeout=timeout_seconds) as response,
+                temporary.open("wb") as handle,
+            ):
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    handle.write(chunk)
+            last_error = None
+            break
+        except (OSError, TimeoutError) as exc:
+            last_error = exc
+            if temporary.exists():
+                temporary.unlink()
+            if attempt >= retries:
                 break
-            handle.write(chunk)
+            time.sleep(min(2.0**attempt, 8.0))
+    if last_error is not None:
+        raise RuntimeError(f"failed to download {remote.filename}: {last_error}") from last_error
 
     temporary.replace(remote.destination)
     result = _local_result(remote, status="downloaded")
@@ -209,6 +248,7 @@ def _local_result(remote: RemoteFile, *, status: str) -> DownloadResult:
         sha256=digest.hexdigest(),
         checksum=remote.checksum,
         status=status,
+        acquisition_timestamp_utc=datetime.now(UTC).isoformat(),
     )
 
 
