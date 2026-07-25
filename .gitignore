@@ -27,6 +27,7 @@ reports/paper/*
 reports/paper_*/
 reports/master_smoke/*
 reports/real_data/*
+reports/submission/*
 
 # LaTeX build outputs
 paper/*.aux

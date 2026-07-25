@@ -1,4 +1,4 @@
-.PHONY: install format lint typecheck test check fetch-data prepare-data simulate simulation-study experiment-matrix end-to-end-smoke paper-assets paper-assets-verify paper supplement paper-check
+.PHONY: install format lint typecheck test check fetch-data prepare-data simulate simulation-study experiment-matrix end-to-end-smoke paper-assets paper-assets-verify paper supplement paper-check submission-package
 
 install:
 	poetry install --with dev
@@ -64,3 +64,6 @@ supplement: paper-assets
 
 paper-check: paper supplement
 	poetry run dyn-evt check-paper --paper-root paper --asset-root reports/paper
+
+submission-package: paper-check
+	poetry run dyn-evt build-submission-package --paper-root paper --asset-root reports/paper --output-root reports/submission

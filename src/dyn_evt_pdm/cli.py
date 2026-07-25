@@ -46,6 +46,7 @@ from dyn_evt_pdm.models.baseline_runner import (
 from dyn_evt_pdm.paper.assets import PaperAssetConfig, build_paper_assets
 from dyn_evt_pdm.paper.claims import verify_paper_assets
 from dyn_evt_pdm.paper.manuscript import check_paper_sources
+from dyn_evt_pdm.paper.submission import SubmissionPackageConfig, build_submission_package
 from dyn_evt_pdm.pipelines.analyse import analyse_series
 from dyn_evt_pdm.pipelines.experiment_matrix import (
     ExperimentMatrixConfig,
@@ -677,6 +678,34 @@ def check_paper_command(
         f"checked {report.checked_sources} sources, {report.checked_citations} citations, "
         f"{report.checked_asset_references} generated assets and "
         f"{report.checked_claim_references} claim references"
+    )
+
+
+@app.command("build-submission-package")
+def build_submission_package_command(
+    paper_root: Annotated[Path, typer.Option(help="Compiled LaTeX paper root.")] = Path("paper"),
+    asset_root: Annotated[Path, typer.Option(help="Generated paper asset root.")] = Path(
+        "reports/paper"
+    ),
+    output_root: Annotated[Path, typer.Option(help="Generated submission package root.")] = Path(
+        "reports/submission"
+    ),
+) -> None:
+    """Assemble reviewed manuscript, artifacts, statements, and revision matrix."""
+
+    try:
+        manifest = build_submission_package(
+            SubmissionPackageConfig(
+                paper_root=paper_root,
+                asset_root=asset_root,
+                output_root=output_root,
+            )
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    typer.echo(
+        f"built submission package at {output_root} decision={manifest.decision} "
+        f"files={len(manifest.files)} blockers={len(manifest.unresolved_blockers)}"
     )
 
 
