@@ -13,6 +13,7 @@ from dyn_evt_pdm.evt.clusters import cluster_maxima, extract_clusters
 from dyn_evt_pdm.evt.extremal_index import (
     disjoint_blocks_extremal_index,
     intervals_extremal_index,
+    k_gaps_extremal_index,
     runs_extremal_index,
 )
 from dyn_evt_pdm.evt.hitting_times import return_times
@@ -55,6 +56,19 @@ class ExtremalIndexEstimates:
     runs: float | None
     intervals: float | None
     disjoint_blocks: float | None
+    k_gaps: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class EstimatorDiagnostic:
+    """Status row for an estimator used in one EVT fit."""
+
+    estimator_name: str
+    estimator_version: str
+    estimate: float | None
+    status: str
+    warning: str | None
+    assumptions: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +90,7 @@ class UnivariateEVTResult:
     inter_exceedance_mean: float | None
     runs_theta_ci: ConfidenceInterval | None
     diagnostics: tuple[ThresholdDiagnostic, ...]
+    estimator_diagnostics: tuple[EstimatorDiagnostic, ...]
     warnings: tuple[str, ...]
 
     def to_dict(self) -> dict[str, object]:
@@ -119,16 +134,53 @@ def fit_univariate_evt(
             f"only {len(exceedance_indices)} exceedances; minimum diagnostic target is {min_exceedances}"
         )
 
-    runs_theta = _safe_estimate(
-        lambda: runs_extremal_index(exceedances, run_length=run_length), warnings
+    estimator_reports: list[EstimatorDiagnostic] = []
+    runs_theta = _reported_estimate(
+        "runs",
+        lambda: runs_extremal_index(exceedances, run_length=run_length),
+        assumptions=(
+            "declustering run length is predeclared",
+            "cluster count divided by exceedance count is used as a diagnostic estimate",
+        ),
+        reports=estimator_reports,
+        warnings=warnings,
     )
-    intervals_theta = _safe_estimate(lambda: intervals_extremal_index(exceedance_indices), warnings)
-    block_theta = _safe_estimate(
+    intervals_theta = _reported_estimate(
+        "ferro_segers_intervals",
+        lambda: intervals_extremal_index(exceedance_indices),
+        assumptions=(
+            "exceedance times are strictly ordered",
+            "limiting inter-exceedance mixture approximation is informative",
+        ),
+        reports=estimator_reports,
+        warnings=warnings,
+    )
+    block_theta = _reported_estimate(
+        "disjoint_blocks",
         lambda: disjoint_blocks_extremal_index(
             exceedances,
             block_size=block_size or max(run_length + 1, int(np.sqrt(len(finite)))),
         ),
-        warnings,
+        assumptions=(
+            "block size is predeclared or derived without labels",
+            "no-exceedance block probability approximates the high-threshold limit",
+        ),
+        reports=estimator_reports,
+        warnings=warnings,
+    )
+    k_gaps_theta = _reported_estimate(
+        "k_gaps",
+        lambda: k_gaps_extremal_index(
+            exceedance_indices,
+            run_length=run_length,
+            n_samples=len(array),
+        ),
+        assumptions=(
+            "run length K is predeclared",
+            "truncated inter-exceedance gaps follow the K-gaps mixture approximation",
+        ),
+        reports=estimator_reports,
+        warnings=warnings,
     )
     gpd_fit = _fit_gpd_excesses(finite, threshold=threshold, warnings=warnings, min_excesses=3)
     gaps = return_times(exceedances)
@@ -157,12 +209,14 @@ def fit_univariate_evt(
             runs=runs_theta,
             intervals=intervals_theta,
             disjoint_blocks=block_theta,
+            k_gaps=k_gaps_theta,
         ),
         gpd=gpd_fit,
         return_time_mean=float(np.mean(gaps)) if len(gaps) else None,
         inter_exceedance_mean=float(np.mean(gaps)) if len(gaps) else None,
         runs_theta_ci=runs_ci,
         diagnostics=diagnostics,
+        estimator_diagnostics=tuple(estimator_reports),
         warnings=tuple(warnings),
     )
 
@@ -221,6 +275,7 @@ def threshold_run_stability(
                     "runs_theta": result.extremal_index.runs,
                     "intervals_theta": result.extremal_index.intervals,
                     "blocks_theta": result.extremal_index.disjoint_blocks,
+                    "k_gaps_theta": result.extremal_index.k_gaps,
                     "gpd_shape": result.gpd.shape if result.gpd else np.nan,
                     "gpd_scale": result.gpd.scale if result.gpd else np.nan,
                     "warning_count": len(result.warnings),
@@ -301,13 +356,39 @@ def _moving_block_sample(
     return np.asarray(np.concatenate(blocks)[:length], dtype=np.bool_)
 
 
-def _safe_estimate(
+def _reported_estimate(
+    estimator_name: str,
     estimator: Callable[[], float],
+    *,
+    assumptions: tuple[str, ...],
+    reports: list[EstimatorDiagnostic],
     warnings: list[str],
 ) -> float | None:
     try:
         value = estimator()
     except ValueError as exc:
-        warnings.append(str(exc))
+        warning = str(exc)
+        warnings.append(warning)
+        reports.append(
+            EstimatorDiagnostic(
+                estimator_name=estimator_name,
+                estimator_version="1",
+                estimate=None,
+                status="failed",
+                warning=warning,
+                assumptions=assumptions,
+            )
+        )
         return None
-    return float(value)
+    estimate = float(value)
+    reports.append(
+        EstimatorDiagnostic(
+            estimator_name=estimator_name,
+            estimator_version="1",
+            estimate=estimate,
+            status="succeeded",
+            warning=None,
+            assumptions=assumptions,
+        )
+    )
+    return estimate

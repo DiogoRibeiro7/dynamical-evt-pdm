@@ -32,6 +32,14 @@ def test_fit_univariate_evt_returns_structured_tail_result() -> None:
     assert result.extremal_index.runs is not None
     assert result.extremal_index.intervals is not None
     assert result.extremal_index.disjoint_blocks is not None
+    assert result.extremal_index.k_gaps is not None
+    assert {item.estimator_name for item in result.estimator_diagnostics} == {
+        "runs",
+        "ferro_segers_intervals",
+        "disjoint_blocks",
+        "k_gaps",
+    }
+    assert {item.status for item in result.estimator_diagnostics} == {"succeeded"}
     assert result.runs_theta_ci is not None
     assert 0.0 < result.runs_theta_ci.lower <= result.runs_theta_ci.upper <= 1.0
     assert result.to_dict()["n_exceedances"] == 100
@@ -45,6 +53,7 @@ def test_univariate_evt_warns_when_too_few_exceedances() -> None:
     assert result.n_exceedances == 1
     assert result.gpd is None
     assert result.warnings
+    assert any(item.status == "failed" for item in result.estimator_diagnostics)
 
 
 def test_threshold_diagnostics_and_stability_grid() -> None:
@@ -59,7 +68,9 @@ def test_threshold_diagnostics_and_stability_grid() -> None:
 
     assert [diagnostic.exceedance_count for diagnostic in diagnostics] == [100, 50]
     assert stability.shape[0] == 4
-    assert {"runs_theta", "intervals_theta", "blocks_theta"}.issubset(stability.columns)
+    assert {"runs_theta", "intervals_theta", "blocks_theta", "k_gaps_theta"}.issubset(
+        stability.columns
+    )
 
 
 def test_extremal_index_estimators_are_bounded_and_affine_invariant() -> None:
@@ -75,6 +86,7 @@ def test_extremal_index_estimators_are_bounded_and_affine_invariant() -> None:
     assert first.extremal_index.disjoint_blocks == pytest.approx(
         second.extremal_index.disjoint_blocks
     )
+    assert first.extremal_index.k_gaps == pytest.approx(second.extremal_index.k_gaps)
 
 
 def test_disjoint_blocks_and_bootstrap_validation() -> None:

@@ -3,6 +3,7 @@ import pytest
 
 from dyn_evt_pdm.evt.extremal_index import (
     intervals_extremal_index,
+    k_gaps_extremal_index,
     mean_cluster_size_from_extremal_index,
     runs_extremal_index,
 )
@@ -20,3 +21,13 @@ def test_intervals_estimator_is_bounded() -> None:
 
 def test_mean_cluster_size() -> None:
     assert mean_cluster_size_from_extremal_index(0.25) == pytest.approx(4.0)
+
+
+def test_k_gaps_extremal_index_reports_admissible_estimate_and_failures() -> None:
+    indices = np.array([0, 1, 8, 9, 20], dtype=np.int64)
+
+    estimate = k_gaps_extremal_index(indices, run_length=1, n_samples=25)
+
+    assert 0.0 < estimate <= 1.0
+    with pytest.raises(ValueError, match="at least two"):
+        k_gaps_extremal_index(np.array([3], dtype=np.int64), run_length=1, n_samples=25)

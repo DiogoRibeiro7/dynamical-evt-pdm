@@ -5,6 +5,7 @@ from dyn_evt_pdm.evt.dangerous_region import (
     estimate_horizon_risk,
     score_dangerous_region,
 )
+from dyn_evt_pdm.evt.extremal_index import k_gaps_extremal_index
 from dyn_evt_pdm.evt.multivariate import (
     candidate_pair_lag_patterns,
     fit_component_regime_thresholds,
@@ -19,6 +20,7 @@ __all__ = [
     "estimate_horizon_risk",
     "fit_component_regime_thresholds",
     "fit_univariate_evt",
+    "k_gaps_extremal_index",
     "multivariate_evt_report",
     "score_dangerous_region",
     "select_lagged_patterns_nested",
