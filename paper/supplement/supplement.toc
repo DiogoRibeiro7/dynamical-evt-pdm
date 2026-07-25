@@ -1,5 +1,0 @@
-\contentsline {section}{\numberline {1}Extended Methods}{1}{section.1}%
-\contentsline {section}{\numberline {2}Additional Simulations}{1}{section.2}%
-\contentsline {section}{\numberline {3}Additional Real-Data Results}{2}{section.3}%
-\contentsline {section}{\numberline {4}Robustness and Negative Results}{2}{section.4}%
-\contentsline {section}{\numberline {5}Reproducibility}{3}{section.5}%
