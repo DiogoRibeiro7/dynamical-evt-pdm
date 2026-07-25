@@ -514,6 +514,10 @@ def run_baselines_command(
     ],
     output: Annotated[Path, typer.Option(help="Parquet standardized prediction table output.")],
     metadata_output: Annotated[Path, typer.Option(help="JSON metadata output.")],
+    dataset_id: Annotated[
+        str, typer.Option(help="Dataset identifier for prediction rows.")
+    ] = "unknown",
+    entity_id_column: Annotated[str, typer.Option(help="Optional entity identifier column.")] = "",
     timestamp_column: Annotated[str, typer.Option(help="Optional timestamp column.")] = "",
     regime_column: Annotated[str, typer.Option(help="Optional regime column.")] = "regime",
     split_column: Annotated[str, typer.Option(help="Split column.")] = "split",
@@ -535,6 +539,8 @@ def run_baselines_command(
         raise typer.BadParameter("--feature-columns must name at least one column")
     config = BaselineRunConfig(
         feature_columns=columns,
+        dataset_id=dataset_id,
+        entity_id_column=entity_id_column or None,
         timestamp_column=timestamp_column or None,
         regime_column=regime_column or None,
         split_column=split_column,

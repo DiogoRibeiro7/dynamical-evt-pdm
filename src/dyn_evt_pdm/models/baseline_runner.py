@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import time
 import tracemalloc
 from collections.abc import Callable
@@ -23,6 +25,8 @@ class BaselineRunConfig:
     """Configuration shared by all baseline models in one fair run."""
 
     feature_columns: tuple[str, ...]
+    dataset_id: str = "unknown"
+    entity_id_column: str | None = None
     timestamp_column: str | None = None
     regime_column: str | None = "regime"
     split_column: str = "split"
@@ -134,14 +138,29 @@ def run_baseline_experiment(
             peak_memory_bytes=int(peak),
         )
         predictions.append(table)
+        training_config_hash = _training_config_hash(config)
+        calibration_config_hash = _calibration_config_hash(config, candidate)
+        model_id = _model_id(candidate, training_config_hash, calibration_config_hash)
         metadata.append(
             {
                 "model": candidate.model_name,
+                "model_id": model_id,
                 "hyperparameters": candidate.hyperparameters,
                 "validation_score": candidate.hyperparameters.get("validation_objective", np.nan),
                 "runtime_seconds": runtime,
                 "peak_memory_bytes": int(peak),
                 "parameter_count": candidate.parameter_count,
+                "training_config_hash": training_config_hash,
+                "calibration_config_hash": calibration_config_hash,
+                "model_card": _model_card(
+                    candidate,
+                    config,
+                    runtime_seconds=runtime,
+                    peak_memory_bytes=int(peak),
+                    training_config_hash=training_config_hash,
+                    calibration_config_hash=calibration_config_hash,
+                    model_id=model_id,
+                ),
             }
         )
 
@@ -153,6 +172,8 @@ def run_baseline_experiment(
 
 def _build_feature_bundle(frame: pd.DataFrame, config: BaselineRunConfig) -> _FeatureBundle:
     missing = sorted(set([*config.feature_columns, config.split_column]).difference(frame.columns))
+    if config.entity_id_column is not None and config.entity_id_column not in frame:
+        missing.append(config.entity_id_column)
     if config.regime_column is not None and config.regime_column not in frame:
         missing.append(config.regime_column)
     if config.timestamp_column is not None and config.timestamp_column not in frame:
@@ -507,6 +528,15 @@ def _standard_prediction_table(
         if config.regime_column is not None
         else np.full(len(frame), "unknown", dtype=object)
     )
+    entity = (
+        frame[config.entity_id_column].astype("string").fillna("single_asset").to_numpy()
+        if config.entity_id_column is not None
+        else np.full(len(frame), "single_asset", dtype=object)
+    )
+    partition = frame[config.split_column].astype("string").fillna("unknown").to_numpy()
+    training_config_hash = _training_config_hash(config)
+    calibration_config_hash = _calibration_config_hash(config, candidate)
+    model_id = _model_id(candidate, training_config_hash, calibration_config_hash)
     provenance = (
         "train_only_fit;validation_only_selection;"
         f"train={config.train_split};validation={config.validation_split};"
@@ -515,21 +545,269 @@ def _standard_prediction_table(
     )
     return pd.DataFrame(
         {
+            "dataset_id": config.dataset_id,
+            "entity_id": entity,
+            "observation_index": np.arange(len(frame), dtype=np.int64),
             "timestamp": timestamp,
+            "partition": partition,
             "model": candidate.model_name,
+            "model_id": model_id,
+            "raw_score": candidate.score,
             "score": candidate.score,
+            "transformed_risk_score": horizon_risk,
             "threshold": thresholds,
             "alarm_flag": alarm,
+            "alarm_episode_id": episode_ids,
             "episode_id": episode_ids,
             "regime": regime,
+            "prediction_horizon": config.horizon,
             "horizon_risk": horizon_risk,
+            "training_config_hash": training_config_hash,
+            "calibration_config_hash": calibration_config_hash,
             "provenance": provenance,
-            "split": frame[config.split_column].astype("string").fillna("unknown").to_numpy(),
+            "split": partition,
             "runtime_seconds": runtime_seconds,
             "peak_memory_bytes": peak_memory_bytes,
             "parameter_count": candidate.parameter_count,
         }
     )
+
+
+def _training_config_hash(config: BaselineRunConfig) -> str:
+    return _stable_hash(
+        {
+            "dataset_id": config.dataset_id,
+            "entity_id_column": config.entity_id_column,
+            "feature_columns": config.feature_columns,
+            "timestamp_column": config.timestamp_column,
+            "regime_column": config.regime_column,
+            "split_column": config.split_column,
+            "target_column": config.target_column,
+            "exclusion_column": config.exclusion_column,
+            "train_split": config.train_split,
+            "window_size": config.window_size,
+            "random_state": config.random_state,
+        }
+    )
+
+
+def _calibration_config_hash(config: BaselineRunConfig, candidate: _Candidate) -> str:
+    return _stable_hash(
+        {
+            "model": candidate.model_name,
+            "validation_split": config.validation_split,
+            "test_split": config.test_split,
+            "threshold_quantiles": config.threshold_quantiles,
+            "engineering_z_thresholds": config.engineering_z_thresholds,
+            "isolation_contaminations": config.isolation_contaminations,
+            "changepoint_windows": config.changepoint_windows,
+            "autoencoder_components": config.autoencoder_components,
+            "fixed_run_lengths": config.fixed_run_lengths,
+            "conformal_alpha": config.conformal_alpha,
+            "horizon": config.horizon,
+            "threshold": _threshold_summary(candidate.threshold),
+            "hyperparameters": candidate.hyperparameters,
+        }
+    )
+
+
+def _model_id(
+    candidate: _Candidate,
+    training_config_hash: str,
+    calibration_config_hash: str,
+) -> str:
+    return f"{candidate.model_name}:{_stable_hash((training_config_hash, calibration_config_hash))}"
+
+
+def _model_card(
+    candidate: _Candidate,
+    config: BaselineRunConfig,
+    *,
+    runtime_seconds: float,
+    peak_memory_bytes: int,
+    training_config_hash: str,
+    calibration_config_hash: str,
+    model_id: str,
+) -> dict[str, object]:
+    descriptions = _baseline_card_text(candidate.model_name)
+    return {
+        "model_id": model_id,
+        "model_name": candidate.model_name,
+        "intended_use": descriptions["intended_use"],
+        "inputs": {
+            "dataset_id": config.dataset_id,
+            "feature_columns": config.feature_columns,
+            "entity_id_column": config.entity_id_column,
+            "timestamp_column": config.timestamp_column,
+            "regime_column": config.regime_column,
+            "window_size": config.window_size,
+        },
+        "causal_assumptions": (
+            "feature windows use current and trailing observations only",
+            "scaling and fitting use the declared train split only",
+            "threshold or policy selection uses the declared validation split only",
+        ),
+        "training_data": {
+            "train_split": config.train_split,
+            "validation_split": config.validation_split,
+            "test_split": config.test_split,
+            "exclusion_column": config.exclusion_column,
+        },
+        "tuning_procedure": descriptions["tuning_procedure"],
+        "alarm_conversion": {
+            "score_orientation": "larger scores are more anomalous",
+            "threshold": _threshold_summary(candidate.threshold),
+            "episode_run_length": candidate.episode_run_length,
+            "prediction_horizon": config.horizon,
+        },
+        "known_limitations": descriptions["known_limitations"],
+        "failure_modes": descriptions["failure_modes"],
+        "computational_cost": {
+            "runtime_seconds": runtime_seconds,
+            "peak_memory_bytes": peak_memory_bytes,
+            "parameter_count": candidate.parameter_count,
+        },
+        "training_config_hash": training_config_hash,
+        "calibration_config_hash": calibration_config_hash,
+        "hyperparameters": candidate.hyperparameters,
+    }
+
+
+def _baseline_card_text(model_name: str) -> dict[str, object]:
+    common_limitations = (
+        "not a causal mechanical diagnosis",
+        "validation quality depends on available independent events",
+        "performance must be interpreted through event-level metrics",
+    )
+    cards: dict[str, dict[str, object]] = {
+        "engineering_threshold": {
+            "intended_use": "transparent robust-z threshold baseline for simple sensor excursions",
+            "tuning_procedure": "z thresholds are selected on validation using the shared objective",
+            "known_limitations": (
+                *common_limitations,
+                "combines sensors through a robust maximum rather than physical rules",
+            ),
+            "failure_modes": (
+                "normal transients can trigger alarms",
+                "low-amplitude degradation can remain below threshold",
+            ),
+        },
+        "global_empirical_threshold": {
+            "intended_use": "marginal empirical threshold baseline",
+            "tuning_procedure": "train quantiles are selected on validation using the shared objective",
+            "known_limitations": (
+                *common_limitations,
+                "ignores regime-specific tail behavior and multivariate geometry",
+            ),
+            "failure_modes": (
+                "regime mixtures can inflate false alarms",
+                "thresholds can be unstable with scarce validation events",
+            ),
+        },
+        "pot_gpd": {
+            "intended_use": "classical peaks-over-threshold EVT baseline",
+            "tuning_procedure": "POT base quantile and resulting return level are selected on validation",
+            "known_limitations": (
+                *common_limitations,
+                "GPD approximation can fail with few excesses or nonstationarity",
+            ),
+            "failure_modes": (
+                "insufficient excesses force empirical fallback",
+                "tail fit can be unstable under regime changes",
+            ),
+        },
+        "fixed_run_declustering": {
+            "intended_use": "fixed persistence baseline for duplicate-alarm control",
+            "tuning_procedure": "run length is selected on validation from a bounded grid",
+            "known_limitations": (
+                *common_limitations,
+                "duplicate reduction can come from persistence rather than better detection",
+            ),
+            "failure_modes": (
+                "short true events can be suppressed",
+                "long run lengths can delay separate alarm episodes",
+            ),
+        },
+        "spot": {
+            "intended_use": "streaming POT-style adaptive threshold baseline",
+            "tuning_procedure": "base quantile is selected on validation before test scoring",
+            "known_limitations": (
+                *common_limitations,
+                "implemented as a compact SPOT-style threshold trajectory",
+            ),
+            "failure_modes": (
+                "early initialization can dominate threshold behavior",
+                "online tail updates can lag sudden distribution shifts",
+            ),
+        },
+        "isolation_forest": {
+            "intended_use": "tree-based multivariate anomaly baseline",
+            "tuning_procedure": "contamination is selected on validation with fixed random seed",
+            "known_limitations": (
+                *common_limitations,
+                "scores are anomaly rankings rather than calibrated failure probabilities",
+            ),
+            "failure_modes": (
+                "unseen regimes can be scored as anomalous",
+                "high-dimensional sparse windows can reduce interpretability",
+            ),
+        },
+        "robust_changepoint": {
+            "intended_use": "causal robust change-score baseline",
+            "tuning_procedure": "window length is selected on validation from a bounded grid",
+            "known_limitations": (
+                *common_limitations,
+                "detects distribution shifts, not necessarily extreme recurrence",
+            ),
+            "failure_modes": (
+                "gradual degradation can produce weak change scores",
+                "normal operating transitions can appear as changepoints",
+            ),
+        },
+        "autoencoder_reconstruction": {
+            "intended_use": "compact linear reconstruction baseline",
+            "tuning_procedure": "latent dimension is selected on validation from a bounded grid",
+            "known_limitations": (
+                *common_limitations,
+                "linear PCA reconstruction is a CPU-compatible proxy for compact autoencoding",
+            ),
+            "failure_modes": (
+                "correlated normal regimes can reconstruct faults well",
+                "missing-value imputation can hide anomalies",
+            ),
+        },
+        "conformal_anomaly_score": {
+            "intended_use": "empirical split-conformal anomaly score baseline",
+            "tuning_procedure": "calibration scores come from the validation split when available",
+            "known_limitations": (
+                *common_limitations,
+                "exchangeability guarantees may not hold for temporal or vehicle histories",
+            ),
+            "failure_modes": (
+                "score ranges outside calibration support are extrapolative",
+                "scarce validation events limit risk interpretation",
+            ),
+        },
+    }
+    return cards[model_name]
+
+
+def _threshold_summary(threshold: float | FloatArray) -> dict[str, object]:
+    if np.isscalar(threshold):
+        return {"type": "scalar", "value": float(cast(float, threshold))}
+    values = np.asarray(threshold, dtype=np.float64)
+    return {
+        "type": "array",
+        "length": int(len(values)),
+        "min": float(np.nanmin(values)) if len(values) else np.nan,
+        "max": float(np.nanmax(values)) if len(values) else np.nan,
+        "mean": float(np.nanmean(values)) if len(values) else np.nan,
+    }
+
+
+def _stable_hash(payload: object) -> str:
+    encoded = json.dumps(payload, sort_keys=True, default=str, allow_nan=True).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:16]
 
 
 def _select_scalar_threshold(
