@@ -14,15 +14,23 @@ import pandas as pd
 from joblib import Parallel, delayed
 
 from dyn_evt_pdm.evt.clusters import extract_clusters
-from dyn_evt_pdm.evt.extremal_index import intervals_extremal_index, runs_extremal_index
+from dyn_evt_pdm.evt.extremal_index import (
+    intervals_extremal_index,
+    k_gaps_extremal_index,
+    runs_extremal_index,
+)
 from dyn_evt_pdm.evt.hitting_times import empirical_hit_probability
 from dyn_evt_pdm.evt.thresholds import fit_quantile_threshold
 from dyn_evt_pdm.simulation.systems import (
     SimulatedSeries,
     simulate_cyclic_degradation_series,
+    simulate_iid_bounded_tail,
+    simulate_iid_light_tail,
     simulate_iid_pareto,
     simulate_lagged_multivariate_extremes,
+    simulate_logistic_nonperiodic_observable,
     simulate_logistic_target_observable,
+    simulate_regime_mixture_series,
 )
 
 
@@ -31,8 +39,12 @@ class SimulationStudyConfig:
     """Grid configuration for a reproducible simulation study."""
 
     systems: tuple[str, ...] = (
+        "iid_light_tail",
+        "iid_bounded_tail",
         "iid_pareto",
+        "logistic_nonperiodic_target",
         "logistic_periodic_target",
+        "regime_mixture",
         "cyclic_degradation",
         "lagged_multivariate",
     )
@@ -65,6 +77,30 @@ class SimulationStudyConfig:
         for rate in self.missing_rates:
             if not 0.0 <= rate < 1.0:
                 raise ValueError("missing rates must lie in [0, 1)")
+
+
+@dataclass(frozen=True, slots=True)
+class SimulationDecision:
+    """Machine-readable hypothesis decision for one simulation cell."""
+
+    decision_id: str
+    hypothesis_id: str
+    system: str
+    estimator: str
+    n_steps: int
+    threshold_quantile: float
+    run_length: int
+    noise_scale: float
+    missing_rate: float
+    repetitions: int
+    true_theta: float | None
+    mean_estimate: float | None
+    bias: float | None
+    rmse: float | None
+    monte_carlo_standard_error: float | None
+    failure_rate: float
+    status: str
+    reason: str
 
 
 def simulation_experiment_id(config: SimulationStudyConfig) -> str:
@@ -108,15 +144,84 @@ def write_simulation_study(
     result = run_simulation_study(config)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     result.to_parquet(output_path, index=False)
+    decisions = simulation_decision_records(result)
+    decision_path = output_path.with_suffix(output_path.suffix + ".decisions.json")
+    decision_path.write_text(
+        json.dumps([asdict(decision) for decision in decisions], indent=2),
+        encoding="utf-8",
+    )
     manifest_path = output_path.with_suffix(output_path.suffix + ".manifest.json")
     manifest = {
         "experiment_id": simulation_experiment_id(config),
         "config": asdict(config),
         "rows": len(result),
         "output_path": str(output_path),
+        "decision_path": str(decision_path),
+        "decision_count": len(decisions),
     }
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return result
+
+
+def simulation_decision_records(
+    results: pd.DataFrame,
+    *,
+    rmse_tolerance: float = 0.25,
+    max_failure_rate: float = 0.10,
+) -> tuple[SimulationDecision, ...]:
+    """Aggregate replicate rows into predeclared simulation hypothesis decisions."""
+
+    required = {
+        "experiment_id",
+        "system",
+        "n_steps",
+        "threshold_quantile",
+        "run_length",
+        "noise_scale",
+        "missing_rate",
+        "true_theta",
+        "failed",
+    }
+    estimator_columns = {
+        "runs": "runs_theta",
+        "ferro_segers_intervals": "intervals_theta",
+        "k_gaps": "k_gaps_theta",
+    }
+    missing = sorted(required.union(estimator_columns.values()).difference(results.columns))
+    if missing:
+        raise ValueError(f"missing simulation result columns: {missing}")
+    if rmse_tolerance <= 0.0:
+        raise ValueError("rmse_tolerance must be positive")
+    if not 0.0 <= max_failure_rate <= 1.0:
+        raise ValueError("max_failure_rate must lie in [0, 1]")
+
+    group_columns = [
+        "experiment_id",
+        "system",
+        "n_steps",
+        "threshold_quantile",
+        "run_length",
+        "noise_scale",
+        "missing_rate",
+    ]
+    decisions: list[SimulationDecision] = []
+    for keys, group in results.groupby(group_columns, dropna=False, sort=True):
+        key_values = dict(zip(group_columns, keys, strict=True))
+        true_values = group["true_theta"].to_numpy(dtype=np.float64)
+        finite_truth = true_values[np.isfinite(true_values)]
+        true_theta = float(finite_truth[0]) if len(finite_truth) else None
+        for estimator, column in estimator_columns.items():
+            decision = _simulation_estimator_decision(
+                group,
+                key_values=key_values,
+                estimator=estimator,
+                column=column,
+                true_theta=true_theta,
+                rmse_tolerance=rmse_tolerance,
+                max_failure_rate=max_failure_rate,
+            )
+            decisions.append(decision)
+    return tuple(decisions)
 
 
 def simulation_study_config_from_mapping(
@@ -150,7 +255,7 @@ def simulation_study_config_from_mapping(
     if not smoke:
         return config
     return SimulationStudyConfig(
-        systems=("iid_pareto", "logistic_periodic_target", "cyclic_degradation"),
+        systems=("iid_light_tail", "iid_pareto", "logistic_periodic_target", "cyclic_degradation"),
         sample_sizes=(1_000,),
         threshold_quantiles=threshold_quantiles[:1],
         run_lengths=run_lengths[:2],
@@ -188,6 +293,7 @@ def _evaluate_task(
     n_clusters = 0
     runs_theta = np.nan
     intervals_theta = np.nan
+    k_gaps_theta = np.nan
     mean_cluster_size = np.nan
     hit_probability = np.nan
 
@@ -202,6 +308,9 @@ def _evaluate_task(
             runs_theta = runs_extremal_index(exceedances, run_length=run_length)
         if n_exceedances >= 2:
             intervals_theta = intervals_extremal_index(exceedance_indices)
+            k_gaps_theta = k_gaps_extremal_index(
+                exceedance_indices, run_length=run_length, n_samples=len(values)
+            )
         if n_clusters:
             mean_cluster_size = float(np.mean([cluster.size for cluster in clusters]))
         if len(values) > config.hit_horizon:
@@ -228,14 +337,152 @@ def _evaluate_task(
         "n_clusters": n_clusters,
         "runs_theta": runs_theta,
         "intervals_theta": intervals_theta,
+        "k_gaps_theta": k_gaps_theta,
         "true_theta": true_theta if true_theta is not None else np.nan,
         "runs_bias": runs_theta - true_theta if true_theta is not None else np.nan,
         "intervals_bias": intervals_theta - true_theta if true_theta is not None else np.nan,
+        "k_gaps_bias": k_gaps_theta - true_theta if true_theta is not None else np.nan,
         "mean_cluster_size": mean_cluster_size,
         "hit_probability": hit_probability,
         "failed": failed,
         "failure_reason": failure_reason,
     }
+
+
+def _simulation_estimator_decision(
+    group: pd.DataFrame,
+    *,
+    key_values: dict[str, object],
+    estimator: str,
+    column: str,
+    true_theta: float | None,
+    rmse_tolerance: float,
+    max_failure_rate: float,
+) -> SimulationDecision:
+    estimates = group[column].to_numpy(dtype=np.float64)
+    valid = np.isfinite(estimates)
+    failure_flags = group["failed"].astype(bool).to_numpy() | ~valid
+    failure_rate = float(np.mean(failure_flags))
+    repetition_count = int(len(group))
+    mean_estimate = float(np.mean(estimates[valid])) if np.any(valid) else None
+    if true_theta is None:
+        return _decision_from_values(
+            key_values=key_values,
+            estimator=estimator,
+            repetitions=repetition_count,
+            true_theta=None,
+            mean_estimate=mean_estimate,
+            bias=None,
+            rmse=None,
+            monte_carlo_standard_error=None,
+            failure_rate=failure_rate,
+            status="inconclusive",
+            reason="simulation cell has no declared theoretical or numerical theta target",
+        )
+    if not np.any(valid):
+        return _decision_from_values(
+            key_values=key_values,
+            estimator=estimator,
+            repetitions=repetition_count,
+            true_theta=true_theta,
+            mean_estimate=None,
+            bias=None,
+            rmse=None,
+            monte_carlo_standard_error=None,
+            failure_rate=failure_rate,
+            status="inconclusive",
+            reason="all estimator replicates failed or returned non-finite values",
+        )
+    errors = estimates[valid] - true_theta
+    bias = float(np.mean(errors))
+    rmse = float(np.sqrt(np.mean(errors**2)))
+    mcse = float(np.std(errors, ddof=1) / np.sqrt(len(errors))) if len(errors) > 1 else 0.0
+    status = (
+        "supported"
+        if rmse <= rmse_tolerance and failure_rate <= max_failure_rate
+        else "not_supported"
+    )
+    reason = (
+        f"rmse={rmse:.4g}, failure_rate={failure_rate:.4g}, "
+        f"thresholds=({rmse_tolerance:.4g}, {max_failure_rate:.4g})"
+    )
+    return _decision_from_values(
+        key_values=key_values,
+        estimator=estimator,
+        repetitions=repetition_count,
+        true_theta=true_theta,
+        mean_estimate=mean_estimate,
+        bias=bias,
+        rmse=rmse,
+        monte_carlo_standard_error=mcse,
+        failure_rate=failure_rate,
+        status=status,
+        reason=reason,
+    )
+
+
+def _decision_from_values(
+    *,
+    key_values: dict[str, object],
+    estimator: str,
+    repetitions: int,
+    true_theta: float | None,
+    mean_estimate: float | None,
+    bias: float | None,
+    rmse: float | None,
+    monte_carlo_standard_error: float | None,
+    failure_rate: float,
+    status: str,
+    reason: str,
+) -> SimulationDecision:
+    payload = json.dumps(
+        {
+            **key_values,
+            "estimator": estimator,
+        },
+        sort_keys=True,
+        default=str,
+    )
+    return SimulationDecision(
+        decision_id=hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16],
+        hypothesis_id="SIM-EI-RECOVERY",
+        system=str(key_values["system"]),
+        estimator=estimator,
+        n_steps=_object_to_int(key_values["n_steps"]),
+        threshold_quantile=_object_to_float(key_values["threshold_quantile"]),
+        run_length=_object_to_int(key_values["run_length"]),
+        noise_scale=_object_to_float(key_values["noise_scale"]),
+        missing_rate=_object_to_float(key_values["missing_rate"]),
+        repetitions=repetitions,
+        true_theta=true_theta,
+        mean_estimate=mean_estimate,
+        bias=bias,
+        rmse=rmse,
+        monte_carlo_standard_error=monte_carlo_standard_error,
+        failure_rate=failure_rate,
+        status=status,
+        reason=reason,
+    )
+
+
+def _object_to_int(value: object) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, float | str):
+        return int(value)
+    raise TypeError(f"cannot convert {type(value).__name__} to int")
+
+
+def _object_to_float(value: object) -> float:
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, np.integer | np.floating):
+        return float(value)
+    if isinstance(value, str):
+        return float(value)
+    raise TypeError(f"cannot convert {type(value).__name__} to float")
 
 
 def _simulate_system(
@@ -248,6 +495,17 @@ def _simulate_system(
 ) -> SimulatedSeries:
     if system == "iid_pareto":
         return simulate_iid_pareto(n_steps, rng=rng, missing_rate=missing_rate)
+    if system == "iid_light_tail":
+        return simulate_iid_light_tail(n_steps, rng=rng, missing_rate=missing_rate)
+    if system == "iid_bounded_tail":
+        return simulate_iid_bounded_tail(n_steps, rng=rng, missing_rate=missing_rate)
+    if system == "logistic_nonperiodic_target":
+        return simulate_logistic_nonperiodic_observable(
+            n_steps,
+            rng=rng,
+            noise_scale=noise_scale,
+            missing_rate=missing_rate,
+        )
     if system == "logistic_periodic_target":
         return simulate_logistic_target_observable(
             n_steps,
@@ -255,6 +513,8 @@ def _simulate_system(
             noise_scale=noise_scale,
             missing_rate=missing_rate,
         )
+    if system == "regime_mixture":
+        return simulate_regime_mixture_series(n_steps, rng=rng, missing_rate=missing_rate)
     if system == "cyclic_degradation":
         return simulate_cyclic_degradation_series(
             n_steps,

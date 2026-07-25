@@ -41,6 +41,38 @@ def simulate_iid_pareto(
     return SimulatedSeries(system="iid_pareto", values=values, true_theta=1.0, frame=frame)
 
 
+def simulate_iid_light_tail(
+    n_steps: int,
+    *,
+    rng: np.random.Generator,
+    missing_rate: float = 0.0,
+) -> SimulatedSeries:
+    """Generate an IID light-tailed reference process with extremal index one."""
+
+    if n_steps < 1:
+        raise ValueError("n_steps must be positive")
+    values = rng.normal(0.0, 1.0, size=n_steps).astype(np.float64)
+    values = _apply_missingness(values, rng=rng, missing_rate=missing_rate)
+    frame = pd.DataFrame({"time": np.arange(n_steps, dtype=np.int64), "observable": values})
+    return SimulatedSeries(system="iid_light_tail", values=values, true_theta=1.0, frame=frame)
+
+
+def simulate_iid_bounded_tail(
+    n_steps: int,
+    *,
+    rng: np.random.Generator,
+    missing_rate: float = 0.0,
+) -> SimulatedSeries:
+    """Generate an IID bounded-tail reference process with extremal index one."""
+
+    if n_steps < 1:
+        raise ValueError("n_steps must be positive")
+    values = rng.beta(2.0, 5.0, size=n_steps).astype(np.float64)
+    values = _apply_missingness(values, rng=rng, missing_rate=missing_rate)
+    frame = pd.DataFrame({"time": np.arange(n_steps, dtype=np.int64), "observable": values})
+    return SimulatedSeries(system="iid_bounded_tail", values=values, true_theta=1.0, frame=frame)
+
+
 def simulate_logistic_target_observable(
     n_steps: int,
     *,
@@ -72,6 +104,74 @@ def simulate_logistic_target_observable(
         system="logistic_periodic_target",
         values=values,
         true_theta=true_theta,
+        frame=frame,
+    )
+
+
+def simulate_logistic_nonperiodic_observable(
+    n_steps: int,
+    *,
+    rng: np.random.Generator,
+    target: float = 0.37,
+    parameter: float = 4.0,
+    noise_scale: float = 0.0,
+    missing_rate: float = 0.0,
+) -> SimulatedSeries:
+    """Generate a logistic-map target observable for a non-periodic target."""
+
+    result = simulate_logistic_target_observable(
+        n_steps,
+        rng=rng,
+        target=target,
+        parameter=parameter,
+        noise_scale=noise_scale,
+        missing_rate=missing_rate,
+    )
+    return SimulatedSeries(
+        system="logistic_nonperiodic_target",
+        values=result.values,
+        true_theta=1.0 if noise_scale == 0.0 else None,
+        frame=result.frame,
+    )
+
+
+def simulate_regime_mixture_series(
+    n_steps: int,
+    *,
+    rng: np.random.Generator,
+    regime_switch_probability: float = 0.015,
+    scale_ratio: float = 3.0,
+    missing_rate: float = 0.0,
+) -> SimulatedSeries:
+    """Generate independent observations whose marginal tail is distorted by regimes."""
+
+    if n_steps < 1:
+        raise ValueError("n_steps must be positive")
+    if not 0.0 < regime_switch_probability < 1.0:
+        raise ValueError("regime_switch_probability must lie in (0, 1)")
+    if scale_ratio <= 0.0:
+        raise ValueError("scale_ratio must be positive")
+    regimes = np.zeros(n_steps, dtype=np.int64)
+    for index in range(1, n_steps):
+        regimes[index] = (
+            1 - regimes[index - 1]
+            if rng.random() < regime_switch_probability
+            else regimes[index - 1]
+        )
+    scales = np.where(regimes == 0, 1.0, scale_ratio)
+    values = rng.exponential(scale=scales).astype(np.float64)
+    values = _apply_missingness(values, rng=rng, missing_rate=missing_rate)
+    frame = pd.DataFrame(
+        {
+            "time": np.arange(n_steps, dtype=np.int64),
+            "observable": values,
+            "regime": np.where(regimes == 0, "low_scale", "high_scale"),
+        }
+    )
+    return SimulatedSeries(
+        system="regime_mixture",
+        values=values,
+        true_theta=None,
         frame=frame,
     )
 
