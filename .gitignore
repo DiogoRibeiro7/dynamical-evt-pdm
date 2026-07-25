@@ -24,5 +24,6 @@ artifacts/*
 reports/figures/*
 !reports/figures/.gitkeep
 reports/paper/*
+reports/paper_*/
 reports/master_smoke/*
 reports/real_data/*

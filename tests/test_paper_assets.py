@@ -6,6 +6,7 @@ from typer.testing import CliRunner
 
 from dyn_evt_pdm.cli import app
 from dyn_evt_pdm.paper.assets import PaperAssetConfig, build_paper_assets, configuration_hash
+from dyn_evt_pdm.paper.claims import verify_paper_assets
 from dyn_evt_pdm.simulation.cyclic import CyclicSimulationConfig, simulate_cyclic_machine
 
 
@@ -33,12 +34,23 @@ def test_build_paper_assets_writes_figures_tables_and_manifest(tmp_path: Path) -
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert payload["experiment_id"] == manifest.experiment_id
     assert payload["config_hash"] == configuration_hash((config_path,))
+    assert payload["protocol_hash"]
+    assert payload["dataset_checksum"]
     assert (output_root / "figures" / "threshold_stability.png").exists()
     assert (output_root / "figures" / "event_timeline.png").exists()
     assert (output_root / "tables" / "dataset_split_summary.csv").exists()
     assert (output_root / "tables" / "computational_benchmark.csv").exists()
+    assert (output_root / "tables" / "claim_ledger.csv").exists()
+    assert (output_root / "claim_ledger.json").exists()
+    assert (output_root / "claim_ledger.md").exists()
+    assert (output_root / "results_synthesis.md").exists()
+    assert (output_root / "asset_provenance.json").exists()
+    assert (output_root / "latex" / "result_macros.tex").exists()
     assert (output_root / "latex" / "threshold_stability.tex").exists()
-    assert len(payload["generated_files"]) >= 18
+    assert len(payload["generated_files"]) >= 24
+    verification = verify_paper_assets(output_root)
+    assert verification.ok, verification.failures
+    assert verification.checked_claims >= 7
 
 
 def test_build_paper_assets_cli(tmp_path: Path) -> None:
@@ -65,6 +77,39 @@ def test_build_paper_assets_cli(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     assert (output_root / "asset_manifest.json").exists()
+    verify_result = CliRunner().invoke(
+        app,
+        [
+            "verify-paper-assets",
+            "--output-root",
+            str(output_root),
+        ],
+    )
+    assert verify_result.exit_code == 0, verify_result.output
+
+
+def test_verify_paper_assets_detects_manual_modification(tmp_path: Path) -> None:
+    input_path = tmp_path / "cached_processed.csv"
+    study_path = tmp_path / "simulation_study.parquet"
+    output_root = tmp_path / "paper"
+    simulate_cyclic_machine(CyclicSimulationConfig(n_steps=1000, seed=14)).to_csv(
+        input_path, index=False
+    )
+    _write_cached_simulation_study(study_path)
+    build_paper_assets(
+        PaperAssetConfig(
+            input_path=input_path,
+            output_root=output_root,
+            simulation_study_path=study_path,
+        )
+    )
+
+    table_path = output_root / "tables" / "dataset_split_summary.csv"
+    table_path.write_text(table_path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+
+    verification = verify_paper_assets(output_root)
+    assert not verification.ok
+    assert any("manual modification detected" in failure for failure in verification.failures)
 
 
 def _write_cached_simulation_study(path: Path) -> None:

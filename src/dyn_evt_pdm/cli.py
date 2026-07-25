@@ -44,6 +44,7 @@ from dyn_evt_pdm.models.baseline_runner import (
     run_baseline_experiment,
 )
 from dyn_evt_pdm.paper.assets import PaperAssetConfig, build_paper_assets
+from dyn_evt_pdm.paper.claims import verify_paper_assets
 from dyn_evt_pdm.pipelines.analyse import analyse_series
 from dyn_evt_pdm.pipelines.experiment_matrix import (
     ExperimentMatrixConfig,
@@ -630,6 +631,24 @@ def build_paper_assets_command(
     typer.echo(
         f"wrote {len(manifest.generated_files)} paper assets; "
         f"manifest {output_root / 'asset_manifest.json'}"
+    )
+
+
+@app.command("verify-paper-assets")
+def verify_paper_assets_command(
+    output_root: Annotated[
+        Path, typer.Option(help="Output root containing generated paper assets.")
+    ] = Path("reports/paper"),
+) -> None:
+    """Verify publication assets, provenance hashes, and claim-ledger constraints."""
+
+    verification = verify_paper_assets(output_root)
+    if not verification.ok:
+        details = "\n".join(f"- {failure}" for failure in verification.failures)
+        raise typer.BadParameter(f"paper asset verification failed:\n{details}")
+    typer.echo(
+        f"verified {verification.checked_files} files and "
+        f"{verification.checked_claims} claims in {output_root}"
     )
 
 

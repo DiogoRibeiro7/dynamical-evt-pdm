@@ -23,10 +23,17 @@ from matplotlib.figure import Figure
 
 from dyn_evt_pdm.evaluation.events import EarlyWarningPolicy, flags_to_events
 from dyn_evt_pdm.evaluation.metrics import evaluate_event_predictions
+from dyn_evt_pdm.evaluation.protocol import read_protocol
 from dyn_evt_pdm.evt.clusters import extract_clusters
 from dyn_evt_pdm.evt.extremal_index import runs_extremal_index
 from dyn_evt_pdm.evt.thresholds import fit_quantile_threshold
 from dyn_evt_pdm.evt.univariate import threshold_run_stability
+from dyn_evt_pdm.paper.claims import (
+    ClaimLedgerConfig,
+    build_claim_ledger,
+    sha256_file,
+    write_asset_provenance,
+)
 from dyn_evt_pdm.simulation.study import (
     simulation_study_config_from_mapping,
     write_simulation_study,
@@ -46,6 +53,8 @@ class PaperAssetConfig:
     )
     simulation_config_path: Path = Path("configs/simulation/cyclic_degradation.yaml")
     simulation_study_path: Path = Path("artifacts/simulation_study_smoke.parquet")
+    protocol_config_path: Path = Path("configs/evaluation/base.yaml")
+    experiment_manifest_path: Path = Path("artifacts/experiment_matrix/experiment_manifest.json")
     value_column: str = "observable"
     timestamp_column: str = "time"
     regime_column: str = "regime"
@@ -63,8 +72,13 @@ class PaperAssetManifest:
     experiment_id: str
     commit_hash: str
     config_hash: str
+    protocol_hash: str
+    dataset_checksum: str
     input_path: str
     output_root: str
+    provenance_path: str
+    claim_ledger_path: str
+    known_experiment_ids: tuple[str, ...]
     generated_files: tuple[str, ...]
     runtime_seconds: float
 
@@ -145,17 +159,59 @@ def build_paper_assets(config: PaperAssetConfig) -> PaperAssetManifest:
     generated.append(benchmark_path)
 
     config_hash = configuration_hash(config.config_paths)
+    commit_hash = current_commit_hash()
+    protocol_hash = _protocol_hash(config.protocol_config_path)
+    dataset_checksum = sha256_file(config.input_path)
+    known_experiment_ids = _known_experiment_ids(config.experiment_manifest_path)
+    experiment_id = hashlib.sha256(
+        f"{config.input_path}|{dataset_checksum}|{config_hash}|{protocol_hash}|{len(frame)}".encode()
+    ).hexdigest()[:16]
+    known_experiment_ids = tuple(sorted({experiment_id, *known_experiment_ids}))
+    generated += _timed_asset(
+        "claim_ledger",
+        lambda: build_claim_ledger(
+            ClaimLedgerConfig(
+                output_root=output_root,
+                experiment_id=experiment_id,
+                code_hash=commit_hash,
+                config_hash=config_hash,
+                protocol_hash=protocol_hash,
+                dataset_checksum=dataset_checksum,
+                dataset_name=config.input_path.stem,
+                known_experiment_ids=known_experiment_ids,
+            )
+        ),
+        benchmark_rows,
+    )
+    pd.DataFrame(benchmark_rows).to_csv(benchmark_path, index=False)
+
     manifest_path = output_root / "asset_manifest.json"
+    provenance_path = output_root / "asset_provenance.json"
     manifest = PaperAssetManifest(
-        experiment_id=hashlib.sha256(
-            f"{config.input_path}|{config_hash}|{len(frame)}".encode()
-        ).hexdigest()[:16],
-        commit_hash=current_commit_hash(),
+        experiment_id=experiment_id,
+        commit_hash=commit_hash,
         config_hash=config_hash,
+        protocol_hash=protocol_hash,
+        dataset_checksum=dataset_checksum,
         input_path=str(config.input_path),
         output_root=str(output_root),
-        generated_files=tuple(str(path) for path in sorted([*generated, manifest_path])),
+        provenance_path=str(provenance_path),
+        claim_ledger_path=str(output_root / "claim_ledger.json"),
+        known_experiment_ids=known_experiment_ids,
+        generated_files=tuple(
+            str(path) for path in sorted([*generated, provenance_path, manifest_path])
+        ),
         runtime_seconds=float(time.perf_counter() - start),
+    )
+    write_asset_provenance(
+        provenance_path,
+        files=tuple(generated),
+        experiment_id=manifest.experiment_id,
+        code_hash=manifest.commit_hash,
+        config_hash=manifest.config_hash,
+        protocol_hash=manifest.protocol_hash,
+        dataset_checksum=manifest.dataset_checksum,
+        input_path=config.input_path,
     )
     manifest_payload = asdict(manifest)
     manifest_path.write_text(json.dumps(manifest_payload, indent=2), encoding="utf-8")
@@ -189,6 +245,28 @@ def current_commit_hash() -> str:
         ).strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return "unknown"
+
+
+def _protocol_hash(path: Path) -> str:
+    if not path.exists():
+        return "unknown"
+    return read_protocol(path).protocol_hash
+
+
+def _known_experiment_ids(path: Path) -> tuple[str, ...]:
+    if not path.exists():
+        return ()
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        return ()
+    ids = []
+    matrix_id = raw.get("matrix_id")
+    if matrix_id:
+        ids.append(str(matrix_id))
+    for cell in raw.get("cells", []):
+        if isinstance(cell, dict) and cell.get("experiment_id"):
+            ids.append(str(cell["experiment_id"]))
+    return tuple(ids)
 
 
 def _threshold_stability_assets(
