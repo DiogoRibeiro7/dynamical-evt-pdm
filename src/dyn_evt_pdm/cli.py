@@ -45,6 +45,7 @@ from dyn_evt_pdm.models.baseline_runner import (
 )
 from dyn_evt_pdm.paper.assets import PaperAssetConfig, build_paper_assets
 from dyn_evt_pdm.paper.claims import verify_paper_assets
+from dyn_evt_pdm.paper.manuscript import check_paper_sources
 from dyn_evt_pdm.pipelines.analyse import analyse_series
 from dyn_evt_pdm.pipelines.experiment_matrix import (
     ExperimentMatrixConfig,
@@ -649,6 +650,33 @@ def verify_paper_assets_command(
     typer.echo(
         f"verified {verification.checked_files} files and "
         f"{verification.checked_claims} claims in {output_root}"
+    )
+
+
+@app.command("check-paper")
+def check_paper_command(
+    paper_root: Annotated[Path, typer.Option(help="LaTeX paper source root.")] = Path("paper"),
+    asset_root: Annotated[Path, typer.Option(help="Generated paper asset root.")] = Path(
+        "reports/paper"
+    ),
+    require_pdfs: Annotated[
+        bool, typer.Option(help="Require compiled main and supplement PDFs.")
+    ] = True,
+) -> None:
+    """Audit paper sources, citations, generated assets, claims, and build products."""
+
+    report = check_paper_sources(
+        paper_root=paper_root,
+        asset_root=asset_root,
+        require_pdfs=require_pdfs,
+    )
+    if not report.ok:
+        details = "\n".join(f"- {failure}" for failure in report.failures)
+        raise typer.BadParameter(f"paper check failed:\n{details}")
+    typer.echo(
+        f"checked {report.checked_sources} sources, {report.checked_citations} citations, "
+        f"{report.checked_asset_references} generated assets and "
+        f"{report.checked_claim_references} claim references"
     )
 
 

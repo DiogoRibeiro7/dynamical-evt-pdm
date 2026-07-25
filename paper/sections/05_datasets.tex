@@ -1,0 +1,10 @@
+\section{Datasets}
+\label{sec:datasets}
+
+The repository registry covers MetroPT, MetroPT2, and SCANIA Component X. MetroPT contains air-production-unit telemetry from an urban metro setting with pressure, temperature, current, digital control signals, and documented maintenance/failure intervals \citep{Veloso2022MetroPT}. MetroPT2 provides a benchmark replication release with documented failure periods \citep{MetroPT2Zenodo2023}. SCANIA Component X is a fleet-level dataset containing anonymized operational variables, repair records, and truck specifications for a proprietary component \citep{Kharazian2025Scania}.
+
+The paper assets used in this manuscript are built from cached processed data and public acquisition metadata. The dataset table is generated directly from the asset builder and is used only as a descriptive inventory. It supports CLM-001 and does not convert row counts into independent failure counts.
+
+\input{../reports/paper/latex/dataset_split_summary.tex}
+
+Industrial limitations are material to interpretation. MetroPT-style telemetry can have many samples but few independent failure intervals. MetroPT2 is valuable as a temporal replication resource, but replication still depends on comparable labels and preprocessing. SCANIA changes the independence unit to vehicles and repairs, so transfer claims must match the vehicle-level estimand. The current generated claim ledger blocks a positive population-level superiority claim for industrial predictive maintenance; this limitation is recorded as CLM-007.

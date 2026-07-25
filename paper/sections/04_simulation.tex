@@ -1,0 +1,15 @@
+\section{Simulation Study}
+\label{sec:simulation}
+
+The simulation layer is designed to falsify overconfident interpretations before industrial data are used. The registered systems include independent extremes, periodic dynamics, noisy periodic dynamics, regime mixtures, missingness perturbations, and degradation-like cyclic trajectories. Each simulation cell records a deterministic experiment identifier, configuration hash, random seed, threshold grid, run-length grid, estimator status, and raw outputs sufficient to regenerate the paper assets.
+
+The main estimands are finite-sample bias and root mean squared error for extremal-index estimators, coverage or failure status where intervals are available, and recovery of clustered episodes. The simulation artifacts deliberately preserve estimator failures. A failed fit is treated as a terminal experiment outcome rather than an infrastructure error, because failure regions are part of the statistical evidence.
+
+Figure~\ref{fig:simulation-rmse} and the generated simulation table report the completed smoke-scale recovery artifact. The values support claim CLM-003: the controlled simulation output quantifies recovery error across threshold settings. They do not support a statement that the same estimator is reliable for every industrial fault interval.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.78\linewidth]{../reports/paper/figures/simulation_bias_rmse.png}
+  \caption{Simulation recovery summary generated from the registered simulation-study artifact. The plotted quantity is runs-estimator RMSE by threshold quantile and simulation family.}
+  \label{fig:simulation-rmse}
+\end{figure}

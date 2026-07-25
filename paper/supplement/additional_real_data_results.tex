@@ -1,0 +1,13 @@
+\section{Additional Real-Data Results}
+\label{supp:realdata}
+
+MetroPT, MetroPT2, and SCANIA Component X differ in sampling, entity structure, labels, and exposure. The source registry records acquisition status and provenance for each dataset. MetroPT and MetroPT2 are compressor telemetry resources, whereas SCANIA Component X is a fleet-level truck dataset with anonymized component histories \citep{Veloso2022MetroPT,MetroPT2Zenodo2023,Kharazian2025Scania}. Because the current manuscript is constrained by the generated claim ledger, the industrial evidence is presented as a limitation and reproducibility target rather than a completed population-level comparison.
+
+The event timeline artifact is retained because it can reveal aligned-axis mistakes, alarm bursts outside failure windows, and threshold behavior that aggregate tables may hide. It does not replace event matching, calibration, or independent-unit uncertainty.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.95\linewidth]{../../reports/paper/figures/event_timeline.png}
+  \caption{Supplementary alarm timeline generated from the cached processed data.}
+  \label{fig:supp-timeline}
+\end{figure}

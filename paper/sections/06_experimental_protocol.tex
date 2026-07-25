@@ -1,0 +1,8 @@
+\section{Experimental Protocol}
+\label{sec:protocol}
+
+The evaluation protocol is frozen before final experiment execution. It declares the train, validation, calibration, and test partitions; the exclusion and maintenance-boundary fields; warning horizons; alarm merge gap; matching tolerance; matching method; bootstrap unit; primary metrics; secondary metrics; and event utility costs. The protocol hash used by this manuscript is \DynEvtProtocolHash{}.
+
+Primary event metrics are event precision, event recall, event \(F_1\), false-alarm events per operating day, duplicate alarms per failure, median warning lead time, and horizon Brier score. Secondary metrics include pointwise ranking metrics, time under warning, and event utility. Baselines are required to use the same causal feature availability and the same frozen event conversion, so a model is not rewarded for using future information or a more favorable matching rule.
+
+Uncertainty is attached to the independent unit declared by the dataset and protocol. For simulation cells, the unit is the Monte Carlo repetition or registered replicate. For MetroPT-style case studies, the unit is the failure episode or operating interval, not the timestamp. For SCANIA, the relevant unit is the vehicle or repair history defined by the dataset release. Multiplicity is handled by keeping primary metrics and hypotheses predeclared and by routing every interpretive statement through the claim ledger.

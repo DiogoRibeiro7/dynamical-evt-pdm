@@ -1,0 +1,8 @@
+\section{Reproducibility}
+\label{supp:reproducibility}
+
+The build is organized around immutable artifacts. The root command \texttt{make paper-assets} regenerates figures, tables, result macros, the claim ledger, the results synthesis document, and per-file provenance records. The command \texttt{make paper} builds the main manuscript after regenerating assets. The command \texttt{make supplement} builds this supplement after the same asset step. The command \texttt{make paper-check} compiles both documents and audits generated assets, citations, claim references, provenance hashes, compiled PDFs, and source markers.
+
+The generated macros record experiment identifier \DynEvtExperimentId{}, code hash \DynEvtCodeHash{}, configuration hash \DynEvtConfigHash{}, protocol hash \DynEvtProtocolHash{}, dataset checksum \DynEvtDatasetChecksum{}, claim count \DynEvtClaimCount{}, and permitted-claim count \DynEvtSupportedClaimCount{}. The code hash is intentionally short in the manuscript macro, while the full hash is available in the asset manifest.
+
+The claim-to-artifact map is stored in \texttt{reports/paper/claim\_ledger.json} and mirrored as CSV and Markdown. The citation audit and claim audit are written to \texttt{paper/generated/} by the paper checker. Manual edits to generated figures or tables are detected through the provenance hash audit.

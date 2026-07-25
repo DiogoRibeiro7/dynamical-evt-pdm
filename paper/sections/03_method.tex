@@ -1,0 +1,16 @@
+\section{Method}
+\label{sec:method}
+
+Let \(Z_t \in \mathbb{R}^p\) denote the causal machine-state vector observed at time \(t\). The state may contain raw sensors, engineered lag features, or delay embeddings, but every coordinate must be available at or before \(t\). Let \(R_t\) denote the operating regime, obtained either from rule-based compressor states, change-point segmentation, or a hidden-state model. Regimes are not interpreted as physical causes by themselves; they are conditioning variables used to reduce mixture effects when estimating tail and alarm behavior.
+
+A dangerous region \(A\) is defined from training data only. In the implementation, \(A\) may be represented by failure-proximal prototypes, robust high-risk state summaries, or distance constraints. For a distance \(d(\cdot,A)\), the scalar observable is
+\[
+    X_t = -\log\{d(Z_t,A) + \epsilon\},
+\]
+where \(\epsilon>0\) prevents numerical singularities. Large \(X_t\) corresponds to a state closer to the training-defined target region. This transformation is a diagnostic construction, not a proof that the machine is mechanically degrading.
+
+For each regime \(r\), a threshold \(u_r(q)\) is fitted from the training or calibration partition at quantile \(q\). Exceedances are \(I_t(q,r)=\mathbf{1}\{X_t>u_r(q), R_t=r\}\). Consecutive exceedances are converted into clusters using a run length \(m\): two exceedance samples are assigned to the same cluster when the gap between them is no larger than \(m\). The runs extremal-index estimate summarizes clustering under the selected \(q\) and \(m\), while the inter-exceedance estimator provides an alternative declustering view \citep{FerroSegers2003Clusters}. The inverse extremal index is discussed only as an asymptotic cluster-size quantity under stated assumptions.
+
+The hitting-time target for a warning horizon \(h\) is \(Y_t^{(h)}=\mathbf{1}\{\tau_A(t)\le h\}\), where \(\tau_A(t)\) is the first future time at which the trajectory enters the target region or a labelled failure episode. A horizon-risk score estimates \(\Pr(Y_t^{(h)}=1\mid \mathcal{F}_t)\) using causal features. Multivariate lag patterns are represented by tuples \((j,k,\ell)\) indicating that component \(j\) exceeds its threshold and component \(k\) exceeds its threshold after lag \(\ell\). These patterns are evaluated against null models that preserve marginal exceedance rates or within-cluster structure.
+
+Pointwise alarms are finally merged into alarm episodes using the frozen merge gap and matched to failure episodes under the declared early-warning policy. This separation is essential: observations, exceedances, clusters, alarm episodes, failure episodes, repairs, and independent units are different objects. The evaluation metrics in Section~\ref{sec:protocol} are therefore computed after episode conversion rather than directly from timestamp labels.

@@ -1,0 +1,48 @@
+\section{Results}
+\label{sec:results}
+
+The generated results support a diagnostic and reproducibility claim, not an industrial superiority claim. Each numerical table and figure used below is produced by version-controlled code under experiment identifier \DynEvtExperimentId{} and dataset checksum \DynEvtDatasetChecksum{}.
+
+Threshold and run-length sensitivity is shown in Figure~\ref{fig:threshold-stability} and Table~\ref{tab:threshold-stability}. The grid changes exceedance and cluster behavior, supporting CLM-002. This is expected under dependent telemetry and is the reason the manuscript reports sensitivity rather than a single chosen threshold as if it were model-free.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.78\linewidth]{../reports/paper/figures/threshold_stability.png}
+  \caption{Threshold and run-length stability diagnostic. The figure is generated from the cached processed data and records the empirical runs extremal-index estimate across the registered grid.}
+  \label{fig:threshold-stability}
+\end{figure}
+
+\input{../reports/paper/latex/threshold_stability.tex}
+
+The alarm frontier in Figure~\ref{fig:frontier} and Table~\ref{tab:frontier} reports the trade-off between event recall, lead time, and false-alarm event rate. It supports CLM-004 only as an exploratory operational trade-off. In particular, a visually acceptable frontier is not evidence of calibrated failure probability, and a reduction in duplicate alarms would be useful only if recall, lead time, and time under warning remain acceptable.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.72\linewidth]{../reports/paper/figures/lead_time_false_alarm_frontier.png}
+  \caption{Lead-time versus false-alarm frontier generated under the frozen event-matching protocol.}
+  \label{fig:frontier}
+\end{figure}
+
+\input{../reports/paper/latex/lead_time_false_alarm_frontier.tex}
+
+Calibration is reported as a reliability diagnostic rather than a probability guarantee. Figure~\ref{fig:reliability} uses ranked horizon-risk surrogates and observed future-event indicators. This supports CLM-005: calibration claims require frozen out-of-sample probability calibration and uncertainty bands, which are not replaced by this diagnostic plot.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.58\linewidth]{../reports/paper/figures/reliability_diagram.png}
+  \caption{Reliability diagnostic for ranked horizon risk. Bin counts are preserved in the generated table and provenance file.}
+  \label{fig:reliability}
+\end{figure}
+
+The ablation registry is summarized in Table~\ref{tab:ablations}. It supports CLM-006 as a coverage claim: the artifact records the registered ablation families, but families with missing or non-estimable effect summaries still require direct artifact inspection before a stronger statement is made.
+
+\input{../reports/paper/latex/ablation_summary.tex}
+
+The complete event timeline in Figure~\ref{fig:timeline} is included for auditability. It shows the observable, threshold, labelled failure samples, and alarm points on aligned axes. The figure is useful for detecting visually obvious timing problems, but it is not itself statistical validation.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.95\linewidth]{../reports/paper/figures/event_timeline.png}
+  \caption{Generated alarm timeline with failures and threshold exceedances on aligned axes.}
+  \label{fig:timeline}
+\end{figure}

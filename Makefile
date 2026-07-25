@@ -1,4 +1,4 @@
-.PHONY: install format lint typecheck test check fetch-data prepare-data simulate simulation-study experiment-matrix end-to-end-smoke paper-assets paper-assets-verify
+.PHONY: install format lint typecheck test check fetch-data prepare-data simulate simulation-study experiment-matrix end-to-end-smoke paper-assets paper-assets-verify paper supplement paper-check
 
 install:
 	poetry install --with dev
@@ -55,3 +55,12 @@ paper-assets: simulate simulation-study
 
 paper-assets-verify:
 	poetry run dyn-evt verify-paper-assets --output-root reports/paper
+
+paper: paper-assets
+	$(MAKE) -C paper paper
+
+supplement: paper-assets
+	$(MAKE) -C paper supplement
+
+paper-check: paper supplement
+	poetry run dyn-evt check-paper --paper-root paper --asset-root reports/paper

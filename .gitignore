@@ -27,3 +27,23 @@ reports/paper/*
 reports/paper_*/
 reports/master_smoke/*
 reports/real_data/*
+
+# LaTeX build outputs
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.fls
+paper/*.fdb_latexmk
+paper/*.log
+paper/*.out
+paper/*.pdf
+paper/supplement/*.aux
+paper/supplement/*.bbl
+paper/supplement/*.blg
+paper/supplement/*.fls
+paper/supplement/*.fdb_latexmk
+paper/supplement/*.log
+paper/supplement/*.out
+paper/supplement/*.pdf
+paper/generated/*_audit.json
+paper/generated/paper_check_report.json

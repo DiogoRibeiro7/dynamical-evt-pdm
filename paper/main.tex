@@ -1,0 +1,34 @@
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb,booktabs,graphicx}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\input{generated/result_macros.tex}
+
+\title{From Extreme Samples to Failure Episodes: A Reproducible Dynamical-EVT Diagnostic Workflow for Predictive Maintenance}
+\author{Diogo Ribeiro}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Industrial predictive-maintenance telemetry is commonly evaluated through pointwise anomaly scores, although maintenance decisions concern failure episodes, repair intervals, and alarm burden. This paper reports a reproducible workflow that converts causal machine-state observations into regime-conditioned extreme-event diagnostics, alarm episodes, and artifact-backed claims. The implementation combines dangerous-region observables, threshold and run-length sensitivity analysis, extremal-index diagnostics, event-level matching, baseline provenance, and a frozen evaluation protocol. The completed asset bundle records \DynEvtClaimCount{} claim-ledger entries, of which \DynEvtSupportedClaimCount{} are permitted for manuscript use under the generated ledger. The present evidence supports a narrow conclusion: the workflow can expose estimator sensitivity, clustering, calibration diagnostics, and operational alarm trade-offs from generated artifacts, while it does not support a population-level superiority claim for industrial predictive maintenance. All reported claims are linked to experiment identifier \DynEvtExperimentId{}, protocol hash \DynEvtProtocolHash{}, and generated figures or tables.
+\end{abstract}
+
+\input{sections/01_introduction}
+\input{sections/02_related_work}
+\input{sections/03_method}
+\input{sections/04_simulation}
+\input{sections/05_datasets}
+\input{sections/06_experimental_protocol}
+\input{sections/07_results}
+\input{sections/08_discussion}
+\input{sections/09_conclusion}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

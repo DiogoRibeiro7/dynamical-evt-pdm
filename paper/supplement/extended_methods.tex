@@ -1,0 +1,10 @@
+\section{Extended Methods}
+\label{supp:methods}
+
+The implemented state-space construction requires causal availability. If a delay embedding is used, every lagged coordinate is shifted so that \(Z_t\) contains only information observed at or before \(t\). Scaling parameters, dangerous-region prototypes, and thresholds are fitted on the declared training or calibration partitions and reused without refitting on the test partition.
+
+Runs declustering uses a non-negative integer run length \(m\). If exceedance times are \(e_1<\cdots<e_k\), then \(e_i\) and \(e_{i+1}\) belong to the same cluster when \(e_{i+1}-e_i\le m+1\). Cluster severity may be summarized by size, duration, maximum observable, or integrated excess above threshold. These empirical quantities should not be equated with fault duration unless the sampling frequency, gap rule, and label definition justify that interpretation.
+
+The inter-exceedance estimator is included because cluster inference can be sensitive to manual declustering choices \citep{FerroSegers2003Clusters}. The dynamical interpretation follows the hitting-time connection between returns to shrinking target sets and extreme-value laws \citep{Freitas2008Hitting}. The periodicity result motivates the caution that recurrence can reduce the extremal index without implying a specific mechanical cause \citep{Freitas2012Periodicity}.
+
+Horizon-risk calibration is computed after freezing the event target. The current generated reliability diagram is a diagnostic based on ranked risk surrogates; a full probabilistic calibration claim would require held-out calibration data, uncertainty bands, and explicit acceptance criteria.
