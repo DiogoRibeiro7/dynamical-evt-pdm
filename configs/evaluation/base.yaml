@@ -1,0 +1,40 @@
+protocol_id: event_protocol_v1
+version: "1.0"
+dataset_id: generic
+independent_unit: dataset_specific
+train_partition: train
+validation_partition: validation
+calibration_partition: validation
+test_partition: test
+exclusion_column: exclusion_mask
+maintenance_boundary_column: null
+warning_horizons: [20, 60, 300]
+event_onset_definition: first timestamp labelled as failure or repair onset
+event_end_definition: last contiguous timestamp labelled as the same failure or repair event
+alarm_merge_gap: 5
+cooldown: 0
+matching_tolerance_before: 0
+matching_tolerance_after: 0
+matching_method: optimal
+bootstrap_unit: dataset_specific
+primary_metrics:
+  - event_precision
+  - event_recall
+  - event_f1
+  - false_alarm_events_per_operating_day
+  - duplicate_alarms_per_failure
+  - median_warning_lead_time
+  - horizon_brier_score
+secondary_metrics:
+  - pointwise_auroc
+  - pointwise_auprc
+  - time_under_warning
+  - event_utility
+utility_costs:
+  true_positive_reward: 1.0
+  false_alarm_cost: 0.2
+  missed_failure_cost: 2.0
+  duplicate_alarm_cost: 0.1
+  late_alarm_cost: 0.05
+  warning_time_cost: 0.0
+frozen_timestamp_utc: "2026-07-25T00:00:00Z"

@@ -21,6 +21,7 @@ from dyn_evt_pdm.data.registry import (
     render_dataset_latex_table,
     verify_dataset,
 )
+from dyn_evt_pdm.evaluation.protocol import read_protocol, write_protocol
 from dyn_evt_pdm.evt.dangerous_region import (
     StateProvenance,
     dangerous_region_from_training_failures,
@@ -567,6 +568,25 @@ def run_baselines_command(
         encoding="utf-8",
     )
     typer.echo(f"wrote baseline predictions to {output} and metadata to {metadata_output}")
+
+
+@app.command("freeze-evaluation-protocol")
+def freeze_evaluation_protocol_command(
+    config_path: Annotated[Path, typer.Option("--config", exists=True, dir_okay=False)] = Path(
+        "configs/evaluation/base.yaml"
+    ),
+    output: Annotated[Path, typer.Option(help="Hashed JSON protocol artifact output.")] = Path(
+        "artifacts/protocols/evaluation_protocol.json"
+    ),
+) -> None:
+    """Validate and freeze a versioned event-evaluation protocol."""
+
+    try:
+        protocol = read_protocol(config_path)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    write_protocol(protocol, output)
+    typer.echo(f"wrote protocol {protocol.protocol_id} hash={protocol.protocol_hash} to {output}")
 
 
 @app.command("build-paper-assets")
