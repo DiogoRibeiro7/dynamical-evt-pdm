@@ -25,7 +25,18 @@ The alarm frontier in Figure~\ref{fig:frontier} and Table~\ref{tab:frontier} rep
 
 \input{../reports/paper/latex/lead_time_false_alarm_frontier.tex}
 
-Calibration is reported as a reliability diagnostic rather than a probability guarantee. Figure~\ref{fig:reliability} uses ranked horizon-risk surrogates and observed future-event indicators. This supports CLM-005: calibration claims require frozen out-of-sample probability calibration and uncertainty bands, which are not replaced by this diagnostic plot.
+Matching sensitivity is shown in Figure~\ref{fig:matching-tolerance} and Table~\ref{tab:matching-tolerance}. This surface varies both the alarm merge gap and the post-onset matching tolerance, making explicit whether an operational conclusion depends on one favorable episode-conversion rule. It extends CLM-004 but does not change its permitted strength: the evidence is still an exploratory operational trade-off.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.72\linewidth]{../reports/paper/figures/matching_tolerance_surface.png}
+  \caption{Event F1 sensitivity over alarm merge gap and matching tolerance after failure onset.}
+  \label{fig:matching-tolerance}
+\end{figure}
+
+\input{../reports/paper/latex/matching_tolerance_surface.tex}
+
+Calibration is reported as a reliability diagnostic rather than a probability guarantee. Figure~\ref{fig:reliability} uses ranked horizon-risk surrogates and observed future-event indicators. Figure~\ref{fig:split-calibration} and Table~\ref{tab:split-calibration} add split-aware intervals using training-ranked risk scores. This supports CLM-005 as a narrow diagnostic claim: generated intervals are now present, but they are not a substitute for a prospective calibrated probability model.
 
 \begin{figure}[t]
   \centering
@@ -33,6 +44,15 @@ Calibration is reported as a reliability diagnostic rather than a probability gu
   \caption{Reliability diagnostic for ranked horizon risk. Bin counts are preserved in the generated table and provenance file.}
   \label{fig:reliability}
 \end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.62\linewidth]{../reports/paper/figures/split_calibration_intervals.png}
+  \caption{Split-aware calibration intervals for training-ranked horizon-risk scores.}
+  \label{fig:split-calibration}
+\end{figure}
+
+\input{../reports/paper/latex/split_calibration_intervals.tex}
 
 The ablation registry is summarized in Table~\ref{tab:ablations}. It supports CLM-006 as a coverage claim: the artifact records the registered ablation families, but families with missing or non-estimable effect summaries still require direct artifact inspection before a stronger statement is made.
 

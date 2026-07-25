@@ -232,8 +232,13 @@ def _claims_from_tables(config: ClaimLedgerConfig) -> tuple[Claim, ...]:
     frontier = _read_optional_csv(
         config.output_root / "tables" / "lead_time_false_alarm_frontier.csv"
     )
+    matching = _read_optional_csv(config.output_root / "tables" / "matching_tolerance_surface.csv")
     simulation = _read_optional_csv(config.output_root / "tables" / "simulation_bias_rmse.csv")
     reliability = _read_optional_csv(config.output_root / "tables" / "reliability_diagram.csv")
+    split_calibration = _read_optional_csv(
+        config.output_root / "tables" / "split_calibration_intervals.csv"
+    )
+    split_brier = _read_optional_csv(config.output_root / "tables" / "split_calibration_brier.csv")
     ablations = _read_optional_csv(config.output_root / "tables" / "ablation_summary.csv")
 
     rows = int(split_summary["rows"].sum()) if "rows" in split_summary else 0
@@ -246,7 +251,10 @@ def _claims_from_tables(config: ClaimLedgerConfig) -> tuple[Claim, ...]:
     best_rmse = _minimum_numeric(simulation, "runs_rmse")
     frontier_recall = _maximum_numeric(frontier, "event_recall")
     frontier_false_alarm = _minimum_numeric(frontier, "false_alarm_events_per_day")
+    best_matching_f1 = _maximum_numeric(matching, "event_f1")
     reliability_bins = int(len(reliability))
+    split_calibration_bins = int(len(split_calibration))
+    test_brier = _split_numeric(split_brier, split="test", column="brier_score")
     ablation_families = (
         int(ablations["ablation_family"].nunique())
         if "ablation_family" in ablations and len(ablations)
@@ -334,14 +342,17 @@ def _claims_from_tables(config: ClaimLedgerConfig) -> tuple[Claim, ...]:
             experiment_ids=config.experiment_id,
             table_or_figure_reference=(
                 "tables/lead_time_false_alarm_frontier.csv; "
-                "figures/lead_time_false_alarm_frontier.png"
+                "figures/lead_time_false_alarm_frontier.png; "
+                "tables/matching_tolerance_surface.csv; "
+                "figures/matching_tolerance_surface.png"
             ),
             effect_estimate=(
                 f"max_event_recall={_format_number(frontier_recall)}; "
-                f"min_false_alarm_events_per_day={_format_number(frontier_false_alarm)}"
+                f"min_false_alarm_events_per_day={_format_number(frontier_false_alarm)}; "
+                f"best_matching_tolerance_f1={_format_number(best_matching_f1)}"
             ),
-            uncertainty="no population-level interval from this cached asset",
-            sensitivity_status="threshold grid generated",
+            uncertainty="matching tolerance and merge-gap surface generated",
+            sensitivity_status="threshold, matching tolerance, and merge-gap grids generated",
             assumptions="failure labels define independent event targets",
             counterevidence="few or no labelled failures make the frontier non-estimable",
             permitted_strength="exploratory operational tradeoff",
@@ -362,12 +373,19 @@ def _claims_from_tables(config: ClaimLedgerConfig) -> tuple[Claim, ...]:
             independent_units=f"{reliability_bins} reliability bins",
             estimand="observed event rate versus ranked horizon risk",
             experiment_ids=config.experiment_id,
-            table_or_figure_reference="tables/reliability_diagram.csv; figures/reliability_diagram.png",
-            effect_estimate=f"bins={reliability_bins}",
-            uncertainty="bin counts shown; no calibration confidence bands",
-            sensitivity_status="single empirical ranking diagnostic",
-            assumptions="ranked observable is used as a risk surrogate",
-            counterevidence="calibration claim requires out-of-sample calibrated probabilities",
+            table_or_figure_reference=(
+                "tables/reliability_diagram.csv; figures/reliability_diagram.png; "
+                "tables/split_calibration_intervals.csv; "
+                "figures/split_calibration_intervals.png"
+            ),
+            effect_estimate=(
+                f"bins={reliability_bins}; split_bins={split_calibration_bins}; "
+                f"test_brier={_format_number(test_brier)}"
+            ),
+            uncertainty="split-aware Wilson binomial intervals generated",
+            sensitivity_status="training-ranked split calibration generated",
+            assumptions="ranked observable is calibrated from the training split as a risk surrogate",
+            counterevidence="full probability calibration still requires a prospective risk model",
             permitted_strength="limitation statement",
             manuscript_sections_allowed="Limitations; Discussion",
             final_status="narrowly supported" if reliability_bins > 0 else "not estimable",
@@ -552,6 +570,16 @@ def _maximum_numeric(frame: pd.DataFrame, column: str) -> float:
     if values.empty:
         return float("nan")
     return float(values.max())
+
+
+def _split_numeric(frame: pd.DataFrame, *, split: str, column: str) -> float:
+    if "split" not in frame or column not in frame:
+        return float("nan")
+    selected = frame[frame["split"].astype(str).str.lower() == split]
+    values = pd.to_numeric(selected[column], errors="coerce").dropna()
+    if values.empty:
+        return float("nan")
+    return float(values.iloc[0])
 
 
 def _format_effect(name: str, value: float) -> str:

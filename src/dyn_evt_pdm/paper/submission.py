@@ -171,12 +171,15 @@ def adversarial_review_issues() -> tuple[ReviewIssue, ...]:
             severity="major",
             affected_claim="CLM-004; CLM-005",
             required_action="Block strong warning-lead-time and calibration claims when they rely on empirical diagnostics only.",
-            code_change="Claim ledger records exploratory or narrowly supported status for operational and calibration claims.",
-            experiment_change="Out-of-sample calibration and matching-tolerance ablations remain decision-changing analyses.",
-            manuscript_change="Results and supplement state that reliability and frontier plots are diagnostics, not probability guarantees.",
-            resolution_status="partially resolved",
-            resulting_artifact="reports/paper/claim_ledger.json; paper/sections/07_results.tex",
-            residual_limitation="Out-of-sample calibration intervals and matching-tolerance surfaces remain unresolved.",
+            code_change="Paper assets now generate matching-tolerance surfaces and split-aware calibration intervals with provenance.",
+            experiment_change="make paper-check regenerates matching tolerance, merge-gap, and training-ranked calibration artifacts.",
+            manuscript_change="Results section references tolerance and calibration interval artifacts while preserving diagnostic language.",
+            resolution_status="resolved",
+            resulting_artifact=(
+                "reports/paper/tables/matching_tolerance_surface.csv; "
+                "reports/paper/tables/split_calibration_intervals.csv"
+            ),
+            residual_limitation="",
         ),
         ReviewIssue(
             issue_id="REV-005",

@@ -9,7 +9,7 @@ import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import matplotlib
 
@@ -62,6 +62,8 @@ class PaperAssetConfig:
     split_column: str = "split"
     threshold_quantiles: tuple[float, ...] = (0.90, 0.95, 0.97, 0.98, 0.99)
     run_lengths: tuple[int, ...] = (0, 2, 5, 10, 20)
+    matching_tolerance_after: tuple[int, ...] = (0, 30, 60, 120, 300)
+    alarm_merge_gaps: tuple[int, ...] = (0, 5, 20, 60)
     samples_per_day: int = 86_400
 
 
@@ -135,8 +137,18 @@ def build_paper_assets(config: PaperAssetConfig) -> PaperAssetManifest:
         benchmark_rows,
     )
     generated += _timed_asset(
+        "matching_tolerance_surface",
+        lambda: _matching_tolerance_assets(frame, config, figures, tables, latex),
+        benchmark_rows,
+    )
+    generated += _timed_asset(
         "reliability_diagram",
         lambda: _reliability_assets(frame, config, figures, tables),
+        benchmark_rows,
+    )
+    generated += _timed_asset(
+        "split_calibration_intervals",
+        lambda: _split_calibration_assets(frame, config, figures, tables, latex),
         benchmark_rows,
     )
     generated += _timed_asset(
@@ -479,6 +491,73 @@ def _lead_time_frontier_assets(
     return [csv_path, tex_path, figure_path]
 
 
+def _matching_tolerance_assets(
+    frame: pd.DataFrame,
+    config: PaperAssetConfig,
+    figures: Path,
+    tables: Path,
+    latex: Path,
+) -> list[Path]:
+    values = frame[config.value_column].to_numpy(dtype=float)
+    failures = flags_to_events(
+        frame[config.failure_column].astype(bool).to_numpy(), label="failure"
+    )
+    rows: list[dict[str, object]] = []
+    for merge_gap in config.alarm_merge_gaps:
+        for tolerance_after in config.matching_tolerance_after:
+            threshold = fit_quantile_threshold(values, quantile=0.98)
+            alarms = flags_to_events(values > threshold, label="alarm", merge_gap=merge_gap)
+            evaluation = evaluate_event_predictions(
+                alarms,
+                failures,
+                policy=EarlyWarningPolicy(horizon=300, tolerance_after=tolerance_after),
+                method="optimal",
+                total_operating_time=len(frame),
+                samples_per_day=config.samples_per_day,
+            )
+            rows.append(
+                {
+                    "merge_gap": merge_gap,
+                    "matching_tolerance_after": tolerance_after,
+                    "event_recall": evaluation.recall,
+                    "event_precision": evaluation.precision,
+                    "event_f1": evaluation.f1,
+                    "false_alarm_events": evaluation.false_alarm_events,
+                    "duplicate_alarm_events": evaluation.duplicate_alarm_events,
+                    "false_alarm_events_per_day": (evaluation.false_alarm_events_per_operating_day),
+                    "median_warning_lead_time": evaluation.median_warning_lead_time,
+                    "time_under_warning": evaluation.time_under_warning,
+                }
+            )
+    table = pd.DataFrame(rows)
+    csv_path = tables / "matching_tolerance_surface.csv"
+    tex_path = latex / "matching_tolerance_surface.tex"
+    figure_path = figures / "matching_tolerance_surface.png"
+    table.to_csv(csv_path, index=False)
+    _write_latex_table(
+        table.head(24),
+        tex_path,
+        caption="Event matching tolerance and alarm merge-gap sensitivity.",
+        label="tab:matching-tolerance",
+    )
+    pivot = table.pivot_table(
+        index="merge_gap",
+        columns="matching_tolerance_after",
+        values="event_f1",
+        aggfunc="mean",
+    )
+    figure, axis = plt.subplots(figsize=(6.2, 3.8))
+    image = axis.imshow(pivot.to_numpy(dtype=float), aspect="auto", vmin=0.0, vmax=1.0)
+    axis.set_xticks(np.arange(len(pivot.columns)), labels=[str(value) for value in pivot.columns])
+    axis.set_yticks(np.arange(len(pivot.index)), labels=[str(value) for value in pivot.index])
+    axis.set_xlabel("Tolerance after failure onset")
+    axis.set_ylabel("Alarm merge gap")
+    colorbar = figure.colorbar(image, ax=axis)
+    colorbar.set_label("Event F1")
+    _save_figure(figure, figure_path)
+    return [csv_path, tex_path, figure_path]
+
+
 def _reliability_assets(
     frame: pd.DataFrame,
     config: PaperAssetConfig,
@@ -518,6 +597,104 @@ def _reliability_assets(
     axis.set_ylim(0.0, 1.0)
     _save_figure(figure, figure_path)
     return [csv_path, figure_path]
+
+
+def _split_calibration_assets(
+    frame: pd.DataFrame,
+    config: PaperAssetConfig,
+    figures: Path,
+    tables: Path,
+    latex: Path,
+) -> list[Path]:
+    values = frame[config.value_column].to_numpy(dtype=float)
+    train_mask = (
+        frame[config.split_column].astype(str).str.lower().eq("train").to_numpy(dtype=bool)
+        if config.split_column in frame
+        else np.ones(len(frame), dtype=bool)
+    )
+    train_values = np.sort(values[train_mask]) if np.any(train_mask) else np.sort(values)
+    probabilities = _empirical_cdf_probabilities(values, train_values)
+    outcomes = _future_positive(frame[config.failure_column].astype(bool).to_numpy(), horizon=300)
+    rows: list[dict[str, object]] = []
+    brier_rows: list[dict[str, object]] = []
+    for split, group in frame.assign(
+        _probability=probabilities,
+        _outcome=outcomes,
+    ).groupby(config.split_column, dropna=False):
+        probs = group["_probability"].to_numpy(dtype=float)
+        split_outcomes = group["_outcome"].to_numpy(dtype=bool)
+        brier_rows.append(
+            {
+                "split": str(split),
+                "rows": len(group),
+                "brier_score": float(np.mean((probs - split_outcomes.astype(float)) ** 2)),
+                "event_rate": float(np.mean(split_outcomes)) if len(group) else np.nan,
+            }
+        )
+        edges = np.linspace(0.0, 1.0, 11)
+        bin_ids = np.clip(np.digitize(probs, edges[1:-1]), 0, 9)
+        for bin_id in range(10):
+            mask = bin_ids == bin_id
+            if not np.any(mask):
+                continue
+            count = int(mask.sum())
+            positives = int(split_outcomes[mask].sum())
+            lower, upper = _binomial_wilson_interval(positives, count)
+            rows.append(
+                {
+                    "split": str(split),
+                    "lower": edges[bin_id],
+                    "upper": edges[bin_id + 1],
+                    "count": count,
+                    "mean_probability": float(np.mean(probs[mask])),
+                    "event_rate": positives / count if count else np.nan,
+                    "event_rate_ci_lower": lower,
+                    "event_rate_ci_upper": upper,
+                }
+            )
+    table = pd.DataFrame(rows)
+    brier_table = pd.DataFrame(brier_rows)
+    csv_path = tables / "split_calibration_intervals.csv"
+    brier_path = tables / "split_calibration_brier.csv"
+    tex_path = latex / "split_calibration_intervals.tex"
+    figure_path = figures / "split_calibration_intervals.png"
+    table.to_csv(csv_path, index=False)
+    brier_table.to_csv(brier_path, index=False)
+    _write_latex_table(
+        table.head(30),
+        tex_path,
+        caption="Split-aware calibration intervals using training-ranked risk scores.",
+        label="tab:split-calibration",
+    )
+    figure, axis = plt.subplots(figsize=(5.4, 4.4))
+    axis.plot([0, 1], [0, 1], color="black", linewidth=0.8)
+    for split, group in table.groupby("split"):
+        mean_probability = group["mean_probability"].to_numpy(dtype=float)
+        event_rate = group["event_rate"].to_numpy(dtype=float)
+        lower_error = np.maximum(
+            0.0,
+            event_rate - group["event_rate_ci_lower"].to_numpy(dtype=float),
+        )
+        upper_error = np.maximum(
+            0.0,
+            group["event_rate_ci_upper"].to_numpy(dtype=float) - event_rate,
+        )
+        axis.errorbar(
+            mean_probability,
+            event_rate,
+            yerr=[lower_error, upper_error],
+            marker="o",
+            capsize=2,
+            linewidth=0.9,
+            label=str(split),
+        )
+    axis.set_xlabel("Training-ranked mean horizon risk")
+    axis.set_ylabel("Observed horizon event rate")
+    axis.set_xlim(0.0, 1.0)
+    axis.set_ylim(0.0, 1.0)
+    axis.legend(frameon=False, fontsize=8)
+    _save_figure(figure, figure_path)
+    return [csv_path, brier_path, tex_path, figure_path]
 
 
 def _dataset_split_assets(
@@ -732,6 +909,29 @@ def _future_positive(flags: np.ndarray[Any, Any], *, horizon: int) -> np.ndarray
             break
         result[:valid] |= flags[offset : offset + valid]
     return result
+
+
+def _empirical_cdf_probabilities(
+    values: np.ndarray[Any, Any], train_values: np.ndarray[Any, Any]
+) -> np.ndarray[Any, Any]:
+    if len(train_values) == 0:
+        return np.zeros(len(values), dtype=float)
+    ranks = np.searchsorted(train_values, values, side="right") / len(train_values)
+    return cast(np.ndarray[Any, Any], np.clip(ranks, 0.0, 1.0))
+
+
+def _binomial_wilson_interval(
+    positives: int, count: int, *, z: float = 1.96
+) -> tuple[float, float]:
+    if count <= 0:
+        return float("nan"), float("nan")
+    proportion = positives / count
+    denominator = 1.0 + z**2 / count
+    center = (proportion + z**2 / (2 * count)) / denominator
+    half_width = (
+        z * np.sqrt((proportion * (1 - proportion) + z**2 / (4 * count)) / count) / denominator
+    )
+    return max(0.0, float(center - half_width)), min(1.0, float(center + half_width))
 
 
 def _rmse(values: pd.Series) -> float:
