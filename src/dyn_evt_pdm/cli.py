@@ -690,6 +690,9 @@ def build_submission_package_command(
     output_root: Annotated[Path, typer.Option(help="Generated submission package root.")] = Path(
         "reports/submission"
     ),
+    real_data_matrix_root: Annotated[
+        Path, typer.Option(help="Real-data matrix artifact root used for terminal-status audit.")
+    ] = Path("artifacts/real_data_matrix"),
 ) -> None:
     """Assemble reviewed manuscript, artifacts, statements, and revision matrix."""
 
@@ -699,6 +702,7 @@ def build_submission_package_command(
                 paper_root=paper_root,
                 asset_root=asset_root,
                 output_root=output_root,
+                real_data_matrix_root=real_data_matrix_root,
             )
         )
     except (FileNotFoundError, ValueError) as exc:

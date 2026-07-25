@@ -19,6 +19,7 @@ SubmissionDecision = Literal[
     "submission ready after minor editorial changes",
     "not submission ready",
 ]
+REQUIRED_REAL_DATASETS = frozenset({"metropt", "metropt2", "scania_component_x"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +45,7 @@ class SubmissionPackageConfig:
     paper_root: Path = Path("paper")
     asset_root: Path = Path("reports/paper")
     output_root: Path = Path("reports/submission")
+    real_data_matrix_root: Path = Path("artifacts/real_data_matrix")
     protocol_path: Path = Path("configs/evaluation/base.yaml")
     lock_path: Path = Path("poetry.lock")
     license_path: Path = Path("LICENSE")
@@ -70,7 +72,8 @@ def build_submission_package(config: SubmissionPackageConfig) -> SubmissionPacka
         asset_root=config.asset_root,
         require_pdfs=True,
     )
-    issues = adversarial_review_issues()
+    real_data_audit = audit_real_data_matrix(config.real_data_matrix_root)
+    issues = adversarial_review_issues(real_data_audit)
     decision = final_submission_decision(issues, paper_check.failures)
     blockers = tuple(
         issue.residual_limitation
@@ -90,7 +93,10 @@ def build_submission_package(config: SubmissionPackageConfig) -> SubmissionPacka
     reproducibility = output_root / "reproducibility_instructions.md"
     decision_path = output_root / "final_decision.md"
 
-    review_report.write_text(render_reviewer_report(issues, decision, blockers), encoding="utf-8")
+    review_report.write_text(
+        render_reviewer_report(issues, decision, blockers, real_data_audit),
+        encoding="utf-8",
+    )
     _write_revision_matrix(issues, revision_matrix_csv, revision_matrix_md)
     statements.write_text(render_submission_statements(config), encoding="utf-8")
     reproducibility.write_text(render_reproducibility_instructions(), encoding="utf-8")
@@ -126,9 +132,131 @@ def build_submission_package(config: SubmissionPackageConfig) -> SubmissionPacka
     )
 
 
-def adversarial_review_issues() -> tuple[ReviewIssue, ...]:
+@dataclass(frozen=True, slots=True)
+class RealDataMatrixAudit:
+    """Evidence that the registered real-data matrix reached terminal status."""
+
+    status: str
+    manifest_path: Path
+    status_path: Path
+    verified_datasets: tuple[str, ...]
+    failed_datasets: tuple[str, ...]
+    missing_datasets: tuple[str, ...]
+    reason: str
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "succeeded" and not self.failed_datasets and not self.missing_datasets
+
+
+def audit_real_data_matrix(root: Path) -> RealDataMatrixAudit:
+    """Read the local real-data matrix manifest and dataset status table."""
+
+    manifest_path = root / "experiment_manifest.json"
+    status_path = root / "real_data_status.csv"
+    if not manifest_path.exists():
+        return RealDataMatrixAudit(
+            status="missing",
+            manifest_path=manifest_path,
+            status_path=status_path,
+            verified_datasets=(),
+            failed_datasets=(),
+            missing_datasets=tuple(sorted(REQUIRED_REAL_DATASETS)),
+            reason=f"missing real-data matrix manifest: {manifest_path}",
+        )
+    if not status_path.exists():
+        return RealDataMatrixAudit(
+            status="missing",
+            manifest_path=manifest_path,
+            status_path=status_path,
+            verified_datasets=(),
+            failed_datasets=(),
+            missing_datasets=tuple(sorted(REQUIRED_REAL_DATASETS)),
+            reason=f"missing real-data status table: {status_path}",
+        )
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_status = str(payload.get("status", "missing")).lower()
+    cells = payload.get("cells", [])
+    real_data_cells = [
+        cell
+        for cell in cells
+        if isinstance(cell, dict) and str(cell.get("family", "")).lower() == "real_data"
+    ]
+    terminal_statuses = {"succeeded", "failed", "skipped"}
+    nonterminal = [
+        str(cell.get("name", "unknown"))
+        for cell in real_data_cells
+        if str(cell.get("status", "")).lower() not in terminal_statuses
+    ]
+    table = pd.read_csv(status_path)
+    required_columns = {"dataset_id", "status"}
+    if not required_columns.issubset(table.columns):
+        return RealDataMatrixAudit(
+            status="failed",
+            manifest_path=manifest_path,
+            status_path=status_path,
+            verified_datasets=(),
+            failed_datasets=(),
+            missing_datasets=tuple(sorted(REQUIRED_REAL_DATASETS)),
+            reason="real-data status table is missing dataset_id or status",
+        )
+    verified = tuple(
+        str(row.dataset_id)
+        for row in table.itertuples(index=False)
+        if str(row.status).lower() == "verified"
+    )
+    failed = tuple(
+        str(row.dataset_id)
+        for row in table.itertuples(index=False)
+        if str(row.status).lower() != "verified"
+    )
+    missing = tuple(sorted(REQUIRED_REAL_DATASETS.difference(verified).difference(failed)))
+    if manifest_status != "succeeded":
+        reason = f"real-data matrix manifest status is {manifest_status}"
+    elif nonterminal:
+        reason = f"real-data cells are not terminal: {', '.join(nonterminal)}"
+    elif failed:
+        reason = f"datasets are not verified: {', '.join(failed)}"
+    elif missing:
+        reason = f"required datasets are missing from status table: {', '.join(missing)}"
+    elif not real_data_cells:
+        reason = "real-data matrix manifest has no real-data cell"
+    else:
+        reason = f"verified datasets: {', '.join(verified)}"
+    status = (
+        "succeeded"
+        if manifest_status == "succeeded" and not nonterminal and not failed and not missing
+        else "failed"
+    )
+    return RealDataMatrixAudit(
+        status=status,
+        manifest_path=manifest_path,
+        status_path=status_path,
+        verified_datasets=verified,
+        failed_datasets=failed,
+        missing_datasets=missing,
+        reason=reason,
+    )
+
+
+def adversarial_review_issues(
+    real_data_audit: RealDataMatrixAudit | None = None,
+) -> tuple[ReviewIssue, ...]:
     """Return the final adversarial review matrix."""
 
+    audit = real_data_audit or audit_real_data_matrix(Path("artifacts/real_data_matrix"))
+    rev005_resolved = audit.ok
+    rev005_experiment = (
+        f"Full real-data matrix reached terminal status with {len(audit.verified_datasets)} "
+        f"verified datasets."
+        if rev005_resolved
+        else "The reproducibility subset has terminal status; full real-data matrix is not yet terminal."
+    )
+    rev005_artifact = (
+        f"{audit.manifest_path}; {audit.status_path}"
+        if rev005_resolved
+        else "artifacts/experiment_matrix_prompt17/experiment_manifest.json; paper/sections/08_discussion.tex"
+    )
     return (
         ReviewIssue(
             issue_id="REV-001",
@@ -187,11 +315,11 @@ def adversarial_review_issues() -> tuple[ReviewIssue, ...]:
             affected_claim="CLM-007",
             required_action="Preserve negative results and prevent hidden failed experiments.",
             code_change="Experiment matrix records terminal failed/skipped/succeeded status; paper assets preserve null limitation claims.",
-            experiment_change="The reproducibility subset has terminal status; full real-data matrix is not yet terminal.",
+            experiment_change=rev005_experiment,
             manuscript_change="Discussion presents lack of population-level industrial superiority as an explicit negative finding.",
-            resolution_status="partially resolved",
-            resulting_artifact="artifacts/experiment_matrix_prompt17/experiment_manifest.json; paper/sections/08_discussion.tex",
-            residual_limitation="Full registered real-data matrix terminal statuses must be regenerated in the final environment.",
+            resolution_status="resolved" if rev005_resolved else "partially resolved",
+            resulting_artifact=rev005_artifact,
+            residual_limitation="" if rev005_resolved else audit.reason,
         ),
         ReviewIssue(
             issue_id="REV-006",
@@ -230,11 +358,19 @@ def render_reviewer_report(
     issues: tuple[ReviewIssue, ...],
     decision: SubmissionDecision,
     blockers: tuple[str, ...],
+    real_data_audit: RealDataMatrixAudit | None = None,
 ) -> str:
     """Render the hostile but technically fair reviewer report."""
 
     fatal = [issue for issue in issues if issue.severity.startswith("fatal")]
     major = [issue for issue in issues if issue.severity == "major"]
+    audit = real_data_audit or audit_real_data_matrix(Path("artifacts/real_data_matrix"))
+    real_data_reproducibility_line = (
+        "- Full real-data matrix terminal status is recorded locally: " f"{audit.reason}."
+        if audit.ok
+        else "- The reproducibility subset rebuilds locally, but full real-data terminal "
+        f"experiment status remains a blocker: {audit.reason}."
+    )
     return "\n".join(
         [
             "# Final Adversarial Reviewer Report",
@@ -258,7 +394,7 @@ def render_reviewer_report(
             "",
             "## Reproducibility Concerns",
             "",
-            "- The reproducibility subset rebuilds locally, but full real-data terminal experiment status remains a blocker for industrial claims.",
+            real_data_reproducibility_line,
             "- Generated assets are checksummed, and manual changes are rejected by the verifier.",
             "",
             "## Statistical Concerns",
@@ -448,6 +584,21 @@ def _copy_required_deliverables(config: SubmissionPackageConfig, output_root: Pa
     copied.extend(_copy_tree_files(config.asset_root / "figures", output_root / "figures"))
     copied.extend(_copy_tree_files(config.asset_root / "tables", output_root / "tables"))
     copied.extend(_copy_tree_files(config.asset_root / "latex", output_root / "generated"))
+    copied.extend(_copy_real_data_matrix_files(config.real_data_matrix_root, output_root))
+    return copied
+
+
+def _copy_real_data_matrix_files(source_root: Path, output_root: Path) -> list[Path]:
+    copied: list[Path] = []
+    for name in (
+        "experiment_manifest.json",
+        "real_data_status.csv",
+        "real_data_report.json",
+        "dataset_characteristics.tex",
+    ):
+        source = source_root / name
+        if source.exists():
+            copied.append(_copy_file(source, output_root / "artifacts" / "real_data_matrix" / name))
     return copied
 
 

@@ -22,6 +22,7 @@ def test_build_submission_package_writes_review_matrix_and_decision(tmp_path: Pa
             paper_root=paper_root,
             asset_root=asset_root,
             output_root=output_root,
+            real_data_matrix_root=tmp_path / "missing_real_matrix",
             protocol_path=protocol_path,
             lock_path=lock_path,
             license_path=license_path,
@@ -39,6 +40,42 @@ def test_build_submission_package_writes_review_matrix_and_decision(tmp_path: Pa
     payload = json.loads((output_root / "submission_manifest.json").read_text(encoding="utf-8"))
     assert payload["decision"] == manifest.decision
     assert any(item["path"] == "reviewer_report.md" for item in payload["files"])
+
+
+def test_build_submission_package_copies_terminal_real_data_matrix(tmp_path: Path) -> None:
+    paper_root, asset_root = _write_package_fixture(tmp_path)
+    real_data_matrix_root = _write_terminal_real_data_matrix_fixture(tmp_path)
+    output_root = tmp_path / "submission"
+    protocol_path = tmp_path / "protocol.yaml"
+    lock_path = tmp_path / "poetry.lock"
+    license_path = tmp_path / "LICENSE"
+    readme_path = tmp_path / "README.md"
+    protocol_path.write_text("protocol_id: fixture\n", encoding="utf-8")
+    lock_path.write_text("# lock\n", encoding="utf-8")
+    license_path.write_text("BSD-3-Clause\n", encoding="utf-8")
+    readme_path.write_text("# fixture\n", encoding="utf-8")
+
+    manifest = build_submission_package(
+        SubmissionPackageConfig(
+            paper_root=paper_root,
+            asset_root=asset_root,
+            output_root=output_root,
+            real_data_matrix_root=real_data_matrix_root,
+            protocol_path=protocol_path,
+            lock_path=lock_path,
+            license_path=license_path,
+            readme_path=readme_path,
+        )
+    )
+
+    assert manifest.decision == "not submission ready"
+    assert "Full registered real-data matrix terminal statuses" not in " ".join(
+        manifest.unresolved_blockers
+    )
+    assert (output_root / "artifacts" / "real_data_matrix" / "experiment_manifest.json").exists()
+    assert (output_root / "artifacts" / "real_data_matrix" / "real_data_status.csv").exists()
+    reviewer_report = (output_root / "reviewer_report.md").read_text(encoding="utf-8")
+    assert "Full real-data matrix terminal status is recorded locally" in reviewer_report
 
 
 def _write_package_fixture(tmp_path: Path) -> tuple[Path, Path]:
@@ -144,3 +181,34 @@ def _write_package_fixture(tmp_path: Path) -> tuple[Path, Path]:
         encoding="utf-8",
     )
     return paper_root, asset_root
+
+
+def _write_terminal_real_data_matrix_fixture(tmp_path: Path) -> Path:
+    root = tmp_path / "real_data_matrix"
+    root.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "status": "succeeded",
+        "cells": [
+            {
+                "name": "real_data_verification",
+                "family": "real_data",
+                "status": "succeeded",
+            }
+        ],
+    }
+    (root / "experiment_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (root / "real_data_status.csv").write_text(
+        "\n".join(
+            [
+                "dataset_id,status,rows,chunks,independent_unit,raw_manifest_path,processed_manifest_path",
+                "metropt,verified,10,1,failure,data/raw/metropt/manifest.json,data/processed/metropt/manifest.json",
+                "metropt2,verified,20,1,failure,data/raw/metropt2/manifest.json,data/processed/metropt2/manifest.json",
+                "scania_component_x,verified,30,1,vehicle,data/raw/scania/manifest.json,data/processed/scania/manifest.json",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (root / "real_data_report.json").write_text('{"datasets": []}\n', encoding="utf-8")
+    (root / "dataset_characteristics.tex").write_text("% datasets\n", encoding="utf-8")
+    return root
