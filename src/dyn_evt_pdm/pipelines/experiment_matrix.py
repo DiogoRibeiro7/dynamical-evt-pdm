@@ -15,6 +15,7 @@ from typing import Any, Literal, cast
 
 import yaml
 
+from dyn_evt_pdm.data.registry import build_data_report, render_dataset_latex_table
 from dyn_evt_pdm.evaluation.protocol import read_protocol, write_protocol
 from dyn_evt_pdm.models.baseline_runner import (
     BaselineRunConfig,
@@ -94,6 +95,9 @@ class ExperimentMatrixConfig:
     simulation_config_path: Path = Path("configs/simulation/cyclic_degradation.yaml")
     smoke: bool = True
     n_jobs: int = 1
+    include_real_data: bool = False
+    raw_root: Path = Path("data/raw")
+    processed_root: Path = Path("data/processed")
 
 
 def run_experiment_matrix(config: ExperimentMatrixConfig) -> ExperimentMatrixManifest:
@@ -111,6 +115,7 @@ def run_experiment_matrix(config: ExperimentMatrixConfig) -> ExperimentMatrixMan
         ),
         "simulation_recovery": lambda _cell: _run_simulation_cell(config),
         "baseline_smoke": lambda _cell: _run_baseline_smoke_cell(config),
+        "real_data_verification": lambda _cell: _run_real_data_verification_cell(config),
     }
     for cell in cells:
         executor = executors.get(cell.name)
@@ -182,7 +187,7 @@ def _planned_cells(
     protocol_hash: str,
 ) -> tuple[ExperimentCell, ...]:
     root = config.output_root
-    return (
+    cells = [
         ExperimentCell(
             name="freeze_protocol",
             family="preflight",
@@ -223,7 +228,26 @@ def _planned_cells(
                 "horizon": 20,
             },
         ),
-    )
+    ]
+    if config.include_real_data:
+        cells.append(
+            ExperimentCell(
+                name="real_data_verification",
+                family="real_data",
+                dataset_id="metropt+metropt2+scania_component_x",
+                output_paths=(
+                    str(root / "real_data_report.json"),
+                    str(root / "real_data_status.csv"),
+                    str(root / "dataset_characteristics.tex"),
+                ),
+                config={
+                    "raw_root": str(config.raw_root),
+                    "processed_root": str(config.processed_root),
+                    "required_status": "verified",
+                },
+            )
+        )
+    return tuple(cells)
 
 
 def _run_simulation_cell(config: ExperimentMatrixConfig) -> None:
@@ -259,6 +283,47 @@ def _run_baseline_smoke_cell(config: ExperimentMatrixConfig) -> None:
         json.dumps(metadata.to_dict(orient="records"), indent=2),
         encoding="utf-8",
     )
+
+
+def _run_real_data_verification_cell(config: ExperimentMatrixConfig) -> None:
+    report = build_data_report(raw_root=config.raw_root, processed_root=config.processed_root)
+    rows = []
+    blocked = []
+    for item in report["datasets"]:
+        registry = item["registry"]
+        verification = item["verification"]
+        status = str(verification["status"])
+        dataset_id = str(registry["dataset_id"])
+        rows.append(
+            {
+                "dataset_id": dataset_id,
+                "status": status,
+                "rows": item.get("rows"),
+                "chunks": item.get("chunks"),
+                "independent_unit": registry["statistical_independence_unit"],
+                "raw_manifest_path": verification["raw_manifest_path"],
+                "processed_manifest_path": verification["processed_manifest_path"],
+            }
+        )
+        if status != "verified":
+            blocked.append(dataset_id)
+    (config.output_root / "real_data_report.json").write_text(
+        json.dumps(report, indent=2),
+        encoding="utf-8",
+    )
+    import pandas as pd
+
+    pd.DataFrame(rows).to_csv(config.output_root / "real_data_status.csv", index=False)
+    (config.output_root / "dataset_characteristics.tex").write_text(
+        render_dataset_latex_table(report),
+        encoding="utf-8",
+    )
+    if blocked:
+        raise FileNotFoundError(
+            "real-data verification blocked for "
+            f"{blocked}; run `poetry run dyn-evt fetch-data --dataset all` and "
+            "`make prepare-data` before the real-data matrix"
+        )
 
 
 def _record(

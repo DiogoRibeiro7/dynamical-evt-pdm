@@ -854,6 +854,15 @@ def run_experiment_matrix_command(
     ] = Path("configs/simulation/cyclic_degradation.yaml"),
     smoke: Annotated[bool, typer.Option(help="Use CI-friendly simulation settings.")] = True,
     n_jobs: Annotated[int, typer.Option(help="Parallel jobs for simulation cells.")] = 1,
+    include_real_data: Annotated[
+        bool, typer.Option(help="Include real-data verification cells in the matrix.")
+    ] = False,
+    raw_root: Annotated[Path, typer.Option(help="Raw-data root for real-data cells.")] = Path(
+        "data/raw"
+    ),
+    processed_root: Annotated[
+        Path, typer.Option(help="Processed-data root for real-data cells.")
+    ] = Path("data/processed"),
 ) -> None:
     """Run the registered reproducibility-subset experiment matrix."""
 
@@ -864,6 +873,9 @@ def run_experiment_matrix_command(
             simulation_config_path=simulation_config_path,
             smoke=smoke,
             n_jobs=n_jobs,
+            include_real_data=include_real_data,
+            raw_root=raw_root,
+            processed_root=processed_root,
         )
     )
     typer.echo(
