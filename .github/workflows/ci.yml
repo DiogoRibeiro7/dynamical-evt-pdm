@@ -22,6 +22,7 @@ jobs:
           virtualenvs-create: true
           virtualenvs-in-project: true
       - run: poetry check --strict
+      - run: poetry build
       - run: poetry install --with dev
       - run: poetry run ruff check src tests
       - run: poetry run ruff format --check src tests
