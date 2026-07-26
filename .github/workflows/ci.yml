@@ -18,10 +18,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - uses: snok/install-poetry@v1
         with:
-          version: 1.8.3
+          version: 2.2.1
           virtualenvs-create: true
           virtualenvs-in-project: true
-      - run: poetry check
+      - run: poetry check --strict
       - run: poetry install --with dev
       - run: poetry run ruff check src tests
       - run: poetry run ruff format --check src tests

@@ -4,7 +4,7 @@ install:
 	poetry install --with dev
 
 metadata:
-	poetry check
+	poetry check --strict
 
 format:
 	poetry run ruff format src tests

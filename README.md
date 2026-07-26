@@ -49,7 +49,7 @@ docs/                    Research protocol, paper outline, claims and data notes
 
 ## Installation
 
-Python 3.11 or 3.12 is recommended.
+Python 3.11 or 3.12 and Poetry 2.2 or newer are recommended.
 
 ```bash
 poetry install --with dev
