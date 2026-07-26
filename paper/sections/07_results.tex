@@ -3,7 +3,7 @@
 
 \subsection{Simulation validity and estimator stability}
 
-The first research question asks whether the extremal-index diagnostics are stable enough to interpret. The current simulation artifact is a limited recovery study rather than the full Monte Carlo validation required for a methodological paper. Figure~\ref{fig:simulation-rmse} reports runs-estimator RMSE by threshold quantile and simulation family; it supports CLM-003 only as finite-sample diagnostic evidence. The result is useful for finding unstable threshold regions, but it is not sufficient to claim estimator reliability across industrial fault mechanisms.
+The first research question asks whether the extremal-index diagnostics are stable enough to interpret. The current simulation artifact is a limited recovery study rather than the full Monte Carlo validation required for a methodological paper. Figure~\ref{fig:simulation-rmse} reports runs-estimator RMSE by threshold quantile and simulation family. The result is useful for finding unstable threshold regions, but it is not sufficient to claim estimator reliability across industrial fault mechanisms.
 
 \begin{figure}[t]
   \centering
@@ -25,7 +25,7 @@ Threshold and run-length sensitivity in Figure~\ref{fig:threshold-stability} and
 
 \subsection{Alarm conversion and failed-detection regions}
 
-The second research question asks whether declustering and alarm merging reduce duplicate alarms while preserving event recall. In the registered threshold grid, Figure~\ref{fig:failed-detection} and Table~\ref{tab:frontier} show zero event recall at all reported quantiles, with false-alarm burdens between 133.92 and 168.48 alarm episodes per operating day. This is a failed-detection region under the current observable, threshold grid, and matching rule, and it supports CLM-004 only as evidence that alarm conversion can destroy utility.
+The second research question asks whether declustering and alarm merging reduce duplicate alarms while preserving event recall. In the registered threshold grid, Figure~\ref{fig:failed-detection} and Table~\ref{tab:frontier} show zero event recall at all reported quantiles, with false-alarm burdens between 133.92 and 168.48 alarm episodes per operating day. This is a failed-detection region under the current observable, threshold grid, and matching rule; it shows that alarm conversion can destroy utility.
 
 \begin{figure}[t]
   \centering
@@ -64,7 +64,7 @@ The dominant root-cause classifications are therefore provisional but informativ
 
 \subsection{Score stratification and calibration limits}
 
-Figure~\ref{fig:reliability} and Figure~\ref{fig:split-calibration} are retained as score-stratification diagnostics, not probability calibration evidence. The current model outputs are ranks or anomaly scores. Table~\ref{tab:split-calibration} reports Brier-style summaries by split, but the independent positive-event evidence is too limited for a strong calibrated probability claim under CLM-005.
+Figure~\ref{fig:reliability} and Figure~\ref{fig:split-calibration} are retained as score-stratification diagnostics, not probability calibration evidence. The current model outputs are ranks or anomaly scores. Table~\ref{tab:split-calibration} reports Brier-style summaries by split, but the independent positive-event evidence is too limited for a strong calibrated probability claim.
 
 \begin{figure}[t]
   \centering

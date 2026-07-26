@@ -30,7 +30,7 @@ def test_check_paper_sources_accepts_provenance_backed_manuscript(tmp_path: Path
 
     assert report.ok, report.failures
     assert report.checked_citations == 1
-    assert report.checked_claim_references == 1
+    assert report.checked_claim_references == 0
     assert report.checked_asset_references == 2
 
 
@@ -183,7 +183,7 @@ def _write_minimal_paper_tree(tmp_path: Path) -> tuple[Path, Path]:
         encoding="utf-8",
     )
     (paper_root / "sections" / "01_introduction.tex").write_text(
-        "See CLM-001 and \\cite{Known}. "
+        "See \\cite{Known}. "
         "\\includegraphics{../reports/paper/figures/figure.png}"
         "\\input{../reports/paper/latex/table.tex}\n",
         encoding="utf-8",

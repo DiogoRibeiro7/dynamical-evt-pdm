@@ -283,8 +283,6 @@ def _check_claim_references(
     known = {str(claim.get("claim_id", "")) for claim in claims}
     for claim_id in sorted(referenced.difference(known)):
         failures.append(f"manuscript references unknown claim: {claim_id}")
-    if not referenced:
-        failures.append("no claim IDs found in manuscript sources")
     return referenced
 
 

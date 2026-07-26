@@ -1,8 +1,8 @@
 \section{Simulation Study}
 \label{sec:simulation}
 
-The simulation layer is designed to falsify overconfident interpretations before industrial data are used. The registered systems include independent extremes, periodic dynamics, noisy periodic dynamics, regime mixtures, missingness perturbations, and degradation-like cyclic trajectories. Each simulation cell records a deterministic experiment identifier, configuration hash, random seed, threshold grid, run-length grid, estimator status, and raw outputs sufficient to regenerate the paper assets.
+The simulation layer is designed to falsify overconfident interpretations before industrial data are used. The registered systems include independent extremes, periodic dynamics, noisy periodic dynamics, regime mixtures, missingness perturbations, and degradation-like cyclic trajectories. Each simulation cell records its configuration, random seed, threshold grid, run-length grid, estimator status, and raw outputs sufficient to regenerate the paper assets.
 
 The main estimands are finite-sample bias and root mean squared error for extremal-index estimators, coverage or failure status where intervals are available, and recovery of clustered episodes. The simulation artifacts deliberately preserve estimator failures. A failed fit is treated as a terminal experiment outcome rather than an infrastructure error, because failure regions are part of the statistical evidence.
 
-The current generated recovery table and figure are interpreted in Section~\ref{sec:results} as limited simulation diagnostics. They support CLM-003 only in the narrow sense that recovery error is measured under registered settings. They do not support a statement that the same estimator is reliable for every industrial fault interval.
+The current generated recovery table and figure are interpreted in Section~\ref{sec:results} as limited simulation diagnostics. They show that recovery error is measured under registered settings, but they do not support a statement that the same estimator is reliable for every industrial fault interval.
