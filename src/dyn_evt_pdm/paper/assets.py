@@ -478,15 +478,26 @@ def _lead_time_frontier_assets(
     tex_path = latex / "lead_time_false_alarm_frontier.tex"
     figure_path = figures / "lead_time_false_alarm_frontier.png"
     table.to_csv(csv_path, index=False)
+    max_recall = float(pd.to_numeric(table["event_recall"], errors="coerce").fillna(0.0).max())
+    caption = (
+        "Failed-detection grid for threshold, recall, precision, and false-alarm burden."
+        if max_recall <= 0.0
+        else "Lead-time versus false-alarm operating grid."
+    )
     _write_latex_table(
-        table, tex_path, caption="Lead-time versus false-alarm frontier.", label="tab:frontier"
+        table,
+        tex_path,
+        caption=caption,
+        label="tab:frontier",
     )
     figure, axis = plt.subplots(figsize=(5.8, 3.8))
     x_values = table["false_alarm_events_per_day"].fillna(0.0)
     lead_values = pd.to_numeric(table["median_warning_lead_time"], errors="coerce").fillna(0.0)
     axis.plot(x_values, lead_values, marker="o", color="#4C78A8")
     axis.set_xlabel("False alarm events per operating day")
-    axis.set_ylabel("Median warning lead time")
+    axis.set_ylabel(
+        "Median warning lead time" if max_recall > 0.0 else "Median warning lead time (none)"
+    )
     _save_figure(figure, figure_path)
     return [csv_path, tex_path, figure_path]
 

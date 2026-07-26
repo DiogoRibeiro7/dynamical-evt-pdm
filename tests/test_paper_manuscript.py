@@ -71,6 +71,25 @@ def test_check_paper_sources_rejects_dataset_count_overclaims(tmp_path: Path) ->
     assert any("general-industrial-applicability" in failure for failure in report.failures)
 
 
+def test_check_paper_sources_rejects_generated_frontier_caption(tmp_path: Path) -> None:
+    paper_root, asset_root = _write_minimal_paper_tree(tmp_path)
+    generated_table = asset_root / "latex" / "table.tex"
+    generated_table.write_text(
+        "\\begin{table}\\caption{Lead-time versus false-alarm frontier.}\\end{table}\n",
+        encoding="utf-8",
+    )
+
+    report = check_paper_sources(
+        paper_root=paper_root,
+        asset_root=asset_root,
+        require_pdfs=False,
+        write_reports=False,
+    )
+
+    assert not report.ok
+    assert any("zero-recall frontier framing" in failure for failure in report.failures)
+
+
 def test_check_paper_sources_audits_real_data_matrix_references(tmp_path: Path) -> None:
     paper_root, asset_root = _write_minimal_paper_tree(tmp_path)
     section = paper_root / "sections" / "05_datasets.tex"

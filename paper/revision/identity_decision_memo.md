@@ -20,7 +20,7 @@ The current evidence does not support a methodological-performance paper. The si
 
 1. Does regime conditioning stabilise extremal-index diagnostics relative to global thresholding?
 2. Does declustering reduce duplicate alarm episodes without destroying event recall or warning lead time?
-3. Does the dangerous-region observable add operational value beyond thresholding and classical declustering?
+3. Does the registered robust extreme-score diagnostic add operational value after thresholding, declustering, and episode conversion?
 4. Which mechanisms explain failure: target-region misspecification, regime mixture, insufficient independent failures, non-extreme fault signatures, label ambiguity, calibration shift, or alarm conversion?
 
 ## Claims Removed From Main Narrative

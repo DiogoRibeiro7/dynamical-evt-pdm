@@ -337,8 +337,8 @@ def _claims_from_tables(config: ClaimLedgerConfig) -> tuple[Claim, ...]:
         Claim(
             claim_id="CLM-004",
             wording=(
-                "The alarm frontier exposes the tradeoff between event recall, lead time, "
-                "and false-alarm event rate."
+                "The alarm grid exposes whether event recall, lead time, and false-alarm "
+                "burden form a useful operating region or a failed-detection region."
             ),
             claim_class="operational",
             hypothesis_id="H-OPS-001",
@@ -360,11 +360,22 @@ def _claims_from_tables(config: ClaimLedgerConfig) -> tuple[Claim, ...]:
             uncertainty="matching tolerance and merge-gap surface generated",
             sensitivity_status="threshold, matching tolerance, and merge-gap grids generated",
             assumptions="failure labels define independent event targets",
-            counterevidence="few or no labelled failures make the frontier non-estimable",
-            permitted_strength="exploratory operational tradeoff",
-            manuscript_sections_allowed="Results; Limitations" if positive_samples > 0 else "",
+            counterevidence=(
+                "zero event recall makes the grid a failed-detection region rather than an "
+                "operationally useful alarm policy"
+            ),
+            permitted_strength=(
+                "failed-detection diagnostic"
+                if np.isfinite(frontier_recall) and frontier_recall <= 0.0
+                else "exploratory alarm-grid diagnostic"
+            ),
+            manuscript_sections_allowed=(
+                "Results; Limitations"
+                if positive_samples > 0 and np.isfinite(frontier_recall)
+                else ""
+            ),
             final_status="exploratory"
-            if positive_samples > 0 and np.isfinite(frontier_recall)
+            if positive_samples > 0 and np.isfinite(frontier_recall) and frontier_recall > 0.0
             else "not estimable",
         ),
         Claim(
@@ -421,8 +432,8 @@ def _claims_from_tables(config: ClaimLedgerConfig) -> tuple[Claim, ...]:
         Claim(
             claim_id="CLM-007",
             wording=(
-                "The current generated assets do not support a positive claim that the proposed "
-                "method is population-level superior beyond the five registered real datasets."
+                "The current generated assets support only dataset-role-specific diagnostic "
+                "statements, not a broad predictive-maintenance performance claim."
             ),
             claim_class="limitation",
             hypothesis_id="H-IND-001",
@@ -433,7 +444,7 @@ def _claims_from_tables(config: ClaimLedgerConfig) -> tuple[Claim, ...]:
             table_or_figure_reference="claim_ledger.json",
             effect_estimate="not estimable beyond the registered evidence matrix",
             uncertainty="not estimable",
-            sensitivity_status="five-dataset evidence matrix generated; external generalization blocked",
+            sensitivity_status="real-data evidence matrix generated; external generalization blocked",
             assumptions="requires additional real datasets or prospective deployment for broader claims",
             counterevidence="registered datasets use different estimands and include weak diagnostic rows",
             permitted_strength="negative/null finding only",

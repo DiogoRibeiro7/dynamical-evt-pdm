@@ -88,6 +88,33 @@ UNSUPPORTED_CLAIM_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         re.compile(r"\basset bundle\b", re.IGNORECASE),
         "repository-status result in main narrative",
     ),
+    (
+        re.compile(r"\bLead-time versus false-alarm frontier\b", re.IGNORECASE),
+        "zero-recall frontier framing",
+    ),
+    (
+        re.compile(r"\balarm frontier exposes\b", re.IGNORECASE),
+        "frontier framing for alarm grid",
+    ),
+    (
+        re.compile(r"\bbroadly validated\b", re.IGNORECASE),
+        "broad-validation overclaim",
+    ),
+    (
+        re.compile(r"\bmulti-dataset validation\b", re.IGNORECASE),
+        "dataset-count validation overclaim",
+    ),
+    (
+        re.compile(r"\bgeneralizable industrial use\b", re.IGNORECASE),
+        "generalizable-industrial-use overclaim",
+    ),
+    (
+        re.compile(
+            r"\bclustered extreme scores can be converted into useful maintenance alarms\b",
+            re.IGNORECASE,
+        ),
+        "unsupported literature assumption",
+    ),
 )
 
 
@@ -103,8 +130,9 @@ def check_paper_sources(
     failures: list[str] = []
     source_files = _required_sources(paper_root, failures)
     source_text = {path: path.read_text(encoding="utf-8") for path in source_files}
-    _check_placeholders(source_text, failures)
-    _check_unsupported_claim_language(source_text, failures)
+    auditable_text = _source_text_with_referenced_inputs(source_text, paper_root)
+    _check_placeholders(auditable_text, failures)
+    _check_unsupported_claim_language(auditable_text, failures)
 
     cited_keys, bib_keys = _check_citations(source_text, paper_root / "references.bib", failures)
     asset_references = _check_asset_references(source_text, paper_root, asset_root, failures)
@@ -166,6 +194,20 @@ def _check_unsupported_claim_language(source_text: dict[Path, str], failures: li
                     f"unsupported manuscript claim language ({reason}) in {path}: "
                     f"{match.group(0)!r}"
                 )
+
+
+def _source_text_with_referenced_inputs(
+    source_text: dict[Path, str],
+    paper_root: Path,
+) -> dict[Path, str]:
+    auditable = dict(source_text)
+    for text in tuple(source_text.values()):
+        for raw_reference in INPUT_PATTERN.findall(text):
+            resolved = (paper_root / raw_reference).resolve()
+            if resolved in auditable or not resolved.exists() or resolved.suffix.lower() != ".tex":
+                continue
+            auditable[resolved] = resolved.read_text(encoding="utf-8")
+    return auditable
 
 
 def _check_citations(

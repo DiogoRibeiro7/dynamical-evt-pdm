@@ -10,5 +10,5 @@
 | 26 | Explain negative results | Added root-cause interpretation by dataset role | Additional negative controls would strengthen attribution |
 | 27 | Rebuild calibration and uncertainty | Replaced probability language with score-stratification language | Full calibration requires enough positive independent calibration units |
 | 28 | Restructure dataset scope | Assigned dataset roles and added manuscript checks against dataset-count overclaims | Generated tables can be further redesigned for independent-event prominence |
-| 29 | Rewrite results figures and tables | Results now answer scientific questions and rename zero-recall plot as a failed-detection region | Underlying generated filename/table caption can be renamed in a later asset pass |
+| 29 | Rewrite results figures and tables | Results now answer scientific questions and generated captions/claims rename the zero-recall plot as a failed-detection grid | Underlying generated filename remains historical for compatibility |
 | 30 | Rewrite manuscript and review | Rewrote main narrative and added response-to-review document | Full submission review should be repeated after the larger experiments |

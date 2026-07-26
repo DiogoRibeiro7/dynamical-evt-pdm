@@ -507,7 +507,7 @@ def render_reviewer_report(
             "## Statistical Concerns",
             "",
             "- Effective sample size must remain tied to failures, blocks, or vehicles.",
-            "- Calibration and operational frontier figures are diagnostics without full out-of-sample intervals.",
+            "- Calibration and operational alarm-grid figures are diagnostics without full out-of-sample intervals.",
             "- Matching tolerance, missingness, smoothing, and dangerous-region provenance remain decision-changing audits.",
             "",
             "## Missing Citations",
