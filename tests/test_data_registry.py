@@ -25,6 +25,17 @@ def test_metropt_registry_matches_source_verified_failure_metadata() -> None:
     assert any("three source-verified" in item for item in metropt.known_limitations)
 
 
+def test_dataset_registry_has_verified_citation_and_license_metadata() -> None:
+    citations = {
+        dataset_id: entry.primary_publication_citation for dataset_id, entry in REGISTRY.items()
+    }
+
+    assert {entry.license for entry in REGISTRY.values()} == {"CC-BY-4.0"}
+    assert all("must be verified" not in citation for citation in citations.values())
+    assert all("doi:" in citation for citation in citations.values())
+    assert "Scientific Data 12, 493 (2025)" in citations["scania_component_x"]
+
+
 def test_build_data_report_verifies_local_manifests(tmp_path: Path) -> None:
     raw_root = tmp_path / "raw"
     processed_root = tmp_path / "processed"

@@ -63,11 +63,10 @@ REGISTRY: dict[str, DatasetRegistryEntry] = {
         version="Zenodo record 6854240",
         official_landing_page="https://zenodo.org/records/6854240",
         primary_publication_citation=(
-            "MetroPT-3 dataset publication record; bibliographic metadata must be verified "
-            "before manuscript citation."
+            "Veloso et al., Scientific Data 9, 764 (2022), " "doi:10.1038/s41597-022-01877-3"
         ),
-        license="unknown",
-        access_conditions="Public Zenodo record; redistribution terms must be checked manually.",
+        license="CC-BY-4.0",
+        access_conditions="Open public Zenodo record; raw data are fetched locally and not vendored.",
         timestamp_timezone="source local time; treated as timezone-naive unless configured",
         timestamp_resolution="nominal one second",
         entity_identifier="single compressor",
@@ -84,11 +83,11 @@ REGISTRY: dict[str, DatasetRegistryEntry] = {
         version="Zenodo record 7766691",
         official_landing_page="https://zenodo.org/records/7766691",
         primary_publication_citation=(
-            "MetroPT-2 dataset publication record; bibliographic metadata must be verified "
-            "before manuscript citation."
+            "Veloso et al., MetroPT2: A Benchmark dataset for predictive maintenance, "
+            "Zenodo (2023), doi:10.5281/zenodo.7766691"
         ),
-        license="unknown",
-        access_conditions="Public Zenodo record; redistribution terms must be checked manually.",
+        license="CC-BY-4.0",
+        access_conditions="Open public Zenodo record; raw data are fetched locally and not vendored.",
         timestamp_timezone="source local time; treated as timezone-naive unless configured",
         timestamp_resolution="nominal one second",
         entity_identifier="single compressor",
@@ -105,11 +104,12 @@ REGISTRY: dict[str, DatasetRegistryEntry] = {
         version="Researchdata.se dataset 2024-34",
         official_landing_page="https://researchdata.se/en/catalogue/dataset/2024-34",
         primary_publication_citation=(
-            "Scania Component X research-data record; bibliographic metadata must be verified "
-            "before manuscript citation."
+            "Kharazian et al., Scientific Data 12, 493 (2025), " "doi:10.1038/s41597-025-04802-6"
         ),
-        license="unknown",
-        access_conditions="Public research-data record; redistribution terms must be checked manually.",
+        license="CC-BY-4.0",
+        access_conditions=(
+            "Open public Researchdata.se record; raw data are fetched locally and not vendored."
+        ),
         timestamp_timezone="not timestamped; ordered by vehicle time_step",
         timestamp_resolution="irregular counter/time_step observations",
         entity_identifier="vehicle_id",
