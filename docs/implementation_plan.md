@@ -1,42 +1,72 @@
-# Master implementation plan
+# Implementation Plan
 
-This plan maps the executable repository to the paper hypotheses and to the guardrails in `prompts/00_master.md`.
+This document maps the executable repository to the paper hypotheses, generated artifacts, and submission-readiness checks.
 
-## Hypothesis mapping
+## Hypothesis Mapping
 
-| Hypothesis | Implemented support | Required evidence before paper claim |
+| Hypothesis | Implemented support | Current interpretation |
 |---|---|---|
-| Fault-related extremes cluster more strongly than normal extremes. | Cyclic degradation simulator, univariate EVT diagnostics, run declustering, extremal-index estimators, threshold/run-length stability tables. | Leave-one-failure-out MetroPT/MetroPT2 estimates with uncertainty over failures, plus negative controls for smoothing, regime mixture and missingness. |
-| Dynamical declustering reduces duplicate alarms without materially reducing recall. | Event-level evaluation, merge-gap alarms, duplicate accounting, fixed-run baselines and fair baseline runner. | Matching-tolerance ablation and baseline comparison table using identical splits and feature windows. |
-| Lagged multivariate extremes may warn earlier than simultaneous thresholds. | Component-specific regime thresholds, empirical lag-pattern tests, clustering-preserving nulls and Benjamini-Hochberg correction. | Nested lag selection on validation and held-out failure evaluation reported as exploratory unless pre-registered. |
-| Regime conditioning changes calibration and alarm burden. | Rule, hidden-state and changepoint regimes; regime reports; regime-conditioned thresholds; ablation tables. | Shuffled-regime and regime-definition ablations showing differences are not mechanically created by selection. |
-| Dangerous-region recurrence can support horizon-risk scoring. | Training-provenance-checked dangerous-region prototypes, constraint/density alternatives and horizon-risk calibration. | Full provenance audit for every prototype source, radius sensitivity and no held-out failure leakage. |
-| Reproducible experiments can support a defensible paper. | `make end-to-end-smoke`, `make paper-assets`, provenance manifests with experiment ID, Git commit and config hash. | Full real-data runs from cached processed MetroPT, MetroPT2 and SCANIA tables. |
+| Fault-related extremes cluster more strongly than normal extremes. | Cyclic degradation simulator, univariate EVT diagnostics, run declustering, extremal-index estimators, threshold/run-length stability tables. | Supported as a diagnostic workflow claim, not as a universal industrial theorem. |
+| Dynamical declustering reduces duplicate alarms without materially reducing recall. | Event-level evaluation, merge-gap alarms, duplicate accounting, fixed-run baselines, matching-tolerance surfaces and fair baseline runner. | Reported as an operational trade-off with explicit sensitivity artifacts. |
+| Lagged multivariate extremes may warn earlier than simultaneous thresholds. | Component-specific regime thresholds, empirical lag-pattern tests, clustering-preserving nulls and Benjamini-Hochberg correction. | Exploratory unless a held-out, predeclared lag-selection protocol is used. |
+| Regime conditioning changes calibration and alarm burden. | Rule, hidden-state and changepoint regimes; regime reports; regime-conditioned thresholds; ablation tables; split-aware calibration intervals. | Reported as diagnostic evidence with limitations on probability calibration. |
+| Dangerous-region recurrence can support horizon-risk scoring. | Training-provenance-checked dangerous-region prototypes, constraint/density alternatives and horizon-risk calibration. | Requires provenance checks and remains a risk surrogate rather than a causal mechanical proof. |
+| Reproducible experiments can support a defensible paper. | `make end-to-end-smoke`, `make real-data-matrix`, `make paper-assets`, `make submission-package`, manifests, checksums and claim ledger. | Submission readiness is generated from paper checks, real-data terminal status, industrial result artifacts and adversarial review issues. |
 
-## Workflow compliance
+## Workflow Compliance
 
 - The implementation uses Poetry, Ruff, strict mypy and pytest.
 - Tests and CI-oriented commands do not download multi-gigabyte datasets.
 - Real data acquisition is explicit through `dyn-evt fetch-data`; raw and processed data are ignored.
-- Time-series splits are temporal or entity-aware; random row splitting is not used.
-- Training, validation and held-out roles are explicit in baseline, dangerous-region and multivariate workflows.
-- Public APIs added during the prompt series include type annotations, validation and focused tests.
+- Time-series splits are temporal or entity-aware; random row splitting is prohibited.
+- Training, validation and held-out roles are explicit in baseline, dangerous-region, multivariate and industrial-result workflows.
 - Paper figures and tables are generated by library code, not notebook-only logic.
+- Submission artifacts are assembled without redistributing raw third-party datasets.
 
-## End-to-end smoke command
+## Primary Commands
 
-Run:
+Run the synthetic end-to-end smoke workflow:
 
 ```bash
 make end-to-end-smoke
 ```
 
-This rebuilds a small synthetic workflow covering simulation, univariate EVT, regimes, dangerous-region scoring, multivariate diagnostics, fair baselines, simulation-study output and paper assets. Outputs are generated under ignored `data/processed/`, `artifacts/` and `reports/master_smoke/` paths.
+Fetch and prepare real datasets:
 
-## Remaining blockers before submission
+```bash
+make fetch-data
+make prepare-data
+```
 
-1. Real-data case studies must be run and reviewed from cached processed MetroPT, MetroPT2 and SCANIA data.
-2. SCANIA validation must be reported over vehicles, not readout rows.
-3. MetroPT/MetroPT2 uncertainty must be failure-level or block-level, not second-level.
-4. Theoretical language must remain weaker than the implemented finite-data evidence.
-5. Missingness, smoothing, shuffled-regime and shifted-label negative controls remain decision-changing experiments.
+Verify real data and generate industrial diagnostic result artifacts:
+
+```bash
+make real-data-matrix
+```
+
+Regenerate paper assets and assemble the submission package:
+
+```bash
+make paper-assets
+make submission-package
+```
+
+## Submission Readiness
+
+The submission package builder requires:
+
+- compiled main and supplement PDFs;
+- generated asset provenance and claim-ledger checks;
+- terminal real-data verification for MetroPT, MetroPT2 and SCANIA Component X;
+- industrial result rows for all three real datasets;
+- resolved adversarial-review issues;
+- administrative submission statements without unfinished placeholders.
+
+The generated final decision is written to `reports/submission/final_decision.md`.
+
+## Scientific Boundaries
+
+- MetroPT-style data contain few independent failure episodes, so row counts are not treated as independent evidence.
+- SCANIA Component X is a vehicle-level repair-risk problem and is not directly comparable to compressor event warning.
+- Real-data diagnostic artifacts are preserved even when results are weak or non-estimable.
+- Population-level superiority, causal mechanical degradation, and calibrated probability claims require additional prospective evidence.

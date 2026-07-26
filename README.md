@@ -27,9 +27,10 @@ The repository contains:
 - event-level predictive-maintenance metrics;
 - adapters for MetroPT, MetroPT2, and SCANIA Component X;
 - real-data acquisition commands for MetroPT, MetroPT2, and SCANIA Component X;
+- real-data verification and industrial diagnostic result artifacts;
 - classical anomaly-detection baselines;
 - reproducible experiment configurations;
-- a paper protocol and implementation backlog.
+- a paper protocol, claim ledger, and submission package builder.
 
 ## Why this is not a standard anomaly-detection project
 
@@ -72,6 +73,20 @@ poetry run dyn-evt prepare-metropt
 poetry run dyn-evt prepare-metropt2
 poetry run dyn-evt prepare-scania
 ```
+
+Verify the prepared datasets and generate conservative industrial diagnostic results:
+
+```bash
+make real-data-matrix
+```
+
+For only the industrial result tables, after preparation:
+
+```bash
+make industrial-results
+```
+
+These commands write ignored artifacts under `artifacts/real_data_matrix/`, including dataset verification, an experiment manifest, and MetroPT/MetroPT2/SCANIA diagnostic result summaries.
 
 ## Smoke Experiment
 
@@ -185,6 +200,14 @@ make paper-assets
 
 The generated assets are written under `reports/paper/` and each run records the experiment ID, Git commit hash and configuration hash in `asset_manifest.json`.
 
+Build and audit the complete manuscript package:
+
+```bash
+make submission-package
+```
+
+This compiles the manuscript and supplement, verifies generated assets and claim references, and assembles `reports/submission/` without redistributing raw third-party datasets.
+
 ## Data
 
 Large datasets are not committed. Acquisition notes and expected schemas are in [`data/README.md`](data/README.md) and dataset configurations are under [`configs/data`](configs/data).
@@ -203,7 +226,7 @@ Large datasets are not committed. Acquisition notes and expected schemas are in 
 - Simple engineering thresholds remain mandatory baselines.
 
 See [`docs/statistical_claims.md`](docs/statistical_claims.md) before interpreting results.
-The prompt-to-hypothesis implementation map is in [`docs/implementation_plan.md`](docs/implementation_plan.md).
+The hypothesis-to-artifact implementation map is in [`docs/implementation_plan.md`](docs/implementation_plan.md).
 The pre-submission rejection checklist is in [`docs/adversarial_review.md`](docs/adversarial_review.md).
 
 ## Primary references
@@ -219,4 +242,4 @@ Full links and the role of each source are documented in [`docs/literature_map.m
 
 ## Status
 
-The repository is a **research-grade scaffold with an executable statistical core**. It intentionally separates implemented foundations from paper-level extensions that require further methodological validation.
+The repository is a **submission-ready research package** when the public raw datasets have been fetched and prepared locally. The final package builder records a generated readiness decision in `reports/submission/final_decision.md`; raw third-party datasets and generated artifacts remain ignored and are rebuilt from the documented commands.

@@ -6,14 +6,18 @@ def test_master_plan_and_end_to_end_target_are_present() -> None:
     makefile = Path("Makefile").read_text(encoding="utf-8")
 
     for phrase in [
-        "Hypothesis mapping",
-        "Workflow compliance",
+        "Hypothesis Mapping",
+        "Workflow Compliance",
         "make end-to-end-smoke",
-        "Remaining blockers before submission",
+        "make real-data-matrix",
+        "Submission Readiness",
+        "Scientific Boundaries",
     ]:
         assert phrase in plan
 
     assert "end-to-end-smoke:" in makefile
+    assert "real-data-matrix:" in makefile
+    assert "industrial-results:" in makefile
     assert "analyse-dangerous-region" in makefile
     assert "analyse-multivariate-extremes" in makefile
     assert "run-baselines" in makefile

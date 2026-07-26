@@ -7,7 +7,7 @@ from dyn_evt_pdm.cli import app
 from dyn_evt_pdm.data.registry import build_data_report, normalize_dataset_ids, sha256_file
 
 
-def test_normalize_dataset_ids_accepts_prompt_aliases() -> None:
+def test_normalize_dataset_ids_accepts_public_aliases() -> None:
     assert normalize_dataset_ids("scania-component-x") == ("scania_component_x",)
     assert normalize_dataset_ids("all") == ("metropt", "metropt2", "scania_component_x")
 

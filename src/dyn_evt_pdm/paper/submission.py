@@ -352,7 +352,7 @@ def adversarial_review_issues(
     rev005_artifact = (
         f"{audit.manifest_path}; {audit.status_path}"
         if rev005_resolved
-        else "artifacts/experiment_matrix_prompt17/experiment_manifest.json; paper/sections/08_discussion.tex"
+        else "artifacts/experiment_matrix/experiment_manifest.json; paper/sections/08_discussion.tex"
     )
     return (
         ReviewIssue(
