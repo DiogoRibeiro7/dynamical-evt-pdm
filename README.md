@@ -184,6 +184,12 @@ Run tests:
 poetry run pytest
 ```
 
+Run the same local quality gate used by CI:
+
+```bash
+make check
+```
+
 Run the finite-sample simulation-study smoke grid:
 
 ```bash

@@ -1,11 +1,17 @@
-.PHONY: install format lint typecheck test check fetch-data prepare-data simulate simulation-study experiment-matrix real-data-matrix industrial-results end-to-end-smoke paper-assets paper-assets-verify paper supplement paper-check submission-package
+.PHONY: install metadata format format-check lint typecheck test check fetch-data prepare-data simulate simulation-study experiment-matrix real-data-matrix industrial-results end-to-end-smoke paper-assets paper-assets-verify paper supplement paper-check submission-package
 
 install:
 	poetry install --with dev
 
+metadata:
+	poetry check
+
 format:
 	poetry run ruff format src tests
 	poetry run ruff check --fix src tests
+
+format-check:
+	poetry run ruff format --check src tests
 
 lint:
 	poetry run ruff check src tests
@@ -16,7 +22,7 @@ typecheck:
 test:
 	poetry run pytest
 
-check: lint typecheck test
+check: metadata lint format-check typecheck test
 
 fetch-data:
 	poetry run dyn-evt fetch-data --dataset all
