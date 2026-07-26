@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import zipfile
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -254,6 +255,160 @@ def prepare_scania(
     )
 
 
+def prepare_hydraulic_systems(
+    *,
+    zip_path: Path,
+    output_root: Path,
+) -> PreparationResult:
+    """Prepare UCI hydraulic-system cycle traces into cycle-level features."""
+
+    output_root.mkdir(parents=True, exist_ok=True)
+    _clear_parquet_parts(output_root)
+    with zipfile.ZipFile(zip_path) as archive:
+        profile_name = _zip_member_name(archive, "profile.txt")
+        with archive.open(profile_name) as handle:
+            profile = pd.read_csv(handle, sep=r"\s+", header=None)
+        if profile.shape[1] < 5:
+            raise ValueError("hydraulic profile.txt must contain five target columns")
+        frame = pd.DataFrame({"cycle_id": np.arange(len(profile), dtype=int)})
+        frame["cooler_condition"] = pd.to_numeric(profile.iloc[:, 0], errors="coerce")
+        frame["valve_condition"] = pd.to_numeric(profile.iloc[:, 1], errors="coerce")
+        frame["internal_pump_leakage"] = pd.to_numeric(profile.iloc[:, 2], errors="coerce")
+        frame["accumulator_pressure"] = pd.to_numeric(profile.iloc[:, 3], errors="coerce")
+        frame["stable_flag"] = pd.to_numeric(profile.iloc[:, 4], errors="coerce").astype("Int64")
+        for sensor_name in _hydraulic_sensor_members(archive):
+            with archive.open(sensor_name) as handle:
+                sensor = pd.read_csv(handle, sep=r"\s+", header=None)
+            if len(sensor) != len(frame):
+                raise ValueError(
+                    f"{sensor_name} has {len(sensor)} cycles; expected {len(frame)} from profile"
+                )
+            sensor_id = Path(sensor_name).stem.lower()
+            numeric = sensor.apply(pd.to_numeric, errors="coerce")
+            frame[f"{sensor_id}_mean"] = numeric.mean(axis=1)
+            frame[f"{sensor_id}_std"] = numeric.std(axis=1).fillna(0.0)
+            frame[f"{sensor_id}_min"] = numeric.min(axis=1)
+            frame[f"{sensor_id}_max"] = numeric.max(axis=1)
+            frame[f"{sensor_id}_last"] = numeric.iloc[:, -1]
+    frame["is_degraded"] = (
+        frame["cooler_condition"].ne(100)
+        | frame["valve_condition"].ne(100)
+        | frame["internal_pump_leakage"].ne(0)
+        | frame["accumulator_pressure"].ne(130)
+    )
+    frame["split"] = _ordered_split_labels(len(frame))
+
+    part_path = output_root / "part-00000.parquet"
+    write_parquet(frame, part_path)
+    stats: dict[str, ColumnStats] = {}
+    _update_stats(stats, frame)
+    manifest = {
+        "dataset": "hydraulic_systems",
+        "raw_path": str(zip_path),
+        "raw_sha256": sha256_file(zip_path),
+        "output_root": str(output_root),
+        "rows": len(frame),
+        "chunks": 1,
+        "parquet_files": [str(part_path)],
+        "target_columns": [
+            "cooler_condition",
+            "valve_condition",
+            "internal_pump_leakage",
+            "accumulator_pressure",
+            "stable_flag",
+            "is_degraded",
+        ],
+        "quality_checks": {
+            "degraded_cycles": int(frame["is_degraded"].sum()),
+            "unstable_cycles": int(frame["stable_flag"].eq(0).sum()),
+            "sensor_summary_columns": len(
+                [
+                    column
+                    for column in frame.columns
+                    if column.endswith(("_mean", "_std", "_min", "_max", "_last"))
+                ]
+            ),
+        },
+        "schema": _schema_manifest(stats, rows=len(frame)),
+    }
+    manifest_path = output_root / "manifest.json"
+    _write_manifest(manifest_path, manifest)
+    return PreparationResult(
+        dataset="hydraulic_systems",
+        raw_path=str(zip_path),
+        output_root=str(output_root),
+        manifest_path=str(manifest_path),
+        rows=len(frame),
+        chunks=1,
+        parquet_files=[str(part_path)],
+    )
+
+
+def prepare_secom(
+    *,
+    zip_path: Path,
+    output_root: Path,
+) -> PreparationResult:
+    """Prepare UCI SECOM manufacturing process data into Parquet."""
+
+    output_root.mkdir(parents=True, exist_ok=True)
+    _clear_parquet_parts(output_root)
+    with zipfile.ZipFile(zip_path) as archive:
+        data_name = _zip_member_name(archive, "secom.data")
+        labels_name = _zip_member_name(archive, "secom_labels.data")
+        with archive.open(data_name) as handle:
+            features = pd.read_csv(handle, sep=r"\s+", header=None, na_values=["NaN"])
+        with archive.open(labels_name) as handle:
+            labels = pd.read_csv(handle, sep=r"\s+", header=None, engine="python")
+    if len(features) != len(labels):
+        raise ValueError(
+            f"SECOM feature rows ({len(features)}) do not match labels ({len(labels)})"
+        )
+
+    frame = features.copy()
+    frame.columns = [f"sensor_{index:03d}" for index in range(frame.shape[1])]
+    frame.insert(0, "wafer_id", np.arange(len(frame), dtype=int))
+    label_values = pd.to_numeric(labels.iloc[:, 0], errors="raise").astype(int)
+    frame["label_raw"] = label_values
+    frame["is_failure"] = label_values.eq(1)
+    if labels.shape[1] > 1:
+        frame["source_timestamp"] = labels.iloc[:, 1:].astype(str).agg(" ".join, axis=1)
+    frame["split"] = _ordered_split_labels(len(frame))
+
+    part_path = output_root / "part-00000.parquet"
+    write_parquet(frame, part_path)
+    stats: dict[str, ColumnStats] = {}
+    _update_stats(stats, frame)
+    manifest = {
+        "dataset": "secom",
+        "raw_path": str(zip_path),
+        "raw_sha256": sha256_file(zip_path),
+        "output_root": str(output_root),
+        "rows": len(frame),
+        "chunks": 1,
+        "parquet_files": [str(part_path)],
+        "feature_columns": [column for column in frame.columns if column.startswith("sensor_")],
+        "quality_checks": {
+            "failure_examples": int(frame["is_failure"].sum()),
+            "missing_sensor_values": int(
+                frame.loc[:, frame.columns.str.startswith("sensor_")].isna().sum().sum()
+            ),
+        },
+        "schema": _schema_manifest(stats, rows=len(frame)),
+    }
+    manifest_path = output_root / "manifest.json"
+    _write_manifest(manifest_path, manifest)
+    return PreparationResult(
+        dataset="secom",
+        raw_path=str(zip_path),
+        output_root=str(output_root),
+        manifest_path=str(manifest_path),
+        rows=len(frame),
+        chunks=1,
+        parquet_files=[str(part_path)],
+    )
+
+
 def sha256_file(path: Path) -> str:
     """Hash a local raw file for manifest provenance."""
 
@@ -460,6 +615,35 @@ def _clear_parquet_parts(output_root: Path) -> None:
 def _write_manifest(path: Path, manifest: dict[str, Any]) -> None:
     serializable = _json_safe(manifest)
     path.write_text(json.dumps(serializable, indent=2), encoding="utf-8")
+
+
+def _zip_member_name(archive: zipfile.ZipFile, filename: str) -> str:
+    matches = [name for name in archive.namelist() if Path(name).name.lower() == filename.lower()]
+    if not matches:
+        raise FileNotFoundError(f"{filename} not found in {archive.filename}")
+    return matches[0]
+
+
+def _hydraulic_sensor_members(archive: zipfile.ZipFile) -> list[str]:
+    members = [
+        name
+        for name in archive.namelist()
+        if Path(name).suffix.lower() == ".txt"
+        and Path(name).name.lower() not in {"profile.txt", "description.txt", "documentation.txt"}
+        and not name.endswith("/")
+    ]
+    if not members:
+        raise FileNotFoundError(f"no hydraulic sensor text files found in {archive.filename}")
+    return sorted(members)
+
+
+def _ordered_split_labels(rows: int) -> list[str]:
+    train_end = int(rows * 0.60)
+    validation_end = int(rows * 0.80)
+    return [
+        "train" if index < train_end else "validation" if index < validation_end else "test"
+        for index in range(rows)
+    ]
 
 
 def _json_safe(value: Any) -> Any:

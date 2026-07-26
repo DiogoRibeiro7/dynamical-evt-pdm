@@ -58,6 +58,42 @@ Source tables are stored under:
 data/raw/scania_component_x/
 ```
 
+## Hydraulic Systems
+
+Record: <https://archive.ics.uci.edu/dataset/447/condition+monitoring+of+hydraulic+systems>
+
+The dataset contains experimentally obtained hydraulic test-rig cycles. Each cycle repeats a constant-load operating profile and records multi-rate sensor traces with component-condition targets in `profile.txt`.
+
+Fetch the downloaded archive with:
+
+```bash
+poetry run dyn-evt fetch-data --dataset hydraulic_systems
+```
+
+The released archive is stored under:
+
+```text
+data/raw/hydraulic_systems/condition+monitoring+of+hydraulic+systems.zip
+```
+
+## SECOM
+
+Record: <https://archive.ics.uci.edu/dataset/179/secom>
+
+The dataset contains semiconductor manufacturing process measurements and pass/fail yield labels for individual production examples. It broadens the study to high-dimensional tabular process monitoring with missing values and imbalanced failures.
+
+Fetch the downloaded archive with:
+
+```bash
+poetry run dyn-evt fetch-data --dataset secom
+```
+
+The released archive is stored under:
+
+```text
+data/raw/secom/secom.zip
+```
+
 ## Integrity rules
 
 1. Keep raw files immutable.
@@ -75,6 +111,8 @@ After fetching raw files, build processed Parquet parts with:
 poetry run dyn-evt prepare-metropt
 poetry run dyn-evt prepare-metropt2
 poetry run dyn-evt prepare-scania
+poetry run dyn-evt prepare-hydraulic-systems
+poetry run dyn-evt prepare-secom
 ```
 
-Each command writes `part-*.parquet` files and a `manifest.json` under `data/processed/<dataset>/`. The manifests record raw hashes, schema statistics, source-to-canonical mappings, timestamp checks, failure-label provenance and Scania vehicle-split leakage checks.
+Each command writes `part-*.parquet` files and a `manifest.json` under `data/processed/<dataset>/`. The manifests record raw hashes, schema statistics, source-to-canonical mappings, timestamp checks, failure-label provenance, Scania vehicle-split leakage checks, hydraulic cycle summaries and SECOM missingness checks.

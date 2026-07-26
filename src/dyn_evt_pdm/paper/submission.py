@@ -19,7 +19,9 @@ SubmissionDecision = Literal[
     "submission ready after minor editorial changes",
     "not submission ready",
 ]
-REQUIRED_REAL_DATASETS = frozenset({"metropt", "metropt2", "scania_component_x"})
+REQUIRED_REAL_DATASETS = frozenset(
+    {"hydraulic_systems", "metropt", "metropt2", "scania_component_x", "secom"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -333,7 +335,7 @@ def adversarial_review_issues(
     rev001_resolved = industrial_audit.ok
     rev005_resolved = audit.ok
     rev001_experiment = (
-        "Industrial result artifacts exist for MetroPT, MetroPT2, and SCANIA; "
+        "Industrial result artifacts exist for the five registered real datasets; "
         "the manuscript still blocks population-level superiority language."
         if rev001_resolved
         else "Full industrial matrix remains required before stronger claims."

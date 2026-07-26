@@ -86,10 +86,16 @@ def test_planned_files_resolves_public_sources(
         "dataset_train.csv",
         "MetroPT2.csv",
         "train_tte.csv",
+        "condition+monitoring+of+hydraulic+systems.zip",
+        "secom.zip",
     ]
     assert files[0].destination == tmp_path / "metropt" / "dataset_train.csv"
     assert files[1].destination == tmp_path / "metropt2" / "MetroPT2.csv"
     assert files[2].destination == tmp_path / "scania_component_x" / "train_tte.csv"
+    assert files[3].destination == (
+        tmp_path / "hydraulic_systems" / "condition+monitoring+of+hydraulic+systems.zip"
+    )
+    assert files[4].destination == tmp_path / "secom" / "secom.zip"
 
 
 def test_fetch_datasets_downloads_validates_and_reuses_manifest(

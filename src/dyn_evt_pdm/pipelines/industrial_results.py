@@ -15,7 +15,13 @@ from dyn_evt_pdm.evaluation.metrics import evaluate_event_predictions
 
 IndustrialResultStatus = Literal["succeeded", "not_estimable", "failed"]
 
-REQUIRED_DATASETS = ("metropt", "metropt2", "scania_component_x")
+REQUIRED_DATASETS = (
+    "hydraulic_systems",
+    "metropt",
+    "metropt2",
+    "scania_component_x",
+    "secom",
+)
 METROPT_FEATURE_PRIORITY = (
     "pressure_tp2",
     "pressure_tp3",
@@ -122,6 +128,49 @@ def _run_dataset(dataset_id: str, config: IndustrialResultsConfig) -> Industrial
             return _run_metropt_family(dataset_id, manifest, config)
         if dataset_id == "scania_component_x":
             return _run_scania(manifest, config)
+        if dataset_id == "hydraulic_systems":
+            return _run_tabular_condition_dataset(
+                dataset_id=dataset_id,
+                manifest=manifest,
+                config=config,
+                feature_prefixes=("",),
+                excluded_columns={
+                    "cycle_id",
+                    "cooler_condition",
+                    "valve_condition",
+                    "internal_pump_leakage",
+                    "accumulator_pressure",
+                    "stable_flag",
+                    "is_degraded",
+                    "split",
+                },
+                target_column="is_degraded",
+                entity_column="cycle_id",
+                estimand="cycle-level hydraulic component degradation on chronological test split",
+                limitation=(
+                    "laboratory cycle-level component states are not field failure-event onsets"
+                ),
+            )
+        if dataset_id == "secom":
+            return _run_tabular_condition_dataset(
+                dataset_id=dataset_id,
+                manifest=manifest,
+                config=config,
+                feature_prefixes=("sensor_",),
+                excluded_columns={
+                    "wafer_id",
+                    "label_raw",
+                    "is_failure",
+                    "source_timestamp",
+                    "split",
+                },
+                target_column="is_failure",
+                entity_column="wafer_id",
+                estimand="wafer-level semiconductor yield-failure detection on chronological test split",
+                limitation=(
+                    "yield-failure labels are quality outcomes, not maintenance repair events"
+                ),
+            )
     except Exception as exc:
         return _failed_result(dataset_id, f"{type(exc).__name__}: {exc}")
     return _failed_result(dataset_id, "unsupported dataset")
@@ -277,6 +326,82 @@ def _run_scania(
     )
 
 
+def _run_tabular_condition_dataset(
+    *,
+    dataset_id: str,
+    manifest: dict[str, Any],
+    config: IndustrialResultsConfig,
+    feature_prefixes: tuple[str, ...],
+    excluded_columns: set[str],
+    target_column: str,
+    entity_column: str,
+    estimand: str,
+    limitation: str,
+) -> IndustrialDatasetResult:
+    files = _manifest_files(manifest)
+    rows = int(manifest.get("rows", 0))
+    schema = cast(dict[str, Any], manifest.get("schema", {}))
+    feature_columns = tuple(
+        column
+        for column in sorted(schema)
+        if column not in excluded_columns
+        and any(column.startswith(prefix) for prefix in feature_prefixes)
+        and _is_numeric_schema(schema[column])
+    )
+    if not files or rows <= 0 or not feature_columns or target_column not in schema:
+        return _failed_result(dataset_id, "missing parquet files, rows, features, or target column")
+
+    frame = pd.concat(
+        [
+            pd.read_parquet(path, columns=[entity_column, *feature_columns, target_column, "split"])
+            for path in files
+        ],
+        ignore_index=True,
+    )
+    train = frame.loc[frame["split"].astype(str) == "train", list(feature_columns)]
+    if train.empty:
+        return _failed_result(dataset_id, "train split has no rows")
+    center = train.median(numeric_only=True)
+    q75 = train.quantile(0.75, numeric_only=True)
+    q25 = train.quantile(0.25, numeric_only=True)
+    scale = (q75 - q25).replace(0.0, np.nan).fillna(1.0)
+    train_scores = _robust_scores(train, feature_columns, center=center, scale=scale)
+    train_scores = train_scores[np.isfinite(train_scores)]
+    if len(train_scores) == 0:
+        return _failed_result(dataset_id, "train split has no finite scores")
+    threshold = float(np.quantile(train_scores, config.threshold_quantile))
+
+    test = frame.loc[frame["split"].astype(str) == "test"].copy()
+    if test.empty:
+        return _failed_result(dataset_id, "test split has no rows")
+    test_scores = _robust_scores(test, feature_columns, center=center, scale=scale)
+    predictions = np.asarray(test_scores > threshold, dtype=bool)
+    targets = test[target_column].astype(bool).to_numpy()
+    precision, recall, f1 = _binary_metrics(predictions, targets)
+    return IndustrialDatasetResult(
+        dataset_id=dataset_id,
+        status="succeeded",
+        estimand=estimand,
+        rows=rows,
+        independent_units=int(test[entity_column].nunique(dropna=True)),
+        split_evaluated="test",
+        feature_columns=feature_columns,
+        threshold_quantile=config.threshold_quantile,
+        threshold=threshold,
+        target_events_or_units=int(targets.sum()),
+        predicted_events_or_units=int(predictions.sum()),
+        precision=precision,
+        recall=recall,
+        f1=f1,
+        false_alarm_events_per_day=None,
+        median_warning_lead_time=None,
+        brier_score=float(np.mean((predictions.astype(float) - targets.astype(float)) ** 2))
+        if len(targets)
+        else None,
+        limitation=limitation,
+    )
+
+
 def _fit_temporal_threshold(
     files: tuple[Path, ...],
     rows: int,
@@ -393,6 +518,13 @@ def _scania_target_column(schema: dict[str, Any]) -> str | None:
     if "class_label" in schema:
         return "class_label"
     return None
+
+
+def _is_numeric_schema(schema_entry: object) -> bool:
+    if not isinstance(schema_entry, dict):
+        return False
+    dtype = str(schema_entry.get("dtype", "")).lower()
+    return any(token in dtype for token in ("int", "float", "bool"))
 
 
 def _failed_result(dataset_id: str, limitation: str) -> IndustrialDatasetResult:

@@ -52,6 +52,20 @@ Zahra Kharazian, Tony Lindgren and Oskar Andersson Reyna.
 - Article: <https://www.nature.com/articles/s41597-025-04802-6>
 - Role: external fleet-level validation with operational histories, repairs and vehicle specifications.
 
+### Hydraulic Systems
+
+Nikolai Helwig, Eliseo Pignanelli and Andreas Schutze.
+
+- Data: <https://archive.ics.uci.edu/dataset/447/condition+monitoring+of+hydraulic+systems>
+- Role: experimental hydraulic test-rig condition monitoring with multi-rate sensor traces and cycle-wise component states.
+
+### SECOM
+
+Michael McCann and Adrian Johnston.
+
+- Data: <https://archive.ics.uci.edu/dataset/179/secom>
+- Role: high-dimensional semiconductor process monitoring with pass/fail yield labels and missing values.
+
 ## Literature review completion criteria
 
 Before submission, add:

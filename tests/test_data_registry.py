@@ -14,7 +14,14 @@ from dyn_evt_pdm.data.registry import (
 
 def test_normalize_dataset_ids_accepts_public_aliases() -> None:
     assert normalize_dataset_ids("scania-component-x") == ("scania_component_x",)
-    assert normalize_dataset_ids("all") == ("metropt", "metropt2", "scania_component_x")
+    assert normalize_dataset_ids("hydraulic-systems") == ("hydraulic_systems",)
+    assert normalize_dataset_ids("all") == (
+        "hydraulic_systems",
+        "metropt",
+        "metropt2",
+        "scania_component_x",
+        "secom",
+    )
 
 
 def test_metropt_registry_matches_source_verified_failure_metadata() -> None:
@@ -34,6 +41,8 @@ def test_dataset_registry_has_verified_citation_and_license_metadata() -> None:
     assert all("must be verified" not in citation for citation in citations.values())
     assert all("doi:" in citation for citation in citations.values())
     assert "Scientific Data 12, 493 (2025)" in citations["scania_component_x"]
+    assert "doi:10.24432/C5CW21" in citations["hydraulic_systems"]
+    assert "doi:10.24432/C54305" in citations["secom"]
 
 
 def test_build_data_report_verifies_local_manifests(tmp_path: Path) -> None:
@@ -42,6 +51,8 @@ def test_build_data_report_verifies_local_manifests(tmp_path: Path) -> None:
     _write_dataset_manifests(raw_root, processed_root, "metropt", rows=3)
     _write_dataset_manifests(raw_root, processed_root, "metropt2", rows=4)
     _write_dataset_manifests(raw_root, processed_root, "scania_component_x", rows=5)
+    _write_dataset_manifests(raw_root, processed_root, "hydraulic_systems", rows=6)
+    _write_dataset_manifests(raw_root, processed_root, "secom", rows=7)
 
     report = build_data_report(raw_root=raw_root, processed_root=processed_root)
 
@@ -53,14 +64,16 @@ def test_build_data_report_verifies_local_manifests(tmp_path: Path) -> None:
         "metropt": "verified",
         "metropt2": "verified",
         "scania_component_x": "verified",
+        "hydraulic_systems": "verified",
+        "secom": "verified",
     }
-    assert {item["rows"] for item in report["datasets"]} == {3, 4, 5}
+    assert {item["rows"] for item in report["datasets"]} == {3, 4, 5, 6, 7}
 
 
 def test_data_cli_list_verify_and_report(tmp_path: Path) -> None:
     raw_root = tmp_path / "raw"
     processed_root = tmp_path / "processed"
-    for dataset in ("metropt", "metropt2", "scania_component_x"):
+    for dataset in ("hydraulic_systems", "metropt", "metropt2", "scania_component_x", "secom"):
         _write_dataset_manifests(raw_root, processed_root, dataset, rows=2)
     runner = CliRunner()
 
@@ -70,6 +83,8 @@ def test_data_cli_list_verify_and_report(tmp_path: Path) -> None:
         "metropt",
         "metropt2",
         "scania_component_x",
+        "hydraulic_systems",
+        "secom",
     }
 
     verification_path = tmp_path / "verification.json"

@@ -1,0 +1,11 @@
+dataset:
+  name: secom
+  source_record: https://archive.ics.uci.edu/dataset/179/secom
+  local_path: data/raw/secom/secom.zip
+  entity_column: wafer_id
+  target_column: is_failure
+  validation_strategy: chronological_entity_holdout
+  notes:
+    - The raw UCI archive contains process sensor measurements and pass/fail yield labels.
+    - Preparation preserves missing sensor values and records the source timestamp string.
+    - Yield-failure diagnostics must not be interpreted as maintenance repair-event prediction.

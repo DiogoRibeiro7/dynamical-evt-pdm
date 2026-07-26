@@ -13,7 +13,12 @@ import typer
 import yaml
 
 from dyn_evt_pdm.data.acquisition import fetch_datasets, planned_files
-from dyn_evt_pdm.data.prepare import prepare_metropt, prepare_scania
+from dyn_evt_pdm.data.prepare import (
+    prepare_hydraulic_systems,
+    prepare_metropt,
+    prepare_scania,
+    prepare_secom,
+)
 from dyn_evt_pdm.data.registry import (
     build_data_report,
     normalize_dataset_ids,
@@ -92,7 +97,10 @@ def data_fetch_command(
         str,
         typer.Option(
             "--dataset",
-            help="Dataset to fetch: all, metropt, metropt2, scania, scania-component-x.",
+            help=(
+                "Dataset to fetch: all, metropt, metropt2, scania, scania-component-x, "
+                "hydraulic-systems, secom."
+            ),
         ),
     ] = "all",
     raw_root: Annotated[Path, typer.Option(help="Raw-data root directory.")] = Path("data/raw"),
@@ -130,7 +138,10 @@ def data_fetch_command(
 def data_verify_command(
     dataset: Annotated[
         str,
-        typer.Option("--dataset", help="Dataset to verify: all, metropt, metropt2, scania."),
+        typer.Option(
+            "--dataset",
+            help="Dataset to verify: all, metropt, metropt2, scania, hydraulic-systems, secom.",
+        ),
     ] = "all",
     raw_root: Annotated[Path, typer.Option(help="Raw-data root directory.")] = Path("data/raw"),
     processed_root: Annotated[Path, typer.Option(help="Processed-data root directory.")] = Path(
@@ -157,7 +168,11 @@ def data_prepare_command(
     dataset: Annotated[
         str,
         typer.Option(
-            "--dataset", help="Dataset to prepare: metropt, metropt2, scania-component-x."
+            "--dataset",
+            help=(
+                "Dataset to prepare: metropt, metropt2, scania-component-x, "
+                "hydraulic-systems, secom."
+            ),
         ),
     ],
     config_path: Annotated[
@@ -204,6 +219,20 @@ def data_prepare_command(
             raw_root=_config_path(config, "raw_root", raw_root / "scania_component_x"),
             output_root=output_root,
             chunk_size=configured_scania_chunk_size,
+        )
+    elif dataset_id == "hydraulic_systems":
+        result = prepare_hydraulic_systems(
+            zip_path=_config_path(
+                config,
+                "zip_path",
+                raw_root / "hydraulic_systems" / "condition+monitoring+of+hydraulic+systems.zip",
+            ),
+            output_root=output_root,
+        )
+    elif dataset_id == "secom":
+        result = prepare_secom(
+            zip_path=_config_path(config, "zip_path", raw_root / "secom" / "secom.zip"),
+            output_root=output_root,
         )
     else:
         raise typer.BadParameter(f"unsupported dataset for preparation: {dataset_id}")
@@ -726,7 +755,10 @@ def fetch_data_command(
     dataset: Annotated[
         str,
         typer.Option(
-            help="Dataset to fetch: all, metropt, metropt2, scania or scania_component_x."
+            help=(
+                "Dataset to fetch: all, metropt, metropt2, scania, scania_component_x, "
+                "hydraulic_systems or secom."
+            )
         ),
     ] = "all",
     raw_root: Annotated[Path, typer.Option(help="Raw-data root directory.")] = Path("data/raw"),
@@ -826,6 +858,42 @@ def prepare_scania_command(
     """Prepare the real SCANIA Component X raw CSV files into Parquet parts."""
 
     result = prepare_scania(raw_root=raw_root, output_root=output_root, chunk_size=chunk_size)
+    typer.echo(
+        f"prepared {result.dataset}: {result.rows:,} rows across {result.chunks} parts; "
+        f"manifest {result.manifest_path}"
+    )
+
+
+@app.command("prepare-hydraulic-systems")
+def prepare_hydraulic_systems_command(
+    zip_path: Annotated[Path, typer.Option(exists=True, dir_okay=False)] = Path(
+        "data/raw/hydraulic_systems/condition+monitoring+of+hydraulic+systems.zip"
+    ),
+    output_root: Annotated[Path, typer.Option(help="Processed output directory.")] = Path(
+        "data/processed/hydraulic_systems"
+    ),
+) -> None:
+    """Prepare the real UCI hydraulic-system raw zip into Parquet."""
+
+    result = prepare_hydraulic_systems(zip_path=zip_path, output_root=output_root)
+    typer.echo(
+        f"prepared {result.dataset}: {result.rows:,} rows across {result.chunks} parts; "
+        f"manifest {result.manifest_path}"
+    )
+
+
+@app.command("prepare-secom")
+def prepare_secom_command(
+    zip_path: Annotated[Path, typer.Option(exists=True, dir_okay=False)] = Path(
+        "data/raw/secom/secom.zip"
+    ),
+    output_root: Annotated[Path, typer.Option(help="Processed output directory.")] = Path(
+        "data/processed/secom"
+    ),
+) -> None:
+    """Prepare the real UCI SECOM raw zip into Parquet."""
+
+    result = prepare_secom(zip_path=zip_path, output_root=output_root)
     typer.echo(
         f"prepared {result.dataset}: {result.rows:,} rows across {result.chunks} parts; "
         f"manifest {result.manifest_path}"

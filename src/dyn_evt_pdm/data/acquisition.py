@@ -14,6 +14,7 @@ from typing import Any
 
 ZENODO_API = "https://zenodo.org/api/records/{record_id}"
 SCANIA_DATASET_PAGE = "https://researchdata.se/en/catalogue/dataset/2024-34"
+UCI_STATIC_PUBLIC = "https://archive.ics.uci.edu/static/public/{dataset_id}/{slug}.zip"
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +62,24 @@ def planned_files(
         )
     if "scania_component_x" in selected:
         plans.extend(_scania_files(raw_root / "scania_component_x"))
+    if "hydraulic_systems" in selected:
+        plans.append(
+            _uci_zip_file(
+                dataset="hydraulic_systems",
+                dataset_id=447,
+                slug="condition+monitoring+of+hydraulic+systems",
+                destination_root=raw_root / "hydraulic_systems",
+            )
+        )
+    if "secom" in selected:
+        plans.append(
+            _uci_zip_file(
+                dataset="secom",
+                dataset_id=179,
+                slug="secom",
+                destination_root=raw_root / "secom",
+            )
+        )
     return plans
 
 
@@ -155,11 +174,15 @@ def download_file(
 
 def _normalize_dataset_names(dataset_names: list[str]) -> set[str]:
     aliases = {
-        "all": {"metropt", "metropt2", "scania_component_x"},
+        "all": {"metropt", "metropt2", "scania_component_x", "hydraulic_systems", "secom"},
         "scania": {"scania_component_x"},
         "scania_component_x": {"scania_component_x"},
+        "hydraulic": {"hydraulic_systems"},
+        "hydraulic_systems": {"hydraulic_systems"},
+        "hydraulic-systems": {"hydraulic_systems"},
         "metropt": {"metropt"},
         "metropt2": {"metropt2"},
+        "secom": {"secom"},
     }
     selected: set[str] = set()
     for name in dataset_names:
@@ -227,6 +250,22 @@ def _scania_files(destination_root: Path) -> list[RemoteFile]:
     if not selected:
         raise RuntimeError("Scania dataset page did not expose any downloadable files")
     return selected
+
+
+def _uci_zip_file(
+    *,
+    dataset: str,
+    dataset_id: int,
+    slug: str,
+    destination_root: Path,
+) -> RemoteFile:
+    return RemoteFile(
+        dataset=dataset,
+        filename=f"{slug}.zip",
+        url=UCI_STATIC_PUBLIC.format(dataset_id=dataset_id, slug=slug),
+        destination=destination_root / f"{slug}.zip",
+        source_record=f"https://archive.ics.uci.edu/dataset/{dataset_id}/{slug}",
+    )
 
 
 def _local_result(remote: RemoteFile, *, status: str) -> DownloadResult:

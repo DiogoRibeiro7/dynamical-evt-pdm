@@ -58,6 +58,8 @@ def test_run_experiment_matrix_with_real_data_verification(tmp_path: Path) -> No
     _write_dataset_fixture(raw_root, processed_root, "metropt")
     _write_dataset_fixture(raw_root, processed_root, "metropt2")
     _write_dataset_fixture(raw_root, processed_root, "scania_component_x")
+    _write_dataset_fixture(raw_root, processed_root, "hydraulic_systems")
+    _write_dataset_fixture(raw_root, processed_root, "secom")
 
     manifest = run_experiment_matrix(
         ExperimentMatrixConfig(
@@ -87,10 +89,10 @@ def test_run_experiment_matrix_with_real_data_verification(tmp_path: Path) -> No
     assert (tmp_path / "matrix" / "evidence_scope.csv").exists()
     assert (tmp_path / "matrix" / "evidence_scope.tex").exists()
     scope = json.loads((tmp_path / "matrix" / "evidence_scope.json").read_text())
-    assert scope["summary"]["dataset_count"] == 3
+    assert scope["summary"]["dataset_count"] == 5
     assert scope["summary"]["workflow_count"] == 4
-    assert scope["summary"]["sampling_structure_count"] == 2
-    assert scope["summary"]["verified_dataset_count"] == 3
+    assert scope["summary"]["sampling_structure_count"] == 4
+    assert scope["summary"]["verified_dataset_count"] == 5
 
 
 def _write_dataset_fixture(raw_root: Path, processed_root: Path, dataset_id: str) -> None:
@@ -112,7 +114,73 @@ def _write_dataset_fixture(raw_root: Path, processed_root: Path, dataset_id: str
         ),
         encoding="utf-8",
     )
-    if dataset_id == "scania_component_x":
+    if dataset_id == "hydraulic_systems":
+        processed_file = processed_dir / "part-00000.parquet"
+        pd.DataFrame(
+            {
+                "cycle_id": range(10),
+                "ps1_mean": [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 6.0, 6.1, 7.0, 7.1],
+                "ps1_std": [0.1] * 10,
+                "cooler_condition": [100, 100, 100, 100, 100, 20, 20, 20, 20, 20],
+                "valve_condition": [100] * 10,
+                "internal_pump_leakage": [0, 0, 0, 0, 0, 1, 1, 1, 1, 1],
+                "accumulator_pressure": [130] * 10,
+                "stable_flag": [1] * 10,
+                "is_degraded": [False, False, False, False, False, True, True, True, True, True],
+                "split": ["train"] * 6 + ["validation"] * 2 + ["test"] * 2,
+            }
+        ).to_parquet(processed_file, index=False)
+        schema = {
+            "cycle_id": {"dtype": "int64"},
+            "ps1_mean": {"dtype": "float64"},
+            "ps1_std": {"dtype": "float64"},
+            "cooler_condition": {"dtype": "int64"},
+            "valve_condition": {"dtype": "int64"},
+            "internal_pump_leakage": {"dtype": "int64"},
+            "accumulator_pressure": {"dtype": "int64"},
+            "stable_flag": {"dtype": "int64"},
+            "is_degraded": {"dtype": "bool"},
+            "split": {"dtype": "object"},
+        }
+        processed_manifest = {
+            "dataset": dataset_id,
+            "rows": 10,
+            "chunks": 1,
+            "parquet_files": [str(processed_file)],
+            "schema": schema,
+            "quality_checks": {},
+        }
+    elif dataset_id == "secom":
+        processed_file = processed_dir / "part-00000.parquet"
+        pd.DataFrame(
+            {
+                "wafer_id": range(10),
+                "sensor_000": [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 5.0, 5.1, 6.0, 6.1],
+                "sensor_001": [0.2] * 10,
+                "label_raw": [-1, -1, -1, -1, -1, -1, -1, -1, 1, 1],
+                "is_failure": [False, False, False, False, False, False, False, False, True, True],
+                "source_timestamp": [f"2024-01-01 00:00:0{index}" for index in range(10)],
+                "split": ["train"] * 6 + ["validation"] * 2 + ["test"] * 2,
+            }
+        ).to_parquet(processed_file, index=False)
+        schema = {
+            "wafer_id": {"dtype": "int64"},
+            "sensor_000": {"dtype": "float64"},
+            "sensor_001": {"dtype": "float64"},
+            "label_raw": {"dtype": "int64"},
+            "is_failure": {"dtype": "bool"},
+            "source_timestamp": {"dtype": "object"},
+            "split": {"dtype": "object"},
+        }
+        processed_manifest = {
+            "dataset": dataset_id,
+            "rows": 10,
+            "chunks": 1,
+            "parquet_files": [str(processed_file)],
+            "schema": schema,
+            "quality_checks": {},
+        }
+    elif dataset_id == "scania_component_x":
         parquet_files = _write_scania_processed_fixture(processed_dir)
         schema = {
             "vehicle_id": {"dtype": "int64"},

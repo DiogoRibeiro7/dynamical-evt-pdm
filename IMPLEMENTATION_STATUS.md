@@ -12,9 +12,9 @@
 - lagged multivariate extreme-pattern diagnostics with clustering-preserving nulls;
 - fair baseline runner covering engineering thresholds, empirical thresholds, POT/GPD, fixed-run declustering, SPOT-style thresholding, Isolation Forest, robust change point, linear autoencoder and conformal anomaly detection;
 - rigorous event-level evaluation with alarm merge gaps, early-warning windows, greedy/optimal matching, duplicate alarms, false alarms, lead time, utility and calibration diagnostics;
-- real-data acquisition for MetroPT, MetroPT2 and SCANIA Component X into ignored `data/raw/`;
+- real-data acquisition for MetroPT, MetroPT2, SCANIA Component X, Hydraulic Systems and SECOM into ignored `data/raw/`;
 - chunked raw-to-Parquet preparation with schema manifests, quality checks and checksum validation;
-- real-data matrix verification, evidence-scope summaries and conservative industrial diagnostic result artifacts;
+- five-dataset real-data matrix verification, evidence-scope summaries and conservative industrial diagnostic result artifacts;
 - paper asset builder for figures, CSV tables, LaTeX tables, claim ledger, provenance, benchmarks and result macros;
 - manuscript, supplement and submission-package assembly without copying raw third-party datasets;
 - generated adversarial review, revision matrix, submission statements and final readiness decision.
@@ -48,15 +48,15 @@ make industrial-results
 - Ruff formatting: passed.
 - Ruff linting: passed.
 - Mypy strict type checking: passed.
-- Pytest with configured coverage gate: 93 passed.
-- Measured coverage: 82.87%, above the configured 80% gate.
-- `make real-data-matrix`: succeeded locally with prepared MetroPT, MetroPT2 and SCANIA Component X data.
+- Pytest with configured coverage gate: 95 passed.
+- Measured coverage: 82.83%, above the configured 80% gate.
+- `make real-data-matrix`: succeeded locally with prepared MetroPT, MetroPT2, SCANIA Component X, Hydraulic Systems and SECOM data.
 - `make submission-package`: succeeded locally with decision `submission ready` and zero blockers.
 
 ## Scientific Boundaries
 
 - The package supports a reproducible diagnostic workflow for the current datasets and workflows; broader industrial claims should stay tied to the generated evidence-scope and result artifacts.
 - MetroPT and MetroPT2 contain few independent failure episodes; raw timestamp rows are not treated as independent evidence.
-- SCANIA Component X is evaluated as a vehicle-level repair-risk resource, not as a direct compressor-event replication.
+- SCANIA Component X is evaluated as a vehicle-level repair-risk resource, Hydraulic Systems as cycle-level component health, and SECOM as wafer-level yield-failure detection; none are direct compressor-event replications.
 - Calibration and early-warning artifacts are diagnostics unless prospective calibrated probability evidence is added.
 - Weak, failed or non-estimable real-data results are preserved as part of the evidence package.

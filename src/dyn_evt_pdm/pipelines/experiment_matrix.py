@@ -23,6 +23,7 @@ from dyn_evt_pdm.models.baseline_runner import (
     run_baseline_experiment,
 )
 from dyn_evt_pdm.pipelines.industrial_results import (
+    REQUIRED_DATASETS,
     IndustrialResultsConfig,
     run_industrial_results,
 )
@@ -193,6 +194,7 @@ def _planned_cells(
     protocol_hash: str,
 ) -> tuple[ExperimentCell, ...]:
     root = config.output_root
+    real_dataset_label = "+".join(REQUIRED_DATASETS)
     cells = [
         ExperimentCell(
             name="freeze_protocol",
@@ -240,7 +242,7 @@ def _planned_cells(
             ExperimentCell(
                 name="real_data_verification",
                 family="real_data",
-                dataset_id="metropt+metropt2+scania_component_x",
+                dataset_id=real_dataset_label,
                 output_paths=(
                     str(root / "real_data_report.json"),
                     str(root / "real_data_status.csv"),
@@ -257,7 +259,7 @@ def _planned_cells(
             ExperimentCell(
                 name="industrial_real_data_results",
                 family="real_data",
-                dataset_id="metropt+metropt2+scania_component_x",
+                dataset_id=real_dataset_label,
                 output_paths=(
                     str(root / "industrial_results_summary.csv"),
                     str(root / "industrial_results.json"),
@@ -265,7 +267,7 @@ def _planned_cells(
                 ),
                 config={
                     "processed_root": str(config.processed_root),
-                    "required_datasets": "metropt,metropt2,scania_component_x",
+                    "required_datasets": ",".join(REQUIRED_DATASETS),
                     "threshold_quantile": 0.98,
                 },
             )
@@ -274,7 +276,7 @@ def _planned_cells(
             ExperimentCell(
                 name="evidence_scope",
                 family="evidence_scope",
-                dataset_id="synthetic+metropt+metropt2+scania_component_x",
+                dataset_id=f"synthetic+{real_dataset_label}",
                 output_paths=(
                     str(root / "evidence_scope.json"),
                     str(root / "evidence_scope.csv"),

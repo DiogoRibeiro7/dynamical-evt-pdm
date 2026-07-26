@@ -58,6 +58,29 @@ class DatasetVerification:
 
 
 REGISTRY: dict[str, DatasetRegistryEntry] = {
+    "hydraulic_systems": DatasetRegistryEntry(
+        dataset_id="hydraulic_systems",
+        version="UCI dataset 447",
+        official_landing_page=(
+            "https://archive.ics.uci.edu/dataset/447/" "condition+monitoring+of+hydraulic+systems"
+        ),
+        primary_publication_citation=(
+            "Helwig, Pignanelli, and Schutze, Condition monitoring of hydraulic systems, "
+            "UCI Machine Learning Repository (2018), doi:10.24432/C5CW21"
+        ),
+        license="CC-BY-4.0",
+        access_conditions="Open public UCI record; raw zip is fetched locally and not vendored.",
+        timestamp_timezone="not timestamped; cycle order is preserved",
+        timestamp_resolution="60 second constant load cycle",
+        entity_identifier="cycle_id",
+        sampling_structure="hydraulic test-rig cycles with multi-rate sensor traces",
+        failure_or_repair_event_source="cycle-wise component condition targets in profile.txt",
+        statistical_independence_unit="load cycle",
+        known_limitations=(
+            "accelerated laboratory test-rig conditions are not field maintenance exposure",
+            "cycle-level component states are not event-level failure onsets",
+        ),
+    ),
     "metropt": DatasetRegistryEntry(
         dataset_id="metropt",
         version="Zenodo record 6854240",
@@ -121,15 +144,39 @@ REGISTRY: dict[str, DatasetRegistryEntry] = {
             "censoring and repair labels require estimand-specific handling",
         ),
     ),
+    "secom": DatasetRegistryEntry(
+        dataset_id="secom",
+        version="UCI dataset 179",
+        official_landing_page="https://archive.ics.uci.edu/dataset/179/secom",
+        primary_publication_citation=(
+            "McCann and Johnston, SECOM, UCI Machine Learning Repository (2008), "
+            "doi:10.24432/C54305"
+        ),
+        license="CC-BY-4.0",
+        access_conditions="Open public UCI record; raw zip is fetched locally and not vendored.",
+        timestamp_timezone="source timestamp; treated as production-order metadata",
+        timestamp_resolution="one observation per wafer/process example",
+        entity_identifier="wafer_id",
+        sampling_structure="semiconductor process measurements per production entity",
+        failure_or_repair_event_source="pass/fail yield labels in secom_labels.data",
+        statistical_independence_unit="wafer / production example",
+        known_limitations=(
+            "yield labels are downstream quality outcomes, not maintenance repair events",
+            "high missingness and class imbalance require conservative diagnostics",
+        ),
+    ),
 }
 
 ALIASES = {
     "all": tuple(REGISTRY),
+    "hydraulic": ("hydraulic_systems",),
+    "hydraulic_systems": ("hydraulic_systems",),
     "metropt": ("metropt",),
     "metropt2": ("metropt2",),
     "scania": ("scania_component_x",),
     "scania_component_x": ("scania_component_x",),
     "scania-component-x": ("scania_component_x",),
+    "secom": ("secom",),
 }
 
 

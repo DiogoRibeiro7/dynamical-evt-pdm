@@ -1,0 +1,16 @@
+dataset:
+  name: hydraulic_systems
+  source_record: https://archive.ics.uci.edu/dataset/447/condition+monitoring+of+hydraulic+systems
+  local_path: data/raw/hydraulic_systems/condition+monitoring+of+hydraulic+systems.zip
+  entity_column: cycle_id
+  target_columns:
+    - cooler_condition
+    - valve_condition
+    - internal_pump_leakage
+    - accumulator_pressure
+    - stable_flag
+  validation_strategy: chronological_cycle_holdout
+  notes:
+    - The raw UCI archive contains cycle-wise sensor matrices and profile.txt component states.
+    - Preparation summarizes each sensor trace per cycle and preserves component-condition labels.
+    - Cycle-level diagnostics must not be interpreted as field failure-event prediction.

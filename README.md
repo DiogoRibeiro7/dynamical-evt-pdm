@@ -25,8 +25,8 @@ The repository contains:
 - hitting-time and dangerous-region observables;
 - lagged multivariate extreme signatures;
 - event-level predictive-maintenance metrics;
-- adapters for MetroPT, MetroPT2, and SCANIA Component X;
-- real-data acquisition commands for MetroPT, MetroPT2, and SCANIA Component X;
+- adapters for MetroPT, MetroPT2, SCANIA Component X, hydraulic-system, and SECOM datasets;
+- real-data acquisition commands for all five public datasets;
 - real-data verification, evidence-scope and industrial diagnostic result artifacts;
 - classical anomaly-detection baselines;
 - reproducible experiment configurations;
@@ -64,7 +64,7 @@ Fetch the public raw datasets into the ignored `data/raw/` tree:
 poetry run dyn-evt fetch-data --dataset all
 ```
 
-You can fetch one dataset at a time with `--dataset metropt`, `--dataset metropt2`, or `--dataset scania_component_x`. Each run writes a local `manifest.json` with source URLs, byte counts, SHA-256 hashes, and any published checksum.
+You can fetch one dataset at a time with `--dataset metropt`, `--dataset metropt2`, `--dataset scania_component_x`, `--dataset hydraulic_systems`, or `--dataset secom`. Each run writes a local `manifest.json` with source URLs, byte counts, SHA-256 hashes, and any published checksum.
 
 Prepare the raw files into processed Parquet parts:
 
@@ -72,6 +72,8 @@ Prepare the raw files into processed Parquet parts:
 poetry run dyn-evt prepare-metropt
 poetry run dyn-evt prepare-metropt2
 poetry run dyn-evt prepare-scania
+poetry run dyn-evt prepare-hydraulic-systems
+poetry run dyn-evt prepare-secom
 ```
 
 Verify the prepared datasets and generate conservative industrial diagnostic results:
@@ -86,7 +88,7 @@ For only the industrial result tables, after preparation:
 make industrial-results
 ```
 
-These commands write ignored artifacts under `artifacts/real_data_matrix/`, including dataset verification, an experiment manifest, evidence-scope summaries, and MetroPT/MetroPT2/SCANIA diagnostic result summaries.
+These commands write ignored artifacts under `artifacts/real_data_matrix/`, including dataset verification, an experiment manifest, evidence-scope summaries, and dataset-specific diagnostic result summaries.
 
 ## Smoke Experiment
 
@@ -221,6 +223,8 @@ Large datasets are not committed. Acquisition notes and expected schemas are in 
 - **MetroPT**: 1 Hz APU telemetry, roughly 10.98 million observations and three reported catastrophic failures.
 - **MetroPT2**: 1 Hz APU telemetry, roughly 7.12 million observations and two reported failures.
 - **SCANIA Component X**: fleet-level operational readouts, repair information and vehicle specifications.
+- **Hydraulic Systems**: UCI hydraulic test-rig cycles with multi-rate sensor traces and component-condition labels.
+- **SECOM**: UCI semiconductor process measurements with pass/fail yield labels.
 
 ## Scientific guardrails
 
@@ -243,6 +247,8 @@ The pre-submission rejection checklist is in [`docs/adversarial_review.md`](docs
 - Aimino, Freitas, Freitas & Todd, *Multivariate Extreme Values for Dynamical Systems*.
 - Veloso et al., *The MetroPT Dataset for Predictive Maintenance*.
 - Kharazian, Lindgren & Andersson Reyna, *SCANIA Component X Dataset*.
+- Helwig, Pignanelli & Schutze, *Condition Monitoring of Hydraulic Systems*.
+- McCann & Johnston, *SECOM*.
 
 Full links and the role of each source are documented in [`docs/literature_map.md`](docs/literature_map.md).
 

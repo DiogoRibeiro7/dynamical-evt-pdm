@@ -34,6 +34,8 @@ prepare-data:
 	poetry run dyn-evt prepare-metropt
 	poetry run dyn-evt prepare-metropt2
 	poetry run dyn-evt prepare-scania
+	poetry run dyn-evt prepare-hydraulic-systems
+	poetry run dyn-evt prepare-secom
 
 simulate:
 	poetry run dyn-evt simulate --output data/processed/synthetic_cyclic.csv --n-steps 20000 --seed 42

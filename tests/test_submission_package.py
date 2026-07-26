@@ -244,9 +244,11 @@ def _write_terminal_real_data_matrix_fixture(tmp_path: Path) -> Path:
         "\n".join(
             [
                 "dataset_id,status,rows,chunks,independent_unit,raw_manifest_path,processed_manifest_path",
+                "hydraulic_systems,verified,40,1,cycle,data/raw/hydraulic_systems/manifest.json,data/processed/hydraulic_systems/manifest.json",
                 "metropt,verified,10,1,failure,data/raw/metropt/manifest.json,data/processed/metropt/manifest.json",
                 "metropt2,verified,20,1,failure,data/raw/metropt2/manifest.json,data/processed/metropt2/manifest.json",
                 "scania_component_x,verified,30,1,vehicle,data/raw/scania/manifest.json,data/processed/scania/manifest.json",
+                "secom,verified,50,1,wafer,data/raw/secom/manifest.json,data/processed/secom/manifest.json",
                 "",
             ]
         ),
@@ -273,9 +275,11 @@ def _write_industrial_results_fixture(tmp_path: Path) -> Path:
         "\n".join(
             [
                 "dataset_id,status,estimand",
+                "hydraulic_systems,succeeded,cycle-level hydraulic component degradation",
                 "metropt,not_estimable,event-level early warning",
                 "metropt2,succeeded,event-level early warning",
                 "scania_component_x,succeeded,vehicle-level repair risk",
+                "secom,succeeded,wafer-level semiconductor yield-failure detection",
                 "",
             ]
         ),
