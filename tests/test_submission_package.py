@@ -86,7 +86,7 @@ def test_build_submission_package_copies_terminal_real_data_matrix(tmp_path: Pat
     assert "Full real-data matrix terminal status is recorded locally" in reviewer_report
 
 
-def test_build_submission_package_with_industrial_results_is_submission_ready(
+def test_build_submission_package_with_industrial_results_keeps_broader_blockers(
     tmp_path: Path,
 ) -> None:
     paper_root, asset_root = _write_package_fixture(tmp_path)
@@ -116,8 +116,9 @@ def test_build_submission_package_with_industrial_results_is_submission_ready(
         )
     )
 
-    assert manifest.decision == "submission ready"
-    assert manifest.unresolved_blockers == ()
+    assert manifest.decision == "not submission ready"
+    assert "full Monte Carlo validation grid is not completed" in manifest.unresolved_blockers
+    assert any("event-level baseline comparison" in item for item in manifest.unresolved_blockers)
     statements = (output_root / "submission_statements.md").read_text(encoding="utf-8")
     assert "to be completed" not in statements
     assert "Diogo Ribeiro" in statements

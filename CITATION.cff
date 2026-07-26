@@ -3,11 +3,13 @@ message: "Please cite this software and the associated paper when available."
 title: "Dynamical EVT for Predictive Maintenance"
 type: software
 authors:
-  - family-names: "Diogo"
+  - family-names: "Ribeiro"
+    given-names: "Diogo"
 version: 0.1.0
-date-released: 2026-07-23
+date-released: 2026-07-26
 license: BSD-3-Clause
 repository-code: "https://github.com/DiogoRibeiro7/dynamical-evt-pdm"
+abstract: "Reproducible dynamical extreme-value diagnostics, real-data acquisition scripts, event-level alarm evaluation, and manuscript assets for predictive-maintenance research."
 keywords:
   - extreme value theory
   - dynamical systems

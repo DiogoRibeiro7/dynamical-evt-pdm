@@ -169,7 +169,7 @@ def build_paper_assets(config: PaperAssetConfig) -> PaperAssetManifest:
     )
     generated += _timed_asset(
         "revision_summaries",
-        lambda: _revision_summary_assets(config, tables, latex),
+        lambda: _revision_summary_assets(config, figures, tables, latex),
         benchmark_rows,
     )
     benchmark_path = tables / "computational_benchmark.csv"
@@ -945,6 +945,7 @@ def _simulation_bias_assets(
 
 def _revision_summary_assets(
     config: PaperAssetConfig,
+    figures: Path,
     tables: Path,
     latex: Path,
 ) -> list[Path]:
@@ -952,6 +953,9 @@ def _revision_summary_assets(
     generated += _dataset_role_summary_assets(config, tables, latex)
     generated += _industrial_compact_assets(config, tables, latex)
     generated += _baseline_summary_assets(config, tables, latex)
+    generated += _metric_provenance_assets(config, figures, tables, latex)
+    generated += _method_scope_assets(tables, latex)
+    generated += _timeline_traceability_assets(tables, latex)
     generated += _leakage_audit_assets(tables, latex)
     generated += _root_cause_assets(config, tables, latex)
     return generated
@@ -998,41 +1002,60 @@ def _industrial_compact_assets(
     if not path.exists():
         return []
     source = pd.read_csv(path)
-    frame = pd.DataFrame(
+    generated: list[Path] = []
+    event_source = source[source["dataset_id"].isin(["metropt", "metropt2"])].copy()
+    event_frame = pd.DataFrame(
         {
-            "Data": source["dataset_id"].map(_dataset_label),
-            "Units / target +": source.apply(
-                lambda row: (
-                    f"{_format_count(row['independent_units'])} / "
-                    f"{_format_count(row['target_events_or_units'])}"
-                ),
-                axis=1,
+            "Dataset": event_source["dataset_id"].map(_dataset_label),
+            "Failure": event_source["dataset_id"].map(
+                lambda value: f"{_dataset_label(value)} registered test failure"
             ),
-            "Pred +": source["predicted_events_or_units"],
-            "Rec / prec": source.apply(
-                lambda row: f"{_format_metric(row['recall'])} / {_format_metric(row['precision'])}",
-                axis=1,
-            ),
-            "FA/day / lead": source.apply(
-                lambda row: (
-                    f"{_format_metric(row['false_alarm_events_per_day'])} / "
-                    f"{_format_optional_int(row['median_warning_lead_time'])}"
-                ),
-                axis=1,
-            ),
-            "Limit": source["limitation"].map(_short_limitation),
+            "Target": event_source["target_events_or_units"].map(_format_count),
+            "Alarms": event_source["predicted_events_or_units"].map(_format_count),
+            "Recall": event_source["recall"].map(_format_metric),
+            "Precision": event_source["precision"].map(_format_metric),
+            "FA/day": event_source["false_alarm_events_per_day"].map(_format_metric),
+            "Lead": event_source["median_warning_lead_time"].map(_format_optional_int),
+            "Limit": event_source["limitation"].map(_short_limitation),
         }
     )
-    csv_path = tables / "industrial_results_compact.csv"
-    tex_path = latex / "industrial_results_compact.tex"
-    frame.to_csv(csv_path, index=False)
+    event_csv = tables / "industrial_event_level_results.csv"
+    event_tex = latex / "industrial_event_level_results.tex"
+    event_frame.to_csv(event_csv, index=False)
     _write_latex_table(
-        frame,
-        tex_path,
-        caption="Conservative real-data diagnostic results by evidential unit.",
-        label="tab:industrial-results",
+        event_frame,
+        event_tex,
+        caption="Held-out event-level diagnostic rows for compressor datasets.",
+        label="tab:event-level-results",
     )
-    return [csv_path, tex_path]
+    generated.extend([event_csv, event_tex])
+
+    non_event_source = source[~source["dataset_id"].isin(["metropt", "metropt2"])].copy()
+    non_event_frame = pd.DataFrame(
+        {
+            "Data": non_event_source["dataset_id"].map(_dataset_label),
+            "Unit": non_event_source["dataset_id"].map(_evidential_unit_label),
+            "Units": non_event_source["independent_units"].map(_format_count),
+            "Target": non_event_source["target_events_or_units"].map(_format_count),
+            "Pred": non_event_source["predicted_events_or_units"].map(_format_count),
+            "Recall": non_event_source["recall"].map(_format_metric),
+            "Precision": non_event_source["precision"].map(_format_metric),
+            "F1": non_event_source["f1"].map(_format_metric),
+            "Brier": non_event_source["brier_score"].map(_format_metric),
+            "Limit": non_event_source["limitation"].map(_short_limitation),
+        }
+    )
+    non_event_csv = tables / "industrial_non_event_results.csv"
+    non_event_tex = latex / "industrial_non_event_results.tex"
+    non_event_frame.to_csv(non_event_csv, index=False)
+    _write_latex_table(
+        non_event_frame,
+        non_event_tex,
+        caption="Non-event real-data diagnostic rows kept separate from event alarms.",
+        label="tab:non-event-results",
+    )
+    generated.extend([non_event_csv, non_event_tex])
+    return generated
 
 
 def _baseline_summary_assets(
@@ -1061,8 +1084,180 @@ def _baseline_summary_assets(
     _write_latex_table(
         summary,
         tex_path,
-        caption="Fair baseline smoke results under the shared causal prediction contract.",
-        label="tab:baseline-summary",
+        caption="Synthetic smoke results for the shared baseline runner.",
+        label="tab:baseline-smoke-summary",
+    )
+    return [csv_path, tex_path]
+
+
+def _metric_provenance_assets(
+    config: PaperAssetConfig,
+    figures: Path,
+    tables: Path,
+    latex: Path,
+) -> list[Path]:
+    industrial_path = config.real_data_matrix_root / "industrial_results_summary.csv"
+    rows: list[dict[str, object]] = []
+    if industrial_path.exists():
+        industrial = pd.read_csv(industrial_path)
+        for row in industrial.itertuples(index=False):
+            dataset = str(row.dataset_id)
+            if dataset in {"metropt", "metropt2"}:
+                rows.append(
+                    {
+                        "Source artifact": "industrial_results_summary.csv",
+                        "Dataset": _dataset_label(dataset),
+                        "Split": str(row.split_evaluated),
+                        "Metric class": "event-level alarm",
+                        "Metric": "event precision",
+                        "Value": _format_metric(row.precision),
+                        "Independent unit": "failure episode",
+                        "Comparable to baseline F1": "no",
+                    }
+                )
+                rows.append(
+                    {
+                        "Source artifact": "industrial_results_summary.csv",
+                        "Dataset": _dataset_label(dataset),
+                        "Split": str(row.split_evaluated),
+                        "Metric class": "event-level alarm",
+                        "Metric": "false alarms per day",
+                        "Value": _format_metric(row.false_alarm_events_per_day),
+                        "Independent unit": "operating day",
+                        "Comparable to baseline F1": "no",
+                    }
+                )
+    baseline_path = config.real_data_matrix_root / "baseline_metadata.json"
+    if baseline_path.exists():
+        baseline = pd.DataFrame(json.loads(baseline_path.read_text(encoding="utf-8")))
+        if not baseline.empty and "validation_score" in baseline:
+            best = baseline.sort_values("validation_score", ascending=False).iloc[0]
+            rows.append(
+                {
+                    "Source artifact": "baseline_metadata.json",
+                    "Dataset": "synthetic cyclic",
+                    "Split": "validation",
+                    "Metric class": "pointwise smoke",
+                    "Metric": f"best validation F1 ({_baseline_label(best['model'])})",
+                    "Value": _format_metric(best["validation_score"]),
+                    "Independent unit": "timestamp label",
+                    "Comparable to baseline F1": "yes",
+                }
+            )
+    if not rows:
+        return []
+    frame = pd.DataFrame(rows)
+    csv_path = tables / "metric_provenance.csv"
+    tex_path = latex / "metric_provenance.tex"
+    figure_path = figures / "metric_collapse_decomposition.png"
+    frame.to_csv(csv_path, index=False)
+    latex_frame = pd.DataFrame(
+        {
+            "Dataset": frame["Dataset"],
+            "Evidence type": frame["Metric class"],
+            "Metric": frame["Metric"],
+            "Value": frame["Value"],
+            "Unit": frame["Independent unit"],
+            "Use": frame["Comparable to baseline F1"].map(
+                {"yes": "same metric family", "no": "separate metric"}
+            ),
+        }
+    )
+    _write_latex_table(
+        latex_frame,
+        tex_path,
+        caption="Metric provenance separating pointwise smoke scores from event-level alarm metrics.",
+        label="tab:metric-provenance",
+    )
+
+    plot_frame = frame[frame["Metric"].isin(["event precision"])].copy()
+    baseline_rows = frame[frame["Metric class"] == "pointwise smoke"]
+    if not baseline_rows.empty:
+        plot_frame = pd.concat([plot_frame, baseline_rows.tail(1)], ignore_index=True)
+    figure, axis = plt.subplots(figsize=(6.0, 3.6))
+    labels = plot_frame["Dataset"].astype(str) + "\n" + plot_frame["Metric"].astype(str)
+    values = pd.to_numeric(plot_frame["Value"], errors="coerce").fillna(0.0)
+    axis.bar(np.arange(len(values)), values, color=["#4C78A8", "#59A14F", "#E15759"][: len(values)])
+    axis.set_xticks(np.arange(len(values)))
+    axis.set_xticklabels(labels, rotation=0, ha="center", fontsize=8)
+    axis.set_ylabel("Metric value")
+    axis.set_ylim(0.0, max(1.0, float(values.max()) * 1.1))
+    _save_figure(figure, figure_path)
+    return [csv_path, tex_path, figure_path]
+
+
+def _method_scope_assets(tables: Path, latex: Path) -> list[Path]:
+    rows = [
+        {
+            "Requested analysis": "full Monte Carlo validation",
+            "Status": "not completed",
+            "Artifact evidence": "simulation_bias_rmse is smoke-scale only",
+            "Effect on claims": "method reliability remains a blocker",
+        },
+        {
+            "Requested analysis": "registered dynamical-EVT diagnostic",
+            "Status": "completed",
+            "Artifact evidence": "MetroPT and MetroPT2 event rows",
+            "Effect on claims": "supports negative alarm-burden finding",
+        },
+        {
+            "Requested analysis": "target-region variants and negative controls",
+            "Status": "not completed",
+            "Artifact evidence": "no generated real-data variant matrix",
+            "Effect on claims": "target-region superiority not claimed",
+        },
+        {
+            "Requested analysis": "real event-level baseline comparison",
+            "Status": "not completed",
+            "Artifact evidence": "baseline_metadata is synthetic runner smoke",
+            "Effect on claims": "baseline superiority not claimed",
+        },
+        {
+            "Requested analysis": "metric contradiction audit",
+            "Status": "completed",
+            "Artifact evidence": "metric_provenance table",
+            "Effect on claims": "pointwise and event metrics separated",
+        },
+        {
+            "Requested analysis": "software archive DOI",
+            "Status": "not completed",
+            "Artifact evidence": "repository metadata only",
+            "Effect on claims": "cite repository URL until archived release exists",
+        },
+    ]
+    frame = pd.DataFrame(rows)
+    csv_path = tables / "method_scope_completion.csv"
+    tex_path = latex / "method_scope_completion.tex"
+    frame.to_csv(csv_path, index=False)
+    _write_latex_table(
+        frame,
+        tex_path,
+        caption="Completion status for broader review-requested analyses.",
+        label="tab:method-scope-completion",
+    )
+    return [csv_path, tex_path]
+
+
+def _timeline_traceability_assets(tables: Path, latex: Path) -> list[Path]:
+    frame = pd.DataFrame(
+        [
+            {
+                "Figure": "event_timeline.png",
+                "Source": "synthetic cyclic input",
+                "Status": "representative",
+                "Missing": "MetroPT real timeline",
+                "Use": "timing audit only",
+            }
+        ]
+    )
+    csv_path = tables / "timeline_traceability.csv"
+    tex_path = latex / "timeline_traceability.tex"
+    frame.to_csv(csv_path, index=False)
+    _write_latex_table(
+        frame,
+        tex_path,
+        caption="Traceability audit for the aligned event-timeline figure.",
+        label="tab:timeline-traceability",
     )
     return [csv_path, tex_path]
 
@@ -1131,6 +1326,9 @@ def _root_cause_assets(
             "Dataset": source["dataset_id"].map(_dataset_label),
             "Dominant explanation": source["dataset_id"].map(explanations),
             "Evidence": source.apply(_root_cause_evidence, axis=1),
+            "Evidence status": source["dataset_id"].map(_root_cause_status),
+            "Competing explanation": source["dataset_id"].map(_root_cause_alternative),
+            "Confidence": source["dataset_id"].map(_root_cause_confidence),
         }
     )
     csv_path = tables / "root_cause_summary.csv"
@@ -1165,6 +1363,15 @@ def _dataset_label(value: object) -> str:
         "secom": "SECOM",
     }
     return labels.get(str(value), str(value))
+
+
+def _evidential_unit_label(value: object) -> str:
+    labels = {
+        "scania_component_x": "vehicle",
+        "hydraulic_systems": "load cycle",
+        "secom": "wafer",
+    }
+    return labels.get(str(value), "unit")
 
 
 def _short_role(value: object) -> str:
@@ -1249,6 +1456,33 @@ def _root_cause_evidence(row: pd.Series) -> str:
         f"{_format_count(row['target_events_or_units'])} positives, "
         f"F1 {_format_metric(row['f1'])}"
     )
+
+
+def _root_cause_status(value: object) -> str:
+    dataset_id = str(value)
+    if dataset_id in {"metropt", "metropt2"}:
+        return "direct event-row evidence"
+    if dataset_id == "scania_component_x":
+        return "estimand evidence"
+    return "diagnostic evidence"
+
+
+def _root_cause_alternative(value: object) -> str:
+    alternatives = {
+        "metropt": "threshold too low or observable too broad",
+        "metropt2": "threshold too low or observable too broad",
+        "scania_component_x": "features insufficient for repair ranking",
+        "hydraulic_systems": "component state needs supervised feature family",
+        "secom": "missingness and class imbalance dominate",
+    }
+    return alternatives.get(str(value), "not assessed")
+
+
+def _root_cause_confidence(value: object) -> str:
+    dataset_id = str(value)
+    if dataset_id in {"metropt", "metropt2"}:
+        return "medium"
+    return "low"
 
 
 def _format_count(value: object) -> str:

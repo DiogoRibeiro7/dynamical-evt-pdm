@@ -25,16 +25,7 @@ Threshold and run-length sensitivity in Figure~\ref{fig:threshold-stability} and
 
 \subsection{Alarm conversion and failed-detection regions}
 
-The second research question asks whether declustering and alarm merging reduce duplicate alarms while preserving event recall. In the registered threshold grid, Figure~\ref{fig:failed-detection} and Table~\ref{tab:frontier} show zero event recall at all reported quantiles, with false-alarm burdens between 133.92 and 168.48 alarm episodes per operating day. This is a failed-detection region under the current observable, threshold grid, and matching rule; it shows that alarm conversion can destroy utility.
-
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=0.72\linewidth]{../reports/paper/figures/lead_time_false_alarm_frontier.png}
-  \caption{Failed-detection region for the registered alarm policy. The plotted grid has zero event recall, so the figure must not be read as a useful lead-time trade-off.}
-  \label{fig:failed-detection}
-\end{figure}
-
-\input{../reports/paper/latex/lead_time_false_alarm_frontier.tex}
+The second research question asks whether declustering and alarm merging reduce duplicate alarms while preserving event recall. In the registered threshold grid, event recall was zero at all reported quantiles, with false-alarm burdens between 133.92 and 168.48 alarm episodes per operating day. This is a failed-detection region under the current observable, threshold grid, and matching rule; it shows that alarm conversion can destroy utility. The full threshold grid is reported in the supplement rather than as a main-text figure because a zero-recall line plot would add no scientific information.
 
 Across all registered combinations of alarm merge gap and post-onset matching tolerance, event recall, precision, and \(F_1\) remained zero. Relaxing post-onset tolerance did not alter the result, so the full grid is reported in the supplement rather than as a main-text sensitivity figure.
 
@@ -42,11 +33,12 @@ Across all registered combinations of alarm merge gap and post-onset matching to
 
 \subsection{Real-data diagnostic outcomes}
 
-The third and fourth research questions ask whether the registered robust extreme-score diagnostic adds operational value after episode conversion, and why empirical failures occur. Table~\ref{tab:industrial-results} gives the registered diagnostic row for each dataset role. MetroPT and MetroPT2 each contain one labelled test event in the registered split. Both events are detected, but the detection is operationally weak: MetroPT produces 2527 predicted alarm episodes with precision \(0.00040\), and MetroPT2 produces 849 predicted alarm episodes with precision \(0.00118\). The median lead times, 3346 and 3469 samples respectively, are not persuasive by themselves because they are paired with extreme false-alarm burdens.
+The third and fourth research questions ask whether the registered robust extreme-score diagnostic adds operational value after episode conversion, and why empirical failures occur. Table~\ref{tab:event-level-results} gives the held-out event-level rows for MetroPT and MetroPT2. Each dataset contains one labelled test event in the registered split. Both events are detected, but the detection is operationally weak: MetroPT produces 2527 predicted alarm episodes with precision \(0.00040\), and MetroPT2 produces 849 predicted alarm episodes with precision \(0.00118\). The median lead times, 3346 and 3469 samples respectively, are not persuasive by themselves because they are paired with extreme false-alarm burdens.
 
-Hydraulic Systems, SCANIA Component X, and SECOM all have \(F_1=0\) under the conservative high-quantile diagnostic. These are not hidden failures. They are evidence that a simple extreme-score adapter does not transfer across laboratory cycle states, vehicle-level repair risk, and wafer-level yield labels without changing the estimand and evaluation design. Table~\ref{tab:root-cause} summarizes the dominant explanation supported by each diagnostic row.
+Hydraulic Systems, SCANIA Component X, and SECOM are reported separately in Table~\ref{tab:non-event-results} because their independent units are cycles, vehicles, and wafers rather than compressor failure episodes. All three have \(F_1=0\) under the conservative high-quantile diagnostic. These are not hidden failures. They are evidence that a simple extreme-score adapter does not transfer across laboratory cycle states, vehicle-level repair risk, and wafer-level yield labels without changing the estimand and evaluation design. Table~\ref{tab:root-cause} summarizes the dominant explanation supported by each diagnostic row.
 
-\input{../reports/paper/latex/industrial_results_compact.tex}
+\input{../reports/paper/latex/industrial_event_level_results.tex}
+\input{../reports/paper/latex/industrial_non_event_results.tex}
 \input{../reports/paper/latex/root_cause_summary.tex}
 
 The dominant root-cause classifications are therefore provisional but informative. For MetroPT and MetroPT2, the current evidence points to alarm-conversion failure and insufficient independent failures: recall can be obtained, but only by issuing many alarms around sparse labelled events. For SCANIA, the dominant issue is estimand mismatch: a vehicle-level repair-risk task is not the same as compressor event warning. For Hydraulic Systems and SECOM, the current high-quantile score finds no useful positive-event detection, consistent with non-event labels and signatures that need different feature families or supervised baselines.
@@ -69,15 +61,29 @@ Figure~\ref{fig:reliability} and Figure~\ref{fig:split-calibration} are retained
   \label{fig:split-calibration}
 \end{figure}
 
-\subsection{Baselines and audit timeline}
+\subsection{Metric provenance, baselines, and audit timeline}
 
-Table~\ref{tab:baseline-summary} records the baseline families executed under the shared causal prediction contract. The table is a smoke-scale fairness audit for the standardized runner, not a population-level claim that any baseline is optimized for every real dataset. The event timeline in Figure~\ref{fig:timeline} is retained because aligned score, threshold, alarm, warning, and failure displays expose timing mistakes that aggregate metrics hide.
+Table~\ref{tab:metric-provenance} resolves the apparent conflict between strong baseline validation scores and weak operational event metrics. The baseline scores currently come from the synthetic runner validation split and are pointwise smoke checks. The MetroPT and MetroPT2 values are held-out event-level alarm metrics. They are different quantities and cannot be compared as if they were the same result.
 
-\input{../reports/paper/latex/baseline_summary.tex}
+\input{../reports/paper/latex/metric_provenance.tex}
+\input{../reports/paper/latex/method_scope_completion.tex}
+
+Figure~\ref{fig:metric-collapse} visualizes the same distinction: pointwise smoke \(F_1\) can be high while event-level precision remains operationally poor after alarm conversion.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.76\linewidth]{../reports/paper/figures/metric_collapse_decomposition.png}
+  \caption{Metric provenance diagnostic separating synthetic pointwise validation from real event-level alarm precision.}
+  \label{fig:metric-collapse}
+\end{figure}
+
+The baseline-family table is therefore moved to the supplement. It documents runner coverage under the shared causal prediction contract, not a completed real-dataset event-level baseline comparison. The event timeline in Figure~\ref{fig:timeline} is retained only as a representative timing-audit display; Table~\ref{tab:timeline-traceability} records that it is not a real MetroPT failure-specific figure.
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.95\linewidth]{../reports/paper/figures/event_timeline.png}
-  \caption{Representative aligned alarm timeline. The x-axis is elapsed hours from failure onset; the panels show score and threshold, operating regime, alarm episodes after the registered merge rule, warning window, and labelled failure interval. Scoring and threshold parameters are fitted before test-time display.}
+  \caption{Representative aligned alarm timeline. The x-axis is elapsed hours from failure onset; the panels show score and threshold, operating regime, alarm episodes after the registered merge rule, warning window, and labelled failure interval. This figure is a timing-audit illustration, not an empirical MetroPT result row.}
   \label{fig:timeline}
 \end{figure}
+
+\input{../reports/paper/latex/timeline_traceability.tex}

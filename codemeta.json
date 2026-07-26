@@ -1,0 +1,36 @@
+{
+  "@context": "https://doi.org/10.5063/schema/codemeta-2.0",
+  "@type": "SoftwareSourceCode",
+  "name": "dyn-evt-pdm",
+  "description": "Regime-conditioned dynamical extreme-value diagnostics, real-data acquisition scripts, event-level alarm evaluation, and reproducible manuscript assets for predictive-maintenance research.",
+  "codeRepository": "https://github.com/DiogoRibeiro7/dynamical-evt-pdm",
+  "programmingLanguage": "Python",
+  "runtimePlatform": "Python >=3.11,<3.13",
+  "license": "https://spdx.org/licenses/BSD-3-Clause.html",
+  "version": "0.1.0",
+  "dateModified": "2026-07-26",
+  "author": [
+    {
+      "@type": "Person",
+      "givenName": "Diogo",
+      "familyName": "Ribeiro"
+    }
+  ],
+  "keywords": [
+    "extreme value theory",
+    "dynamical systems",
+    "extremal index",
+    "predictive maintenance",
+    "event-level evaluation",
+    "industrial data"
+  ],
+  "softwareRequirements": [
+    "numpy",
+    "pandas",
+    "scipy",
+    "scikit-learn",
+    "pyarrow",
+    "matplotlib",
+    "typer"
+  ]
+}
