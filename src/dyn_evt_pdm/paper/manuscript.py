@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,7 @@ BIB_KEY_PATTERN = re.compile(r"@\w+\{([^,\s]+)")
 GRAPHICS_PATTERN = re.compile(r"\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}")
 INPUT_PATTERN = re.compile(r"\\input\{([^}]+)\}")
 CLAIM_PATTERN = re.compile(r"\bCLM-\d{3}\b")
+LABEL_PATTERN = re.compile(r"\\label\{([^}]+)\}")
 REAL_DATA_MATRIX_PREFIX = "../artifacts/real_data_matrix/"
 UNSUPPORTED_CLAIM_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
@@ -133,6 +135,7 @@ def check_paper_sources(
     auditable_text = _source_text_with_referenced_inputs(source_text, paper_root)
     _check_placeholders(auditable_text, failures)
     _check_unsupported_claim_language(auditable_text, failures)
+    _check_duplicate_labels(auditable_text, failures)
 
     cited_keys, bib_keys = _check_citations(source_text, paper_root / "references.bib", failures)
     asset_references = _check_asset_references(source_text, paper_root, asset_root, failures)
@@ -146,6 +149,8 @@ def check_paper_sources(
         for pdf_path in (paper_root / "main.pdf", paper_root / "supplement" / "supplement.pdf"):
             if not pdf_path.exists():
                 failures.append(f"missing compiled PDF: {pdf_path}")
+            else:
+                _check_float_after_references(pdf_path, failures)
 
     _check_latex_logs(paper_root, failures)
     report = PaperCheckReport(
@@ -194,6 +199,19 @@ def _check_unsupported_claim_language(source_text: dict[Path, str], failures: li
                     f"unsupported manuscript claim language ({reason}) in {path}: "
                     f"{match.group(0)!r}"
                 )
+
+
+def _check_duplicate_labels(source_text: dict[Path, str], failures: list[str]) -> None:
+    locations: dict[str, list[Path]] = {}
+    for path, text in source_text.items():
+        for label in LABEL_PATTERN.findall(text):
+            locations.setdefault(label, []).append(path)
+    for label, paths in sorted(locations.items()):
+        if len(paths) > 1:
+            failures.append(
+                f"duplicate LaTeX label {label!r} in "
+                + ", ".join(str(path) for path in sorted(set(paths)))
+            )
 
 
 def _source_text_with_referenced_inputs(
@@ -305,6 +323,28 @@ def _check_latex_logs(paper_root: Path, failures: list[str]) -> None:
                     f"LaTeX log contains unresolved issue marker {pattern!r}: {log_path}"
                 )
                 break
+
+
+def _check_float_after_references(pdf_path: Path, failures: list[str]) -> None:
+    try:
+        text = subprocess.check_output(
+            ["pdftotext", str(pdf_path), "-"],
+            encoding="utf-8",
+            errors="ignore",
+            stderr=subprocess.DEVNULL,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return
+    reference_match = re.search(r"(?m)^References\s*$", text)
+    if reference_match is None:
+        return
+    after_references = text[reference_match.end() :]
+    float_match = re.search(r"\b(?:Figure|Table)\s+\d+", after_references)
+    if float_match is not None:
+        failures.append(
+            f"compiled PDF has float caption after References in {pdf_path}: "
+            f"{float_match.group(0)!r}"
+        )
 
 
 def _provenance_paths(path: Path, failures: list[str]) -> set[str]:

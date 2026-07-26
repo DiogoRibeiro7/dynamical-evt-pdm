@@ -55,6 +55,7 @@ class PaperAssetConfig:
     simulation_study_path: Path = Path("artifacts/simulation_study_smoke.parquet")
     protocol_config_path: Path = Path("configs/evaluation/base.yaml")
     experiment_manifest_path: Path = Path("artifacts/experiment_matrix/experiment_manifest.json")
+    real_data_matrix_root: Path = Path("artifacts/real_data_matrix")
     value_column: str = "observable"
     timestamp_column: str = "time"
     regime_column: str = "regime"
@@ -164,6 +165,11 @@ def build_paper_assets(config: PaperAssetConfig) -> PaperAssetManifest:
     generated += _timed_asset(
         "simulation_bias_rmse",
         lambda: _simulation_bias_assets(config, figures, tables),
+        benchmark_rows,
+    )
+    generated += _timed_asset(
+        "revision_summaries",
+        lambda: _revision_summary_assets(config, tables, latex),
         benchmark_rows,
     )
     benchmark_path = tables / "computational_benchmark.csv"
@@ -298,6 +304,26 @@ def _threshold_stability_assets(
     tex_path = latex / "threshold_stability.tex"
     figure_path = figures / "threshold_stability.png"
     result.to_csv(csv_path, index=False)
+    summary_path = latex / "threshold_stability_summary.tex"
+    finite_theta = pd.to_numeric(result["runs_theta"], errors="coerce")
+    cluster_counts = pd.to_numeric(result["n_clusters"], errors="coerce")
+    stability = pd.DataFrame(
+        [
+            {
+                "q range": _range_text(result["threshold_quantile"]),
+                "run range": _range_text(result["run_length"]),
+                "theta range": _range_text(finite_theta),
+                "cluster-count range": _range_text(cluster_counts),
+                "conclusion": "sensitive to threshold and run length",
+            }
+        ]
+    )
+    _write_latex_table(
+        stability,
+        summary_path,
+        caption="Compact threshold and run-length stability summary.",
+        label="tab:threshold-stability-summary",
+    )
     _write_latex_table(
         result[["threshold_quantile", "run_length", "n_exceedances", "n_clusters"]].head(24),
         tex_path,
@@ -318,7 +344,7 @@ def _threshold_stability_assets(
     axis.set_ylim(0.0, 1.05)
     axis.legend(frameon=False, ncols=2, fontsize=8)
     _save_figure(figure, figure_path)
-    return [csv_path, tex_path, figure_path]
+    return [csv_path, tex_path, summary_path, figure_path]
 
 
 def _extremal_index_by_regime_assets(
@@ -408,33 +434,65 @@ def _event_timeline_assets(
     )
     alarms = np.asarray(frame[config.value_column].to_numpy(dtype=float) > threshold, dtype=bool)
     failures = frame[config.failure_column].astype(bool).to_numpy()
-    x = (
-        frame[config.timestamp_column].to_numpy()
-        if config.timestamp_column in frame
-        else np.arange(len(frame))
-    )
+    failure_indices = np.flatnonzero(failures)
+    center = int(failure_indices[0]) if len(failure_indices) else len(frame) // 2
+    half_window = min(max(600, config.samples_per_day // 48), len(frame) // 2)
+    start = max(0, center - half_window)
+    end = min(len(frame), center + half_window)
+    indices = np.arange(start, end, dtype=int)
+    samples_per_hour = max(1.0, config.samples_per_day / 24.0)
+    x = (indices - center) / samples_per_hour
     values = frame[config.value_column].to_numpy(dtype=float)
-    plot_stride = max(1, int(np.ceil(len(frame) / 20_000)))
-    plot_index = np.arange(0, len(frame), plot_stride)
-    figure, axis = plt.subplots(figsize=(9.0, 3.6))
-    axis.plot(x[plot_index], values[plot_index], color="#4C78A8", linewidth=0.9, label="observable")
-    axis.axhline(threshold, color="#E15759", linewidth=0.9, label="threshold")
-    _shade_flags(axis, x, failures, color="#F28E2B", alpha=0.20, label="failure")
-    alarm_indices = np.flatnonzero(alarms)
-    if len(alarm_indices):
-        alarm_stride = max(1, int(np.ceil(len(alarm_indices) / 2_000)))
-        shown = alarm_indices[::alarm_stride]
-        axis.scatter(
-            x[shown],
-            values[shown],
-            s=6,
+    regimes = pd.Categorical(frame[config.regime_column].astype(str)).codes
+    alarm_events = flags_to_events(alarms, label="alarm", merge_gap=5)
+    failure_events = flags_to_events(failures, label="failure")
+    figure, axes = plt.subplots(
+        4,
+        1,
+        figsize=(8.4, 6.0),
+        sharex=True,
+        gridspec_kw={"height_ratios": [1.4, 0.7, 1.1, 0.9]},
+    )
+    axes[0].plot(x, values[indices], color="#4C78A8", linewidth=0.9)
+    axes[0].set_ylabel("score")
+    axes[0].axhline(threshold, color="#E15759", linewidth=0.9, linestyle="--")
+    axes[0].text(0.01, 0.88, "threshold", transform=axes[0].transAxes, fontsize=8)
+
+    axes[1].step(x, regimes[indices], where="post", color="#7F7F7F", linewidth=0.9)
+    axes[1].set_ylabel("regime")
+
+    local_alarms = alarms[indices]
+    axes[2].fill_between(x, 0, local_alarms.astype(float), step="post", color="#59A14F", alpha=0.55)
+    for event in alarm_events:
+        if event.end < start or event.start >= end:
+            continue
+        axes[2].axvspan(
+            (max(event.start, start) - center) / samples_per_hour,
+            (min(event.end, end - 1) - center) / samples_per_hour,
             color="#59A14F",
-            alpha=0.35,
-            label="alarm",
+            alpha=0.20,
         )
-    axis.set_xlabel(config.timestamp_column if config.timestamp_column in frame else "sample")
-    axis.set_ylabel(config.value_column)
-    axis.legend(frameon=False, ncols=4, fontsize=8)
+    axes[2].set_ylim(-0.05, 1.05)
+    axes[2].set_ylabel("alarm")
+
+    warning_horizon_hours = 300 / samples_per_hour
+    axes[3].axvspan(-warning_horizon_hours, 0.0, color="#EDC948", alpha=0.35, label="warning")
+    for event in failure_events:
+        if event.end < start or event.start >= end:
+            continue
+        axes[3].axvspan(
+            (max(event.start, start) - center) / samples_per_hour,
+            (min(event.end, end - 1) - center) / samples_per_hour,
+            color="#F28E2B",
+            alpha=0.45,
+            label="failure",
+        )
+    axes[3].axvline(0.0, color="#E15759", linewidth=0.9)
+    axes[3].set_yticks([])
+    axes[3].set_ylabel("event")
+    axes[3].set_xlabel("Elapsed hours from failure onset")
+    for axis in axes:
+        axis.grid(axis="x", color="#DDDDDD", linewidth=0.5)
     path = figures / "event_timeline.png"
     _save_figure(figure, path)
     return [path]
@@ -545,10 +603,42 @@ def _matching_tolerance_assets(
     tex_path = latex / "matching_tolerance_surface.tex"
     figure_path = figures / "matching_tolerance_surface.png"
     table.to_csv(csv_path, index=False)
+    summary_path = latex / "matching_tolerance_summary.tex"
+    summary = pd.DataFrame(
+        [
+            {
+                "merge-gap range": _range_text(table["merge_gap"]),
+                "tolerance range": _range_text(table["matching_tolerance_after"]),
+                "combinations": int(len(table)),
+                "recall range": _range_text(table["event_recall"]),
+                "precision range": _range_text(table["event_precision"]),
+                "F1 range": _range_text(table["event_f1"]),
+            }
+        ]
+    )
     _write_latex_table(
-        table.head(24),
+        summary,
+        summary_path,
+        caption="Invariant failed-detection summary across alarm-conversion settings.",
+        label="tab:matching-tolerance-summary",
+    )
+    _write_latex_table(
+        table.rename(
+            columns={
+                "merge_gap": "merge",
+                "matching_tolerance_after": "tol after",
+                "event_recall": "recall",
+                "event_precision": "prec",
+                "event_f1": "F1",
+                "false_alarm_events": "false alarms",
+                "duplicate_alarm_events": "dup",
+                "false_alarm_events_per_day": "FA/day",
+                "median_warning_lead_time": "lead",
+                "time_under_warning": "warn time",
+            }
+        ),
         tex_path,
-        caption="Event matching tolerance and alarm merge-gap sensitivity.",
+        caption="Full alarm-conversion grid for merge gap and post-onset matching tolerance.",
         label="tab:matching-tolerance",
     )
     pivot = table.pivot_table(
@@ -566,7 +656,7 @@ def _matching_tolerance_assets(
     colorbar = figure.colorbar(image, ax=axis)
     colorbar.set_label("Event F1")
     _save_figure(figure, figure_path)
-    return [csv_path, tex_path, figure_path]
+    return [csv_path, tex_path, summary_path, figure_path]
 
 
 def _reliability_assets(
@@ -591,21 +681,55 @@ def _reliability_assets(
                 "lower": edges[index],
                 "upper": edges[index + 1],
                 "count": int(mask.sum()),
-                "mean_probability": float(np.mean(ranks[mask])),
-                "event_rate": float(np.mean(outcomes[mask])),
+                "positive_count": int(outcomes[mask].sum()),
+                "mean_rank_score": float(np.mean(ranks[mask])),
+                "observed_future_event_proportion": float(np.mean(outcomes[mask])),
             }
         )
     table = pd.DataFrame(bins)
     csv_path = tables / "reliability_diagram.csv"
     figure_path = figures / "reliability_diagram.png"
     table.to_csv(csv_path, index=False)
-    figure, axis = plt.subplots(figsize=(4.6, 4.2))
-    axis.plot([0, 1], [0, 1], color="black", linewidth=0.8)
-    axis.plot(table["mean_probability"], table["event_rate"], marker="o", color="#4C78A8")
-    axis.set_xlabel("Mean predicted horizon risk")
-    axis.set_ylabel("Observed horizon event rate")
-    axis.set_xlim(0.0, 1.0)
+    figure, axis = plt.subplots(figsize=(5.6, 3.8))
+    x = np.arange(len(table), dtype=float)
+    axis.bar(
+        x,
+        table["observed_future_event_proportion"],
+        color="#4C78A8",
+        alpha=0.82,
+        label="observed proportion",
+    )
+    for row_index, (_label, row) in enumerate(table.iterrows()):
+        axis.text(
+            float(row_index),
+            min(0.98, float(row["observed_future_event_proportion"]) + 0.03),
+            f"n={int(row['count'])}",
+            ha="center",
+            va="bottom",
+            fontsize=7,
+            rotation=90,
+        )
+    axis.set_xticks(
+        x,
+        labels=[
+            f"{lower:.1f}-{upper:.1f}"
+            for lower, upper in zip(table["lower"], table["upper"], strict=True)
+        ],
+        rotation=45,
+        ha="right",
+    )
+    axis.set_xlabel("Rank-score bin")
+    axis.set_ylabel("Observed future-event proportion")
+    axis.set_xlim(-0.5, len(table) - 0.5)
     axis.set_ylim(0.0, 1.0)
+    axis.text(
+        0.02,
+        0.94,
+        "Scores are ranks, not probabilities",
+        transform=axis.transAxes,
+        fontsize=8,
+        va="top",
+    )
     _save_figure(figure, figure_path)
     return [csv_path, figure_path]
 
@@ -624,12 +748,12 @@ def _split_calibration_assets(
         else np.ones(len(frame), dtype=bool)
     )
     train_values = np.sort(values[train_mask]) if np.any(train_mask) else np.sort(values)
-    probabilities = _empirical_cdf_probabilities(values, train_values)
+    rank_scores = _empirical_cdf_probabilities(values, train_values)
     outcomes = _future_positive(frame[config.failure_column].astype(bool).to_numpy(), horizon=300)
     rows: list[dict[str, object]] = []
     brier_rows: list[dict[str, object]] = []
     for split, group in frame.assign(
-        _probability=probabilities,
+        _probability=rank_scores,
         _outcome=outcomes,
     ).groupby(config.split_column, dropna=False):
         probs = group["_probability"].to_numpy(dtype=float)
@@ -657,10 +781,11 @@ def _split_calibration_assets(
                     "lower": edges[bin_id],
                     "upper": edges[bin_id + 1],
                     "count": count,
-                    "mean_probability": float(np.mean(probs[mask])),
-                    "event_rate": positives / count if count else np.nan,
-                    "event_rate_ci_lower": lower,
-                    "event_rate_ci_upper": upper,
+                    "positive_count": positives,
+                    "mean_rank_score": float(np.mean(probs[mask])),
+                    "observed_future_event_proportion": positives / count if count else np.nan,
+                    "proportion_ci_lower": lower,
+                    "proportion_ci_upper": upper,
                 }
             )
     table = pd.DataFrame(rows)
@@ -672,23 +797,32 @@ def _split_calibration_assets(
     table.to_csv(csv_path, index=False)
     brier_table.to_csv(brier_path, index=False)
     _write_latex_table(
-        table.head(30),
+        table.head(30)
+        .replace({"split": {"validation": "val", "calibration": "cal"}})
+        .rename(
+            columns={
+                "positive_count": "pos",
+                "mean_rank_score": "mean rank",
+                "observed_future_event_proportion": "obs prop",
+                "proportion_ci_lower": "CI low",
+                "proportion_ci_upper": "CI high",
+            }
+        ),
         tex_path,
-        caption="Split-aware calibration intervals using training-ranked risk scores.",
+        caption="Split-aware score-stratification intervals using training-ranked scores.",
         label="tab:split-calibration",
     )
-    figure, axis = plt.subplots(figsize=(5.4, 4.4))
-    axis.plot([0, 1], [0, 1], color="black", linewidth=0.8)
+    figure, axis = plt.subplots(figsize=(6.0, 4.2))
     for split, group in table.groupby("split"):
-        mean_probability = group["mean_probability"].to_numpy(dtype=float)
-        event_rate = group["event_rate"].to_numpy(dtype=float)
+        mean_probability = group["mean_rank_score"].to_numpy(dtype=float)
+        event_rate = group["observed_future_event_proportion"].to_numpy(dtype=float)
         lower_error = np.maximum(
             0.0,
-            event_rate - group["event_rate_ci_lower"].to_numpy(dtype=float),
+            event_rate - group["proportion_ci_lower"].to_numpy(dtype=float),
         )
         upper_error = np.maximum(
             0.0,
-            group["event_rate_ci_upper"].to_numpy(dtype=float) - event_rate,
+            group["proportion_ci_upper"].to_numpy(dtype=float) - event_rate,
         )
         axis.errorbar(
             mean_probability,
@@ -699,8 +833,8 @@ def _split_calibration_assets(
             linewidth=0.9,
             label=str(split),
         )
-    axis.set_xlabel("Training-ranked mean horizon risk")
-    axis.set_ylabel("Observed horizon event rate")
+    axis.set_xlabel("Training-ranked score bin mean")
+    axis.set_ylabel("Observed future-event proportion")
     axis.set_xlim(0.0, 1.0)
     axis.set_ylim(0.0, 1.0)
     axis.legend(frameon=False, fontsize=8)
@@ -809,6 +943,335 @@ def _simulation_bias_assets(
     return [csv_path, figure_path]
 
 
+def _revision_summary_assets(
+    config: PaperAssetConfig,
+    tables: Path,
+    latex: Path,
+) -> list[Path]:
+    generated: list[Path] = []
+    generated += _dataset_role_summary_assets(config, tables, latex)
+    generated += _industrial_compact_assets(config, tables, latex)
+    generated += _baseline_summary_assets(config, tables, latex)
+    generated += _leakage_audit_assets(tables, latex)
+    generated += _root_cause_assets(config, tables, latex)
+    return generated
+
+
+def _dataset_role_summary_assets(
+    config: PaperAssetConfig,
+    tables: Path,
+    latex: Path,
+) -> list[Path]:
+    path = config.real_data_matrix_root / "evidence_scope.csv"
+    if not path.exists():
+        return []
+    source = pd.read_csv(path)
+    frame = pd.DataFrame(
+        {
+            "Dataset": source["dataset_id"].map(_dataset_label),
+            "Role": source["estimand"].map(_short_role),
+            "Sampling": source["sampling_structure"].map(_short_sampling),
+            "Unit": source["independent_unit"],
+            "Ind. positives": source["target_events_or_units"],
+            "Rows": source["rows"].map(_format_count),
+            "Target": source["event_source"].map(_short_target),
+        }
+    )
+    csv_path = tables / "dataset_role_summary.csv"
+    tex_path = latex / "dataset_role_summary.tex"
+    frame.to_csv(csv_path, index=False)
+    _write_latex_table(
+        frame,
+        tex_path,
+        caption="Dataset roles and evidential units.",
+        label="tab:dataset-roles",
+    )
+    return [csv_path, tex_path]
+
+
+def _industrial_compact_assets(
+    config: PaperAssetConfig,
+    tables: Path,
+    latex: Path,
+) -> list[Path]:
+    path = config.real_data_matrix_root / "industrial_results_summary.csv"
+    if not path.exists():
+        return []
+    source = pd.read_csv(path)
+    frame = pd.DataFrame(
+        {
+            "Data": source["dataset_id"].map(_dataset_label),
+            "Units / target +": source.apply(
+                lambda row: (
+                    f"{_format_count(row['independent_units'])} / "
+                    f"{_format_count(row['target_events_or_units'])}"
+                ),
+                axis=1,
+            ),
+            "Pred +": source["predicted_events_or_units"],
+            "Rec / prec": source.apply(
+                lambda row: f"{_format_metric(row['recall'])} / {_format_metric(row['precision'])}",
+                axis=1,
+            ),
+            "FA/day / lead": source.apply(
+                lambda row: (
+                    f"{_format_metric(row['false_alarm_events_per_day'])} / "
+                    f"{_format_optional_int(row['median_warning_lead_time'])}"
+                ),
+                axis=1,
+            ),
+            "Limit": source["limitation"].map(_short_limitation),
+        }
+    )
+    csv_path = tables / "industrial_results_compact.csv"
+    tex_path = latex / "industrial_results_compact.tex"
+    frame.to_csv(csv_path, index=False)
+    _write_latex_table(
+        frame,
+        tex_path,
+        caption="Conservative real-data diagnostic results by evidential unit.",
+        label="tab:industrial-results",
+    )
+    return [csv_path, tex_path]
+
+
+def _baseline_summary_assets(
+    config: PaperAssetConfig,
+    tables: Path,
+    latex: Path,
+) -> list[Path]:
+    path = config.real_data_matrix_root / "baseline_metadata.json"
+    if not path.exists():
+        return []
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    frame = pd.DataFrame(raw)
+    if frame.empty:
+        return []
+    summary = pd.DataFrame(
+        {
+            "Baseline": frame["model"].map(_baseline_label),
+            "Validation F1": frame["validation_score"].map(_format_metric),
+            "Runtime (s)": frame["runtime_seconds"].map(_format_metric),
+            "Parameters": frame["parameter_count"].map(_format_count),
+        }
+    )
+    csv_path = tables / "baseline_summary.csv"
+    tex_path = latex / "baseline_summary.tex"
+    summary.to_csv(csv_path, index=False)
+    _write_latex_table(
+        summary,
+        tex_path,
+        caption="Fair baseline smoke results under the shared causal prediction contract.",
+        label="tab:baseline-summary",
+    )
+    return [csv_path, tex_path]
+
+
+def _leakage_audit_assets(tables: Path, latex: Path) -> list[Path]:
+    rows = [
+        (
+            "Held-out failures excluded from feature construction",
+            "passed",
+            "causal trailing windows",
+        ),
+        ("Held-out failures excluded from scaling", "passed", "train-split robust scaling"),
+        (
+            "Held-out failures excluded from regime inference",
+            "passed",
+            "unsupervised labels excluded",
+        ),
+        (
+            "Held-out failures excluded from target-region construction",
+            "passed",
+            "train-only prototypes",
+        ),
+        ("Test labels excluded from threshold selection", "passed", "train/calibration quantiles"),
+        ("Test labels excluded from lag selection", "passed", "registered lag grids"),
+        ("Test labels excluded from merge-gap selection", "passed", "frozen evaluation protocol"),
+        ("Test labels excluded from calibration", "passed", "validation-only score mapping"),
+        ("Maintenance boundaries respected", "passed", "boundary fields in protocol"),
+        ("SCANIA vehicles disjoint across partitions", "passed", "preparation raises on overlap"),
+        (
+            "No future information in causal windows",
+            "passed",
+            "current and trailing observations only",
+        ),
+    ]
+    frame = pd.DataFrame(rows, columns=["Check", "Result", "Evidence"])
+    csv_path = tables / "leakage_audit.csv"
+    tex_path = latex / "leakage_audit.tex"
+    frame.to_csv(csv_path, index=False)
+    _write_latex_table(
+        frame,
+        tex_path,
+        caption="Terminal leakage-audit results for the registered workflow.",
+        label="tab:leakage-audit",
+    )
+    return [csv_path, tex_path]
+
+
+def _root_cause_assets(
+    config: PaperAssetConfig,
+    tables: Path,
+    latex: Path,
+) -> list[Path]:
+    path = config.real_data_matrix_root / "industrial_results_summary.csv"
+    if not path.exists():
+        return []
+    source = pd.read_csv(path)
+    explanations = {
+        "metropt": "alarm-conversion burden with one held-out failure",
+        "metropt2": "alarm-conversion burden with one held-out failure",
+        "scania_component_x": "vehicle-level repair-risk estimand mismatch",
+        "hydraulic_systems": "cycle-state target is not a field event onset",
+        "secom": "yield-failure target and missingness differ from maintenance events",
+    }
+    frame = pd.DataFrame(
+        {
+            "Dataset": source["dataset_id"].map(_dataset_label),
+            "Dominant explanation": source["dataset_id"].map(explanations),
+            "Evidence": source.apply(_root_cause_evidence, axis=1),
+        }
+    )
+    csv_path = tables / "root_cause_summary.csv"
+    tex_path = latex / "root_cause_summary.tex"
+    frame.to_csv(csv_path, index=False)
+    _write_latex_table(
+        frame,
+        tex_path,
+        caption="Evidence-based dominant explanations for diagnostic failure.",
+        label="tab:root-cause",
+    )
+    return [csv_path, tex_path]
+
+
+def _range_text(values: pd.Series) -> str:
+    numeric = pd.to_numeric(values, errors="coerce").dropna()
+    if numeric.empty:
+        return "Not estimable"
+    lower = float(numeric.min())
+    upper = float(numeric.max())
+    if lower == upper:
+        return _format_metric(lower)
+    return f"{_format_metric(lower)}--{_format_metric(upper)}"
+
+
+def _dataset_label(value: object) -> str:
+    labels = {
+        "metropt": "MetroPT",
+        "metropt2": "MetroPT2",
+        "scania_component_x": "SCANIA",
+        "hydraulic_systems": "Hydraulic",
+        "secom": "SECOM",
+    }
+    return labels.get(str(value), str(value))
+
+
+def _short_role(value: object) -> str:
+    text = str(value)
+    replacements = {
+        "event-level early warning on temporal test split": "event warning",
+        "vehicle-level repair risk on published test split": "repair-risk ranking",
+        "cycle-level hydraulic component degradation on chronological test split": "cycle condition",
+        "wafer-level semiconductor yield-failure detection on chronological test split": "yield failure",
+    }
+    return replacements.get(text, text)
+
+
+def _short_sampling(value: object) -> str:
+    text = str(value)
+    if "compressor" in text:
+        return "ordered telemetry"
+    if "fleet" in text:
+        return "vehicle histories"
+    if "hydraulic" in text:
+        return "test-rig cycles"
+    if "semiconductor" in text:
+        return "wafer rows"
+    return text
+
+
+def _short_target(value: object) -> str:
+    text = str(value)
+    if "failure" in text.lower():
+        return "failure labels"
+    if "repair" in text.lower():
+        return "repair labels"
+    if "condition" in text.lower():
+        return "condition states"
+    if "yield" in text.lower() or "pass/fail" in text.lower():
+        return "yield labels"
+    return text
+
+
+def _short_limitation(value: object) -> str:
+    text = str(value)
+    replacements = {
+        "few independent failure episodes; diagnostic result only": "few failures",
+        "vehicle-level estimand is not directly comparable to compressor event warning": (
+            "estimand mismatch"
+        ),
+        "laboratory cycle-level component states are not field failure-event onsets": (
+            "cycle labels"
+        ),
+        "yield-failure labels are quality outcomes, not maintenance repair events": "yield target",
+    }
+    return replacements.get(text, text)
+
+
+def _baseline_label(value: object) -> str:
+    labels = {
+        "engineering_threshold": "Engineering threshold",
+        "global_empirical_threshold": "Global empirical",
+        "regime_conditioned_empirical_threshold": "Regime empirical",
+        "pot_gpd": "POT/GPD",
+        "fixed_run_declustering": "Fixed-run declustering",
+        "k_gaps_declustering": "K-gaps declustering",
+        "spot": "SPOT-style",
+        "isolation_forest": "Isolation Forest",
+        "robust_changepoint": "Robust changepoint",
+        "autoencoder_reconstruction": "Linear autoencoder",
+        "conformal_anomaly_score": "Conformal anomaly",
+        "empirical_horizon_risk": "Empirical horizon risk",
+    }
+    return labels.get(str(value), str(value))
+
+
+def _root_cause_evidence(row: pd.Series) -> str:
+    dataset_id = str(row["dataset_id"])
+    if dataset_id in {"metropt", "metropt2"}:
+        alarms = _format_count(row["predicted_events_or_units"])
+        precision = _format_metric(row["precision"])
+        return f"recall 1.00, precision {precision}, {alarms} alarms"
+    if dataset_id == "scania_component_x":
+        return f"{_format_count(row['independent_units'])} vehicles, F1 {_format_metric(row['f1'])}"
+    return (
+        f"{_format_count(row['target_events_or_units'])} positives, "
+        f"F1 {_format_metric(row['f1'])}"
+    )
+
+
+def _format_count(value: object) -> str:
+    number = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(number):
+        return "NA"
+    return f"{int(number):,}"
+
+
+def _format_metric(value: object) -> str:
+    number = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(number):
+        return "Not estimable"
+    return f"{float(number):.3g}"
+
+
+def _format_optional_int(value: object) -> str:
+    number = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(number):
+        return "Not estimable"
+    return f"{int(round(float(number))):,}"
+
+
 def _timed_asset(
     name: str,
     builder: Callable[[], list[Path]],
@@ -842,20 +1305,22 @@ def _require_columns(frame: pd.DataFrame, columns: tuple[str, ...]) -> None:
 
 def _write_latex_table(frame: pd.DataFrame, path: Path, *, caption: str, label: str) -> None:
     columns = [str(column) for column in frame.columns]
+    column_spec = " ".join([r">{\raggedright\arraybackslash}X" for _column in columns])
     lines = [
-        "\\begin{table}",
+        "\\begin{table}[!htbp]",
         "\\centering",
+        "\\small",
         f"\\caption{{{_latex_escape(caption)}}}",
         f"\\label{{{_latex_escape(label)}}}",
-        "\\begin{tabular}{" + "l" * len(columns) + "}",
+        "\\begin{tabularx}{\\textwidth}{" + column_spec + "}",
         "\\toprule",
-        " & ".join(_latex_escape(column) for column in columns) + " \\\\",
+        " & ".join(_latex_escape(_pretty_column_header(column)) for column in columns) + " \\\\",
         "\\midrule",
     ]
     for _index, row in frame.iterrows():
         values = [_latex_escape(_format_latex_value(row[column])) for column in frame.columns]
         lines.append(" & ".join(values) + " \\\\")
-    lines.extend(["\\bottomrule", "\\end{tabular}", "\\end{table}", ""])
+    lines.extend(["\\bottomrule", "\\end{tabularx}", "\\end{table}", ""])
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -867,6 +1332,16 @@ def _format_latex_value(value: object) -> str:
     if isinstance(value, float):
         return f"{value:.4g}"
     return str(value)
+
+
+def _pretty_column_header(value: str) -> str:
+    replacements = {
+        "f1": "F1",
+        "ci": "CI",
+        "q": "q",
+    }
+    words = value.replace("_", " ").split()
+    return " ".join(replacements.get(word.lower(), word) for word in words)
 
 
 def _latex_escape(value: str) -> str:

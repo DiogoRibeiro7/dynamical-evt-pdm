@@ -84,6 +84,7 @@ class _FeatureBundle:
     matrix: FloatArray
     signal: FloatArray
     names: tuple[str, ...]
+    regimes: tuple[str, ...] | None
     train_mask: BoolArray
     validation_mask: BoolArray
     test_mask: BoolArray
@@ -113,13 +114,16 @@ def run_baseline_experiment(
     runners: tuple[Callable[[], _Candidate], ...] = (
         lambda: _run_engineering_threshold(bundle, config),
         lambda: _run_global_empirical_threshold(bundle, config),
+        lambda: _run_regime_conditioned_empirical_threshold(bundle, config),
         lambda: _run_pot_gpd(bundle, config),
         lambda: _run_fixed_run_declustering(bundle, config),
+        lambda: _run_k_gaps_declustering(bundle, config),
         lambda: _run_spot(bundle, config),
         lambda: _run_isolation_forest(bundle, config),
         lambda: _run_robust_changepoint(bundle, config),
         lambda: _run_autoencoder(bundle, config),
         lambda: _run_conformal(bundle, config),
+        lambda: _run_empirical_horizon_risk(bundle, config),
     )
 
     for runner in runners:
@@ -210,10 +214,16 @@ def _build_feature_bundle(frame: pd.DataFrame, config: BaselineRunConfig) -> _Fe
         if config.target_column is not None
         else None
     )
+    regimes = (
+        tuple(frame[config.regime_column].astype("string").fillna("unknown").astype(str))
+        if config.regime_column is not None
+        else None
+    )
     return _FeatureBundle(
         matrix=matrix,
         signal=signal,
         names=names,
+        regimes=regimes,
         train_mask=train_mask,
         validation_mask=validation_mask,
         test_mask=test_mask,
@@ -294,6 +304,49 @@ def _run_global_empirical_threshold(
     )
 
 
+def _run_regime_conditioned_empirical_threshold(
+    bundle: _FeatureBundle,
+    config: BaselineRunConfig,
+) -> _Candidate:
+    if bundle.regimes is None:
+        return _run_global_empirical_threshold(bundle, config)
+    regimes = np.asarray(bundle.regimes, dtype=object)
+    train_signal = bundle.signal[bundle.train_mask]
+    global_fallback = float(np.quantile(train_signal, max(config.threshold_quantiles)))
+    candidates: list[tuple[FloatArray, float]] = []
+    for quantile in config.threshold_quantiles:
+        thresholds = np.full(len(bundle.signal), global_fallback, dtype=np.float64)
+        for regime in sorted(set(regimes.tolist())):
+            regime_mask = (regimes == regime) & bundle.train_mask
+            if np.any(regime_mask):
+                thresholds[regimes == regime] = float(
+                    np.quantile(bundle.signal[regime_mask], quantile)
+                )
+        candidates.append((thresholds, float(quantile)))
+    selected = max(
+        candidates,
+        key=lambda item: _validation_objective(bundle.signal, item[0], bundle),
+    )
+    selected_thresholds: FloatArray = np.asarray(selected[0], dtype=np.float64)
+    quantile = selected[1]
+    return _Candidate(
+        model_name="regime_conditioned_empirical_threshold",
+        score=bundle.signal,
+        threshold=selected_thresholds,
+        hyperparameters={
+            "train_quantile": quantile,
+            "regime_count": int(len(set(regimes.tolist()))),
+            "feature_window": config.window_size,
+            "validation_objective": _validation_objective(
+                bundle.signal,
+                selected_thresholds,
+                bundle,
+            ),
+        },
+        parameter_count=int(len(set(regimes.tolist()))),
+    )
+
+
 def _run_pot_gpd(bundle: _FeatureBundle, config: BaselineRunConfig) -> _Candidate:
     candidates: list[tuple[float, float, float, int]] = []
     train_signal = bundle.signal[bundle.train_mask]
@@ -350,6 +403,33 @@ def _run_fixed_run_declustering(bundle: _FeatureBundle, config: BaselineRunConfi
         hyperparameters={
             "train_quantile": 0.98,
             "run_length": run_length,
+            "feature_window": config.window_size,
+            "validation_objective": _validation_objective(bundle.signal, base_threshold, bundle),
+        },
+        parameter_count=2,
+        episode_run_length=run_length,
+    )
+
+
+def _run_k_gaps_declustering(bundle: _FeatureBundle, config: BaselineRunConfig) -> _Candidate:
+    base_threshold = float(np.quantile(bundle.signal[bundle.train_mask], 0.98))
+    exceedance_indices = np.flatnonzero(bundle.signal[bundle.train_mask] > base_threshold)
+    if len(exceedance_indices) >= 2:
+        gaps = np.diff(exceedance_indices) - 1
+        finite_gaps = gaps[np.isfinite(gaps)]
+        candidate_run = int(np.clip(np.median(finite_gaps) if len(finite_gaps) else 0, 0, 50))
+    else:
+        candidate_run = 0
+    run_candidates = tuple(sorted({candidate_run, *config.fixed_run_lengths}))
+    run_length = _select_run_length(bundle.signal > base_threshold, bundle, run_candidates)
+    return _Candidate(
+        model_name="k_gaps_declustering",
+        score=bundle.signal,
+        threshold=base_threshold,
+        hyperparameters={
+            "train_quantile": 0.98,
+            "run_length": run_length,
+            "gap_statistic": "median inter-exceedance gap",
             "feature_window": config.window_size,
             "validation_objective": _validation_objective(bundle.signal, base_threshold, bundle),
         },
@@ -501,6 +581,32 @@ def _run_conformal(bundle: _FeatureBundle, config: BaselineRunConfig) -> _Candid
             "validation_objective": _validation_objective(nonconformity, threshold, bundle),
         },
         parameter_count=len(calibration_scores),
+    )
+
+
+def _run_empirical_horizon_risk(bundle: _FeatureBundle, config: BaselineRunConfig) -> _Candidate:
+    risk_score = _score_to_horizon_risk(bundle.signal, bundle, config)
+    candidates = tuple(
+        float(np.quantile(risk_score[bundle.validation_mask], quantile))
+        for quantile in config.threshold_quantiles
+    )
+    threshold = _select_scalar_threshold(
+        risk_score,
+        candidate_thresholds=candidates,
+        bundle=bundle,
+    )
+    quantile = config.threshold_quantiles[candidates.index(threshold)]
+    return _Candidate(
+        model_name="empirical_horizon_risk",
+        score=risk_score,
+        threshold=threshold,
+        hyperparameters={
+            "validation_quantile": quantile,
+            "horizon": config.horizon,
+            "feature_window": config.window_size,
+            "validation_objective": _validation_objective(risk_score, threshold, bundle),
+        },
+        parameter_count=int(np.count_nonzero(bundle.validation_mask)),
     )
 
 
@@ -716,6 +822,18 @@ def _baseline_card_text(model_name: str) -> dict[str, object]:
                 "tail fit can be unstable under regime changes",
             ),
         },
+        "regime_conditioned_empirical_threshold": {
+            "intended_use": "regime-conditioned empirical threshold baseline",
+            "tuning_procedure": "one train quantile per observed regime is selected on validation",
+            "known_limitations": (
+                *common_limitations,
+                "regime labels are conditioning variables rather than mechanical causes",
+            ),
+            "failure_modes": (
+                "rare regimes can inherit unstable thresholds",
+                "test regimes absent from training fall back to the global tail threshold",
+            ),
+        },
         "fixed_run_declustering": {
             "intended_use": "fixed persistence baseline for duplicate-alarm control",
             "tuning_procedure": "run length is selected on validation from a bounded grid",
@@ -726,6 +844,18 @@ def _baseline_card_text(model_name: str) -> dict[str, object]:
             "failure_modes": (
                 "short true events can be suppressed",
                 "long run lengths can delay separate alarm episodes",
+            ),
+        },
+        "k_gaps_declustering": {
+            "intended_use": "K-gaps-style inter-exceedance declustering baseline",
+            "tuning_procedure": "inter-exceedance gap summary and validation objective select the run length",
+            "known_limitations": (
+                *common_limitations,
+                "compact implementation uses empirical gap persistence rather than a full likelihood fit",
+            ),
+            "failure_modes": (
+                "few exceedances make the gap summary unstable",
+                "persistent normal regimes can be merged into long alarm episodes",
             ),
         },
         "spot": {
@@ -786,6 +916,18 @@ def _baseline_card_text(model_name: str) -> dict[str, object]:
             "failure_modes": (
                 "score ranges outside calibration support are extrapolative",
                 "scarce validation events limit risk interpretation",
+            ),
+        },
+        "empirical_horizon_risk": {
+            "intended_use": "simple empirical horizon-risk ranking baseline",
+            "tuning_procedure": "validation tail event frequency is thresholded by validation quantile",
+            "known_limitations": (
+                *common_limitations,
+                "risk values are empirical validation rates and are not calibrated probabilities",
+            ),
+            "failure_modes": (
+                "scarce validation positives produce flat scores",
+                "temporal drift can make validation tail rates non-representative",
             ),
         },
     }

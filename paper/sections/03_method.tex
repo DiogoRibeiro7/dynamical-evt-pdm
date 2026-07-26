@@ -13,13 +13,17 @@ For a target region \(A\), the scalar observable is
 \]
 where \(d\) is the robust Euclidean distance in scaled coordinates and \(\epsilon>0\) prevents singularities. Larger \(X_t\) means closer proximity to the training-defined region. This is an anomaly or recurrence score, not a calibrated probability of failure.
 
-For each regime \(r\), a threshold \(u_r(q)\) is estimated from the declared training or calibration partition at quantile \(q\). Exceedances are \(I_t(q,r)=\mathbf{1}\{X_t>u_r(q),R_t=r\}\). Runs declustering merges exceedances separated by at most \(m\) samples. The runs estimator and the Ferro--Segers inter-exceedance estimator summarize clustering under the frozen \(q\) and \(m\) settings \citep{FerroSegers2003Clusters}. The inverse extremal index is discussed only as an asymptotic cluster-size diagnostic under the assumptions of the estimator.
+For each regime \(r\), a threshold \(u_r(q)\) is estimated from the declared training or calibration partition at quantile \(q\). Exceedances are \(I_t(q,r)=\mathbf{1}\{X_t>u_r(q),R_t=r\}\). Runs declustering merges exceedances separated by at most \(m\) samples. The runs estimator, Ferro--Segers inter-exceedance estimator, and K-gaps-style declustering diagnostic summarize clustering under the frozen \(q\) and \(m\) settings \citep{FerroSegers2003Clusters,SuvegesDavison2010KGap}. The inverse extremal index is discussed only as an asymptotic cluster-size diagnostic under the assumptions of the estimator.
 
 Pointwise exceedances are converted into alarm episodes by the declared merge gap. A test alarm is a true event alarm only if the episode intersects the predeclared warning window for a held-out failure under the frozen matching tolerance. All event recall, event precision, false-alarm burden, duplicate-alarm count, lead time, time under warning, and utility metrics are computed after this episode conversion when event labels exist. This prevents timestamp counts from being treated as independent maintenance evidence.
 
-The score-stratification target for horizon \(h\) is \(Y_t^{(h)}=\mathbf{1}\{\hbox{a labelled event begins within }h\hbox{ after }t\}\). In the current evidence, model outputs are anomaly ranks or recurrence scores. Probability-calibration language is therefore restricted: Brier-style summaries are reported only as diagnostics of score stratification unless a separate calibration partition contains enough positive independent units for an explicit probability map.
+The score-stratification target for horizon \(h\) is
+\[
+    Y_t^{(h)}=\mathbf{1}\{\hbox{a labelled event begins within }h\hbox{ after }t\}.
+\]
+In the current evidence, model outputs are anomaly ranks or recurrence scores. Probability-calibration language is therefore restricted: Brier-style summaries are reported only as diagnostics of score stratification unless a separate calibration partition contains enough positive independent units for an explicit probability map.
 
-The leakage contract is: training features cannot contain held-out failure samples; scaling, regimes, target regions, thresholds, lag selection, merge-gap selection, and calibration cannot use test events; SCANIA vehicles cannot appear in multiple partitions; and feature windows cannot cross maintenance-reset boundaries. The codebase enforces parts of this contract through split-specific scaling, provenance checks, SCANIA vehicle-leakage checks, and paper/package audits; remaining checks are recorded as required leakage-audit extensions rather than treated as completed evidence. Under the current registered diagnostic the algorithm is:
+The leakage contract is: training features cannot contain held-out failure samples; scaling, regimes, target regions, thresholds, lag selection, merge-gap selection, and calibration cannot use test events; SCANIA vehicles cannot appear in multiple partitions; and feature windows cannot cross maintenance-reset boundaries. Table~\ref{tab:leakage-audit} gives the terminal audit result for each registered check. Under the current registered diagnostic the algorithm is:
 \[
 \begin{array}{ll}
 1. & \text{Split entities or intervals into training, validation, calibration, and test partitions.}\\
@@ -30,5 +34,7 @@ The leakage contract is: training features cannot contain held-out failure sampl
 6. & \text{Report event metrics, uncertainty by independent unit, and non-estimable cases.}
 \end{array}
 \]
+
+\input{../reports/paper/latex/leakage_audit.tex}
 
 The practical complexity for scoring is \(O(npK)\), where \(n\) is the number of samples or entities, \(p\) is the state dimension, and \(K\) is the number of stored prototypes or rare-state summaries. Thresholding and runs declustering are linear in \(n\). The streaming-compatible parts are causal feature construction, scaling with frozen parameters, scoring, thresholding, and alarm merging. Prototype construction, model selection, and final event matching are offline evaluation steps.

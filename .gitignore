@@ -28,6 +28,7 @@ reports/figures/*
 reports/paper/*
 reports/paper_*/
 reports/master_smoke/*
+reports/qa/main_pages/
 reports/real_data/*
 reports/submission/*
 

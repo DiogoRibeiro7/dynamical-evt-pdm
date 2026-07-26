@@ -70,15 +70,18 @@ def test_baseline_runner_outputs_standardized_prediction_table() -> None:
     assert set(result.predictions["model"]) == {
         "engineering_threshold",
         "global_empirical_threshold",
+        "regime_conditioned_empirical_threshold",
         "pot_gpd",
         "fixed_run_declustering",
+        "k_gaps_declustering",
         "spot",
         "isolation_forest",
         "robust_changepoint",
         "autoencoder_reconstruction",
         "conformal_anomaly_score",
+        "empirical_horizon_risk",
     }
-    assert len(result.predictions) == len(frame) * 9
+    assert len(result.predictions) == len(frame) * 12
     assert set(result.predictions["dataset_id"]) == {"synthetic_cyclic"}
     assert set(result.predictions["entity_id"]) == {"compressor_001"}
     assert set(result.predictions["partition"]) == {"train", "validation", "test"}
@@ -167,6 +170,7 @@ def test_horizon_risk_matches_tail_mean_definition() -> None:
         matrix=np.zeros((5, 1), dtype=np.float64),
         signal=scores,
         names=("x",),
+        regimes=None,
         train_mask=np.array([True, False, False, False, False]),
         validation_mask=validation_mask,
         test_mask=np.array([False, False, False, False, True]),

@@ -12,7 +12,7 @@ The first research question asks whether the extremal-index diagnostics are stab
   \label{fig:simulation-rmse}
 \end{figure}
 
-Threshold and run-length sensitivity in Figure~\ref{fig:threshold-stability} and Table~\ref{tab:threshold-stability} show that clustering conclusions depend on \(q\) and \(m\). That supports a negative-result interpretation: regime-conditioned dynamical-EVT diagnostics are sensitive design objects, not model-free evidence of impending failure.
+Threshold and run-length sensitivity in Figure~\ref{fig:threshold-stability} and Table~\ref{tab:threshold-stability-summary} show that clustering conclusions depend on \(q\) and \(m\). That supports a negative-result interpretation: regime-conditioned dynamical-EVT diagnostics are sensitive design objects, not model-free evidence of impending failure.
 
 \begin{figure}[t]
   \centering
@@ -21,7 +21,7 @@ Threshold and run-length sensitivity in Figure~\ref{fig:threshold-stability} and
   \label{fig:threshold-stability}
 \end{figure}
 
-\input{../reports/paper/latex/threshold_stability.tex}
+\input{../reports/paper/latex/threshold_stability_summary.tex}
 
 \subsection{Alarm conversion and failed-detection regions}
 
@@ -36,35 +36,24 @@ The second research question asks whether declustering and alarm merging reduce 
 
 \input{../reports/paper/latex/lead_time_false_alarm_frontier.tex}
 
-Matching sensitivity in Figure~\ref{fig:matching-tolerance} and Table~\ref{tab:matching-tolerance} shows whether event \(F_1\) changes under alternative merge gaps and post-onset tolerances. The scientific result is the dependence of conclusions on episode-conversion policy. A setting that looks better only because the matching rule is relaxed is not evidence of earlier warning.
+Across all registered combinations of alarm merge gap and post-onset matching tolerance, event recall, precision, and \(F_1\) remained zero. Relaxing post-onset tolerance did not alter the result, so the full grid is reported in the supplement rather than as a main-text sensitivity figure.
 
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=0.72\linewidth]{../reports/paper/figures/matching_tolerance_surface.png}
-  \caption{Event \(F_1\) sensitivity over alarm merge gap and post-onset matching tolerance.}
-  \label{fig:matching-tolerance}
-\end{figure}
-
-\input{../reports/paper/latex/matching_tolerance_surface.tex}
+\input{../reports/paper/latex/matching_tolerance_summary.tex}
 
 \subsection{Real-data diagnostic outcomes}
 
 The third and fourth research questions ask whether the registered robust extreme-score diagnostic adds operational value after episode conversion, and why empirical failures occur. Table~\ref{tab:industrial-results} gives the registered diagnostic row for each dataset role. MetroPT and MetroPT2 each contain one labelled test event in the registered split. Both events are detected, but the detection is operationally weak: MetroPT produces 2527 predicted alarm episodes with precision \(0.00040\), and MetroPT2 produces 849 predicted alarm episodes with precision \(0.00118\). The median lead times, 3346 and 3469 samples respectively, are not persuasive by themselves because they are paired with extreme false-alarm burdens.
 
-Hydraulic Systems, SCANIA Component X, and SECOM all have \(F_1=0\) under the conservative high-quantile diagnostic. These are not hidden failures. They are evidence that a simple extreme-score adapter does not transfer across laboratory cycle states, vehicle-level repair risk, and wafer-level yield labels without changing the estimand and evaluation design.
+Hydraulic Systems, SCANIA Component X, and SECOM all have \(F_1=0\) under the conservative high-quantile diagnostic. These are not hidden failures. They are evidence that a simple extreme-score adapter does not transfer across laboratory cycle states, vehicle-level repair risk, and wafer-level yield labels without changing the estimand and evaluation design. Table~\ref{tab:root-cause} summarizes the dominant explanation supported by each diagnostic row.
 
-\begin{table}[t]
-  \centering
-  \caption{Conservative real-data diagnostic rows by dataset role and independent unit.}
-  \label{tab:industrial-results}
-  \resizebox{\linewidth}{!}{\input{../artifacts/real_data_matrix/industrial_results.tex}}
-\end{table}
+\input{../reports/paper/latex/industrial_results_compact.tex}
+\input{../reports/paper/latex/root_cause_summary.tex}
 
 The dominant root-cause classifications are therefore provisional but informative. For MetroPT and MetroPT2, the current evidence points to alarm-conversion failure and insufficient independent failures: recall can be obtained, but only by issuing many alarms around sparse labelled events. For SCANIA, the dominant issue is estimand mismatch: a vehicle-level repair-risk task is not the same as compressor event warning. For Hydraulic Systems and SECOM, the current high-quantile score finds no useful positive-event detection, consistent with non-event labels and signatures that need different feature families or supervised baselines.
 
 \subsection{Score stratification and calibration limits}
 
-Figure~\ref{fig:reliability} and Figure~\ref{fig:split-calibration} are retained as score-stratification diagnostics, not probability calibration evidence. The current model outputs are ranks or anomaly scores. Table~\ref{tab:split-calibration} reports Brier-style summaries by split, but the independent positive-event evidence is too limited for a strong calibrated probability claim.
+Figure~\ref{fig:reliability} and Figure~\ref{fig:split-calibration} are retained as score-stratification diagnostics, not probability calibration evidence. The current model outputs are ranks or anomaly scores. The generated bin tables report mean rank score and observed future-event proportion; the independent positive-event evidence is too limited for a strong calibrated probability claim.
 
 \begin{figure}[t]
   \centering
@@ -80,17 +69,15 @@ Figure~\ref{fig:reliability} and Figure~\ref{fig:split-calibration} are retained
   \label{fig:split-calibration}
 \end{figure}
 
-\input{../reports/paper/latex/split_calibration_intervals.tex}
+\subsection{Baselines and audit timeline}
 
-\subsection{Ablations and audit timeline}
+Table~\ref{tab:baseline-summary} records the baseline families executed under the shared causal prediction contract. The table is a smoke-scale fairness audit for the standardized runner, not a population-level claim that any baseline is optimized for every real dataset. The event timeline in Figure~\ref{fig:timeline} is retained because aligned score, threshold, alarm, warning, and failure displays expose timing mistakes that aggregate metrics hide.
 
-The ablation summary in Table~\ref{tab:ablations} records coverage of registered sensitivity families. It does not establish that every alternative has been fairly optimized. The event timeline in Figure~\ref{fig:timeline} is retained because aligned raw score, threshold, alarm, and failure displays expose timing mistakes that aggregate metrics hide.
-
-\input{../reports/paper/latex/ablation_summary.tex}
+\input{../reports/paper/latex/baseline_summary.tex}
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.95\linewidth]{../reports/paper/figures/event_timeline.png}
-  \caption{Aligned alarm timeline with failures and threshold exceedances.}
+  \caption{Representative aligned alarm timeline. The x-axis is elapsed hours from failure onset; the panels show score and threshold, operating regime, alarm episodes after the registered merge rule, warning window, and labelled failure interval. Scoring and threshold parameters are fitted before test-time display.}
   \label{fig:timeline}
 \end{figure}
