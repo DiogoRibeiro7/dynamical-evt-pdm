@@ -701,6 +701,9 @@ def _copy_real_data_matrix_files(source_root: Path, output_root: Path) -> list[P
         "real_data_status.csv",
         "real_data_report.json",
         "dataset_characteristics.tex",
+        "evidence_scope.csv",
+        "evidence_scope.json",
+        "evidence_scope.tex",
     ):
         source = source_root / name
         if source.exists():

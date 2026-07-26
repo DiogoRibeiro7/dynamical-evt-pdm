@@ -27,7 +27,7 @@ The repository contains:
 - event-level predictive-maintenance metrics;
 - adapters for MetroPT, MetroPT2, and SCANIA Component X;
 - real-data acquisition commands for MetroPT, MetroPT2, and SCANIA Component X;
-- real-data verification and industrial diagnostic result artifacts;
+- real-data verification, evidence-scope and industrial diagnostic result artifacts;
 - classical anomaly-detection baselines;
 - reproducible experiment configurations;
 - a paper protocol, claim ledger, and submission package builder.
@@ -86,7 +86,7 @@ For only the industrial result tables, after preparation:
 make industrial-results
 ```
 
-These commands write ignored artifacts under `artifacts/real_data_matrix/`, including dataset verification, an experiment manifest, and MetroPT/MetroPT2/SCANIA diagnostic result summaries.
+These commands write ignored artifacts under `artifacts/real_data_matrix/`, including dataset verification, an experiment manifest, evidence-scope summaries, and MetroPT/MetroPT2/SCANIA diagnostic result summaries.
 
 ## Smoke Experiment
 

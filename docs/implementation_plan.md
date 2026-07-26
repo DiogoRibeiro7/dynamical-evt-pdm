@@ -11,7 +11,7 @@ This document maps the executable repository to the paper hypotheses, generated 
 | Lagged multivariate extremes may warn earlier than simultaneous thresholds. | Component-specific regime thresholds, empirical lag-pattern tests, clustering-preserving nulls and Benjamini-Hochberg correction. | Exploratory unless a held-out, predeclared lag-selection protocol is used. |
 | Regime conditioning changes calibration and alarm burden. | Rule, hidden-state and changepoint regimes; regime reports; regime-conditioned thresholds; ablation tables; split-aware calibration intervals. | Reported as diagnostic evidence with limitations on probability calibration. |
 | Dangerous-region recurrence can support horizon-risk scoring. | Training-provenance-checked dangerous-region prototypes, constraint/density alternatives and horizon-risk calibration. | Requires provenance checks and remains a risk surrogate rather than a causal mechanical proof. |
-| Reproducible experiments can support a defensible paper. | `make end-to-end-smoke`, `make real-data-matrix`, `make paper-assets`, `make submission-package`, manifests, checksums and claim ledger. | Submission readiness is generated from paper checks, real-data terminal status, industrial result artifacts and adversarial review issues. |
+| Reproducible experiments can support a defensible paper. | `make end-to-end-smoke`, `make real-data-matrix`, `make paper-assets`, `make submission-package`, manifests, checksums, evidence-scope summaries and claim ledger. | Submission readiness is generated from paper checks, real-data terminal status, evidence-scope artifacts, industrial result artifacts and adversarial review issues. |
 
 ## Workflow Compliance
 
@@ -58,6 +58,7 @@ The submission package builder requires:
 - compiled main and supplement PDFs;
 - generated asset provenance and claim-ledger checks;
 - terminal real-data verification for MetroPT, MetroPT2 and SCANIA Component X;
+- evidence-scope artifacts summarizing dataset structures, independence units, workflows and claim boundaries;
 - industrial result rows for all three real datasets;
 - resolved adversarial-review issues;
 - administrative submission statements without unfinished placeholders.

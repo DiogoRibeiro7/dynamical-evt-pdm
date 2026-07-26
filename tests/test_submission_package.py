@@ -76,6 +76,7 @@ def test_build_submission_package_copies_terminal_real_data_matrix(tmp_path: Pat
     )
     assert (output_root / "artifacts" / "real_data_matrix" / "experiment_manifest.json").exists()
     assert (output_root / "artifacts" / "real_data_matrix" / "real_data_status.csv").exists()
+    assert (output_root / "artifacts" / "real_data_matrix" / "evidence_scope.json").exists()
     reviewer_report = (output_root / "reviewer_report.md").read_text(encoding="utf-8")
     assert "Full real-data matrix terminal status is recorded locally" in reviewer_report
 
@@ -253,6 +254,15 @@ def _write_terminal_real_data_matrix_fixture(tmp_path: Path) -> Path:
     )
     (root / "real_data_report.json").write_text('{"datasets": []}\n', encoding="utf-8")
     (root / "dataset_characteristics.tex").write_text("% datasets\n", encoding="utf-8")
+    (root / "evidence_scope.csv").write_text(
+        "dataset_id,sampling_structure\nmetropt,ordered compressor telemetry\n",
+        encoding="utf-8",
+    )
+    (root / "evidence_scope.json").write_text(
+        '{"summary": {"dataset_count": 1}}\n',
+        encoding="utf-8",
+    )
+    (root / "evidence_scope.tex").write_text("% evidence scope\n", encoding="utf-8")
     return root
 
 

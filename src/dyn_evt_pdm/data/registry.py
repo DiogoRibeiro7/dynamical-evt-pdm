@@ -196,11 +196,20 @@ def build_data_report(
         registry = asdict(REGISTRY[dataset_id])
         processed_manifest = _read_json_object(Path(verification.processed_manifest_path))
         quality = processed_manifest.get("quality_checks", {})
+        schema_columns = len(processed_manifest.get("schema", {}))
         if dataset_id == "scania_component_x":
+            split_manifests = cast(dict[str, Any], processed_manifest.get("split_manifests", {}))
             quality = {
                 split: manifest.get("quality_checks", {})
-                for split, manifest in processed_manifest.get("split_manifests", {}).items()
+                for split, manifest in split_manifests.items()
             }
+            schema_columns = max(
+                (
+                    len(cast(dict[str, Any], manifest).get("schema", {}))
+                    for manifest in split_manifests.values()
+                ),
+                default=schema_columns,
+            )
         datasets.append(
             {
                 "registry": registry,
@@ -208,7 +217,7 @@ def build_data_report(
                 "rows": verification.processed_rows,
                 "chunks": verification.processed_chunks,
                 "quality_checks": quality,
-                "schema_columns": len(processed_manifest.get("schema", {})),
+                "schema_columns": schema_columns,
             }
         )
     return {"datasets": datasets}

@@ -75,12 +75,22 @@ def test_run_experiment_matrix_with_real_data_verification(tmp_path: Path) -> No
     real_data = [cell for cell in payload["cells"] if cell["name"] == "real_data_verification"]
     assert len(real_data) == 1
     assert real_data[0]["status"] == "succeeded"
+    evidence_scope = [cell for cell in payload["cells"] if cell["name"] == "evidence_scope"]
+    assert len(evidence_scope) == 1
+    assert evidence_scope[0]["status"] == "succeeded"
     assert (tmp_path / "matrix" / "real_data_report.json").exists()
     assert (tmp_path / "matrix" / "real_data_status.csv").exists()
     assert (tmp_path / "matrix" / "dataset_characteristics.tex").exists()
     assert (tmp_path / "matrix" / "industrial_results_summary.csv").exists()
     assert (tmp_path / "matrix" / "industrial_results.json").exists()
     assert (tmp_path / "matrix" / "industrial_results.tex").exists()
+    assert (tmp_path / "matrix" / "evidence_scope.csv").exists()
+    assert (tmp_path / "matrix" / "evidence_scope.tex").exists()
+    scope = json.loads((tmp_path / "matrix" / "evidence_scope.json").read_text())
+    assert scope["summary"]["dataset_count"] == 3
+    assert scope["summary"]["workflow_count"] == 4
+    assert scope["summary"]["sampling_structure_count"] == 2
+    assert scope["summary"]["verified_dataset_count"] == 3
 
 
 def _write_dataset_fixture(raw_root: Path, processed_root: Path, dataset_id: str) -> None:

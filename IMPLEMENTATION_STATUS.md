@@ -14,7 +14,7 @@
 - rigorous event-level evaluation with alarm merge gaps, early-warning windows, greedy/optimal matching, duplicate alarms, false alarms, lead time, utility and calibration diagnostics;
 - real-data acquisition for MetroPT, MetroPT2 and SCANIA Component X into ignored `data/raw/`;
 - chunked raw-to-Parquet preparation with schema manifests, quality checks and checksum validation;
-- real-data matrix verification and conservative industrial diagnostic result artifacts;
+- real-data matrix verification, evidence-scope summaries and conservative industrial diagnostic result artifacts;
 - paper asset builder for figures, CSV tables, LaTeX tables, claim ledger, provenance, benchmarks and result macros;
 - manuscript, supplement and submission-package assembly without copying raw third-party datasets;
 - generated adversarial review, revision matrix, submission statements and final readiness decision.
@@ -55,7 +55,7 @@ make industrial-results
 
 ## Scientific Boundaries
 
-- The package supports a reproducible diagnostic workflow for the current datasets and workflows; broader industrial claims should stay tied to the evidence the repository actually generates.
+- The package supports a reproducible diagnostic workflow for the current datasets and workflows; broader industrial claims should stay tied to the generated evidence-scope and result artifacts.
 - MetroPT and MetroPT2 contain few independent failure episodes; raw timestamp rows are not treated as independent evidence.
 - SCANIA Component X is evaluated as a vehicle-level repair-risk resource, not as a direct compressor-event replication.
 - Calibration and early-warning artifacts are diagnostics unless prospective calibrated probability evidence is added.

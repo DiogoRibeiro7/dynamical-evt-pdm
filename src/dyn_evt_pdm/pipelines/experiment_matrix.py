@@ -121,6 +121,7 @@ def run_experiment_matrix(config: ExperimentMatrixConfig) -> ExperimentMatrixMan
         "baseline_smoke": lambda _cell: _run_baseline_smoke_cell(config),
         "real_data_verification": lambda _cell: _run_real_data_verification_cell(config),
         "industrial_real_data_results": lambda _cell: _run_industrial_results_cell(config),
+        "evidence_scope": lambda _cell: _run_evidence_scope_cell(config),
     }
     for cell in cells:
         executor = executors.get(cell.name)
@@ -269,6 +270,27 @@ def _planned_cells(
                 },
             )
         )
+        cells.append(
+            ExperimentCell(
+                name="evidence_scope",
+                family="evidence_scope",
+                dataset_id="synthetic+metropt+metropt2+scania_component_x",
+                output_paths=(
+                    str(root / "evidence_scope.json"),
+                    str(root / "evidence_scope.csv"),
+                    str(root / "evidence_scope.tex"),
+                ),
+                config={
+                    "includes": (
+                        "simulation_recovery,baseline_smoke,real_data_verification,"
+                        "industrial_real_data_results"
+                    ),
+                    "claim_boundary": (
+                        "broader industrial performance remains outside the generated evidence"
+                    ),
+                },
+            )
+        )
     return tuple(cells)
 
 
@@ -358,6 +380,157 @@ def _run_industrial_results_cell(config: ExperimentMatrixConfig) -> None:
     failed = [result.dataset_id for result in manifest.results if result.status == "failed"]
     if failed:
         raise RuntimeError(f"industrial real-data results failed for {failed}")
+
+
+def _run_evidence_scope_cell(config: ExperimentMatrixConfig) -> None:
+    report_path = config.output_root / "real_data_report.json"
+    industrial_path = config.output_root / "industrial_results.json"
+    if not report_path.exists():
+        _run_real_data_verification_cell(config)
+    if not industrial_path.exists():
+        _run_industrial_results_cell(config)
+
+    report = _read_json_object(report_path)
+    industrial = _read_json_object(industrial_path)
+    industrial_results = {
+        str(item.get("dataset_id")): item
+        for item in cast(list[dict[str, Any]], industrial.get("results", []))
+    }
+
+    dataset_rows: list[dict[str, object]] = []
+    for item in cast(list[dict[str, Any]], report.get("datasets", [])):
+        registry = cast(dict[str, Any], item["registry"])
+        verification = cast(dict[str, Any], item["verification"])
+        dataset_id = str(registry["dataset_id"])
+        result = industrial_results.get(dataset_id, {})
+        dataset_rows.append(
+            {
+                "dataset_id": dataset_id,
+                "sampling_structure": str(registry["sampling_structure"]),
+                "entity_identifier": str(registry["entity_identifier"]),
+                "independent_unit": str(registry["statistical_independence_unit"]),
+                "event_source": str(registry["failure_or_repair_event_source"]),
+                "rows": item.get("rows"),
+                "chunks": item.get("chunks"),
+                "schema_columns": item.get("schema_columns"),
+                "verification_status": str(verification["status"]),
+                "industrial_result_status": str(result.get("status", "missing")),
+                "estimand": str(result.get("estimand", "missing")),
+                "industrial_independent_units": result.get("independent_units"),
+                "target_events_or_units": result.get("target_events_or_units"),
+                "precision": result.get("precision"),
+                "recall": result.get("recall"),
+                "f1": result.get("f1"),
+                "limitation": str(result.get("limitation", "")),
+                "known_limitations": "; ".join(
+                    str(limit) for limit in registry.get("known_limitations", [])
+                ),
+            }
+        )
+
+    workflow_rows = [
+        {
+            "workflow_family": "simulation_recovery",
+            "evidence_role": "known-ground-truth estimator behavior",
+            "status": "included",
+        },
+        {
+            "workflow_family": "baseline_smoke",
+            "evidence_role": "shared prediction and evaluation contract",
+            "status": "included",
+        },
+        {
+            "workflow_family": "real_data_verification",
+            "evidence_role": "dataset provenance, manifest, and checksum coverage",
+            "status": "included",
+        },
+        {
+            "workflow_family": "industrial_real_data_results",
+            "evidence_role": "conservative diagnostics on prepared real datasets",
+            "status": "included",
+        },
+    ]
+    scope = {
+        "summary": {
+            "dataset_count": len(dataset_rows),
+            "verified_dataset_count": sum(
+                row["verification_status"] == "verified" for row in dataset_rows
+            ),
+            "sampling_structure_count": len(
+                {str(row["sampling_structure"]) for row in dataset_rows}
+            ),
+            "sampling_structures": sorted({str(row["sampling_structure"]) for row in dataset_rows}),
+            "independent_units": sorted({str(row["independent_unit"]) for row in dataset_rows}),
+            "workflow_count": len(workflow_rows),
+            "industrial_result_statuses": sorted(
+                {str(row["industrial_result_status"]) for row in dataset_rows}
+            ),
+            "claim_boundary": (
+                "This evidence supports claims for the listed datasets and workflows; "
+                "broader industrial performance remains outside this generated evidence."
+            ),
+        },
+        "datasets": dataset_rows,
+        "workflows": workflow_rows,
+    }
+    (config.output_root / "evidence_scope.json").write_text(
+        json.dumps(scope, indent=2, default=str),
+        encoding="utf-8",
+    )
+    import pandas as pd
+
+    pd.DataFrame(dataset_rows).to_csv(config.output_root / "evidence_scope.csv", index=False)
+    (config.output_root / "evidence_scope.tex").write_text(
+        _render_evidence_scope_latex(dataset_rows),
+        encoding="utf-8",
+    )
+
+
+def _render_evidence_scope_latex(rows: list[dict[str, object]]) -> str:
+    lines = [
+        "\\begin{tabular}{lllll}",
+        "\\toprule",
+        "Dataset & Sampling structure & Unit & Verification & Industrial result \\\\",
+        "\\midrule",
+    ]
+    for row in rows:
+        lines.append(
+            " & ".join(
+                [
+                    _latex_escape(str(row["dataset_id"])),
+                    _latex_escape(str(row["sampling_structure"])),
+                    _latex_escape(str(row["independent_unit"])),
+                    _latex_escape(str(row["verification_status"])),
+                    _latex_escape(str(row["industrial_result_status"])),
+                ]
+            )
+            + " \\\\"
+        )
+    lines.extend(["\\bottomrule", "\\end{tabular}"])
+    return "\n".join(lines) + "\n"
+
+
+def _latex_escape(value: str) -> str:
+    replacements = {
+        "\\": r"\textbackslash{}",
+        "&": r"\&",
+        "%": r"\%",
+        "$": r"\$",
+        "#": r"\#",
+        "_": r"\_",
+        "{": r"\{",
+        "}": r"\}",
+        "~": r"\textasciitilde{}",
+        "^": r"\textasciicircum{}",
+    }
+    return "".join(replacements.get(char, char) for char in value)
+
+
+def _read_json_object(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"expected JSON object in {path}")
+    return cast(dict[str, Any], payload)
 
 
 def _record(
