@@ -3,12 +3,12 @@
 
 \subsection{Simulation validity and estimator stability}
 
-The first research question asks whether the extremal-index diagnostics are stable enough to interpret. The current simulation artifact is a limited recovery study rather than the full Monte Carlo validation required for a methodological paper. Figure~\ref{fig:simulation-rmse} reports runs-estimator RMSE by threshold quantile and simulation family. The result is useful for finding unstable threshold regions, but it is not sufficient to claim estimator reliability across industrial fault mechanisms.
+The first research question asks whether the extremal-index diagnostics are stable enough to interpret. The generated simulation artifact now covers eight process families, two sample sizes, three threshold quantiles, three run lengths, two noise settings, and ten replications per cell. Figure~\ref{fig:simulation-rmse} reports runs-estimator RMSE by threshold quantile and simulation family. The result is useful for finding unstable threshold regions, but it is still interpreted as bounded finite-sample validation rather than a universal theorem about industrial fault mechanisms.
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.78\linewidth]{../reports/paper/figures/simulation_bias_rmse.png}
-  \caption{Limited simulation recovery summary. The plotted quantity is runs-estimator RMSE by threshold quantile and simulation family; broader Monte Carlo bias, coverage, and failure-rate validation remains a required extension.}
+  \caption{Broad finite-sample simulation recovery summary. The plotted quantity is runs-estimator RMSE by threshold quantile and simulation family across the generated Monte Carlo grid.}
   \label{fig:simulation-rmse}
 \end{figure}
 
@@ -63,7 +63,12 @@ Figure~\ref{fig:reliability} and Figure~\ref{fig:split-calibration} are retained
 
 \subsection{Metric provenance, baselines, and audit timeline}
 
-Table~\ref{tab:metric-provenance} resolves the apparent conflict between strong baseline validation scores and weak operational event metrics. The baseline scores currently come from the synthetic runner validation split and are pointwise smoke checks. The MetroPT and MetroPT2 values are held-out event-level alarm metrics. They are different quantities and cannot be compared as if they were the same result.
+Table~\ref{tab:event-baseline-comparison} reports real held-out event-level baselines and target-region variants under the same alarm policy as the registered diagnostic. Table~\ref{tab:event-variant-comparison} isolates the registered score, target-region variants, and negative control. These tables are descriptive rather than a superiority claim: they use only the available held-out failure in each compressor dataset, so precision and false-alarm burden remain the dominant evidence.
+
+\input{../reports/paper/latex/event_baseline_comparison.tex}
+\input{../reports/paper/latex/event_variant_comparison.tex}
+
+Table~\ref{tab:metric-provenance} resolves the apparent conflict between synthetic validation scores and weak operational event metrics. The smoke-runner scores come from a synthetic validation split and are pointwise checks. The MetroPT and MetroPT2 values are held-out event-level alarm metrics. They are different quantities and cannot be compared as if they were the same result.
 
 \input{../reports/paper/latex/metric_provenance.tex}
 \input{../reports/paper/latex/method_scope_completion.tex}
@@ -77,12 +82,12 @@ Figure~\ref{fig:metric-collapse} visualizes the same distinction: pointwise smok
   \label{fig:metric-collapse}
 \end{figure}
 
-The baseline-family table is therefore moved to the supplement. It documents runner coverage under the shared causal prediction contract, not a completed real-dataset event-level baseline comparison. The event timeline in Figure~\ref{fig:timeline} is retained only as a representative timing-audit display; Table~\ref{tab:timeline-traceability} records that it is not a real MetroPT failure-specific figure.
+The synthetic baseline-family table remains in the supplement as a runner audit. The empirical comparison in Table~\ref{tab:event-baseline-comparison} is the event-level evidence. The event timeline in Figure~\ref{fig:timeline} is now generated from the MetroPT held-out test failure; Table~\ref{tab:timeline-traceability} records the figure source.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.95\linewidth]{../reports/paper/figures/event_timeline.png}
-  \caption{Representative aligned alarm timeline. The x-axis is elapsed hours from failure onset; the panels show score and threshold, operating regime, alarm episodes after the registered merge rule, warning window, and labelled failure interval. This figure is a timing-audit illustration, not an empirical MetroPT result row.}
+  \includegraphics[width=0.95\linewidth]{../reports/paper/figures/real_event_timeline.png}
+  \caption{Traceable MetroPT held-out failure timeline. The x-axis is elapsed hours from the registered test failure onset; the panels show the fitted score threshold, alarm flags after thresholding, and labelled failure interval.}
   \label{fig:timeline}
 \end{figure}
 

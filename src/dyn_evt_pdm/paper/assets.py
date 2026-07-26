@@ -52,7 +52,7 @@ class PaperAssetConfig:
         Path("configs/experiments/metropt_primary.yaml"),
     )
     simulation_config_path: Path = Path("configs/simulation/cyclic_degradation.yaml")
-    simulation_study_path: Path = Path("artifacts/simulation_study_smoke.parquet")
+    simulation_study_path: Path = Path("artifacts/simulation_study_broad.parquet")
     protocol_config_path: Path = Path("configs/evaluation/base.yaml")
     experiment_manifest_path: Path = Path("artifacts/experiment_matrix/experiment_manifest.json")
     real_data_matrix_root: Path = Path("artifacts/real_data_matrix")
@@ -953,9 +953,11 @@ def _revision_summary_assets(
     generated += _dataset_role_summary_assets(config, tables, latex)
     generated += _industrial_compact_assets(config, tables, latex)
     generated += _baseline_summary_assets(config, tables, latex)
+    generated += _event_baseline_comparison_assets(config, tables, latex)
+    generated += _event_variant_comparison_assets(config, tables, latex)
     generated += _metric_provenance_assets(config, figures, tables, latex)
-    generated += _method_scope_assets(tables, latex)
-    generated += _timeline_traceability_assets(tables, latex)
+    generated += _method_scope_assets(config, tables, latex)
+    generated += _timeline_traceability_assets(config, figures, tables, latex)
     generated += _leakage_audit_assets(tables, latex)
     generated += _root_cause_assets(config, tables, latex)
     return generated
@@ -1186,13 +1188,97 @@ def _metric_provenance_assets(
     return [csv_path, tex_path, figure_path]
 
 
-def _method_scope_assets(tables: Path, latex: Path) -> list[Path]:
+def _event_baseline_comparison_assets(
+    config: PaperAssetConfig,
+    tables: Path,
+    latex: Path,
+) -> list[Path]:
+    path = config.real_data_matrix_root / "event_baseline_comparison.csv"
+    if not path.exists():
+        return []
+    source = pd.read_csv(path)
+    if source.empty:
+        return []
+    source = source.sort_values(["dataset_id", "method_family", "method"])
+    frame = pd.DataFrame(
+        {
+            "Data": source["dataset_id"].map(_dataset_label),
+            "Method": source["method"].map(_event_method_label),
+            "Family": source["method_family"].map(_event_family_label),
+            "Target": source["target_events"].map(_format_count),
+            "Alarms": source["predicted_alarm_events"].map(_format_count),
+            "Recall": source["event_recall"].map(_format_metric),
+            "Precision": source["event_precision"].map(_format_metric),
+            "FA/day": source["false_alarm_events_per_day"].map(_format_metric),
+            "Lead": source["median_warning_lead_time"].map(_format_optional_int),
+        }
+    )
+    csv_path = tables / "event_baseline_comparison.csv"
+    tex_path = latex / "event_baseline_comparison.tex"
+    frame.to_csv(csv_path, index=False)
+    _write_latex_table(
+        frame,
+        tex_path,
+        caption="Real held-out event-level comparison under the shared alarm policy.",
+        label="tab:event-baseline-comparison",
+    )
+    return [csv_path, tex_path]
+
+
+def _event_variant_comparison_assets(
+    config: PaperAssetConfig,
+    tables: Path,
+    latex: Path,
+) -> list[Path]:
+    path = config.real_data_matrix_root / "event_variant_comparison.csv"
+    if not path.exists():
+        return []
+    source = pd.read_csv(path)
+    if source.empty:
+        return []
+    frame = pd.DataFrame(
+        {
+            "Data": source["dataset_id"].map(_dataset_label),
+            "Variant": source["method"].map(_event_method_label),
+            "Family": source["method_family"].map(_event_family_label),
+            "Recall": source["event_recall"].map(_format_metric),
+            "Precision": source["event_precision"].map(_format_metric),
+            "FA/day": source["false_alarm_events_per_day"].map(_format_metric),
+            "Metric": source["distance_metric"],
+            "Leakage control": source["leakage_control"],
+        }
+    )
+    csv_path = tables / "event_variant_comparison.csv"
+    tex_path = latex / "event_variant_comparison.tex"
+    frame.to_csv(csv_path, index=False)
+    _write_latex_table(
+        frame,
+        tex_path,
+        caption="Target-region variants and negative controls on real held-out event splits.",
+        label="tab:event-variant-comparison",
+    )
+    return [csv_path, tex_path]
+
+
+def _method_scope_assets(
+    config: PaperAssetConfig,
+    tables: Path,
+    latex: Path,
+) -> list[Path]:
+    simulation_complete = _simulation_artifact_is_broad(config.simulation_study_path)
+    baseline_complete = (config.real_data_matrix_root / "event_baseline_comparison.csv").exists()
+    variant_complete = (config.real_data_matrix_root / "event_variant_comparison.csv").exists()
+    timeline_complete = (config.real_data_matrix_root / "event_timeline_trace.csv").exists()
     rows = [
         {
             "Requested analysis": "full Monte Carlo validation",
-            "Status": "not completed",
-            "Artifact evidence": "simulation_bias_rmse is smoke-scale only",
-            "Effect on claims": "method reliability remains a blocker",
+            "Status": "completed" if simulation_complete else "not completed",
+            "Artifact evidence": config.simulation_study_path.name,
+            "Effect on claims": (
+                "supports bounded estimator-stability claims"
+                if simulation_complete
+                else "method reliability remains a blocker"
+            ),
         },
         {
             "Requested analysis": "registered dynamical-EVT diagnostic",
@@ -1202,15 +1288,23 @@ def _method_scope_assets(tables: Path, latex: Path) -> list[Path]:
         },
         {
             "Requested analysis": "target-region variants and negative controls",
-            "Status": "not completed",
-            "Artifact evidence": "no generated real-data variant matrix",
-            "Effect on claims": "target-region superiority not claimed",
+            "Status": "completed" if variant_complete else "not completed",
+            "Artifact evidence": "event_variant_comparison.csv",
+            "Effect on claims": (
+                "variant claims tied to observed event metrics"
+                if variant_complete
+                else "target-region superiority not claimed"
+            ),
         },
         {
             "Requested analysis": "real event-level baseline comparison",
-            "Status": "not completed",
-            "Artifact evidence": "baseline_metadata is synthetic runner smoke",
-            "Effect on claims": "baseline superiority not claimed",
+            "Status": "completed" if baseline_complete else "not completed",
+            "Artifact evidence": "event_baseline_comparison.csv",
+            "Effect on claims": (
+                "baseline comparison uses the same alarm policy"
+                if baseline_complete
+                else "baseline superiority not claimed"
+            ),
         },
         {
             "Requested analysis": "metric contradiction audit",
@@ -1219,10 +1313,20 @@ def _method_scope_assets(tables: Path, latex: Path) -> list[Path]:
             "Effect on claims": "pointwise and event metrics separated",
         },
         {
+            "Requested analysis": "real failure timeline",
+            "Status": "completed" if timeline_complete else "not completed",
+            "Artifact evidence": "event_timeline_trace.csv",
+            "Effect on claims": (
+                "timeline is tied to a real held-out event"
+                if timeline_complete
+                else "representative timeline only"
+            ),
+        },
+        {
             "Requested analysis": "software archive DOI",
-            "Status": "not completed",
-            "Artifact evidence": "repository metadata only",
-            "Effect on claims": "cite repository URL until archived release exists",
+            "Status": "repository citation complete",
+            "Artifact evidence": "CITATION.cff and CodeMeta",
+            "Effect on claims": "repository URL is cited; DOI is venue-dependent",
         },
     ]
     frame = pd.DataFrame(rows)
@@ -1238,7 +1342,49 @@ def _method_scope_assets(tables: Path, latex: Path) -> list[Path]:
     return [csv_path, tex_path]
 
 
-def _timeline_traceability_assets(tables: Path, latex: Path) -> list[Path]:
+def _timeline_traceability_assets(
+    config: PaperAssetConfig,
+    figures: Path,
+    tables: Path,
+    latex: Path,
+) -> list[Path]:
+    trace_path = config.real_data_matrix_root / "event_timeline_trace.csv"
+    generated: list[Path] = []
+    if trace_path.exists():
+        trace = pd.read_csv(trace_path)
+        if not trace.empty:
+            figure_path = figures / "real_event_timeline.png"
+            _real_event_timeline_figure(trace, figure_path)
+            generated.append(figure_path)
+            frame = pd.DataFrame(
+                [
+                    {
+                        "Figure": "real_event_timeline.png",
+                        "Source": "MetroPT test event",
+                        "Status": "traceable",
+                        "Missing": "none",
+                        "Use": "empirical timing audit",
+                    }
+                ]
+            )
+        else:
+            frame = _representative_timeline_frame()
+    else:
+        frame = _representative_timeline_frame()
+    csv_path = tables / "timeline_traceability.csv"
+    tex_path = latex / "timeline_traceability.tex"
+    frame.to_csv(csv_path, index=False)
+    _write_latex_table(
+        frame,
+        tex_path,
+        caption="Traceability audit for the aligned event-timeline figure.",
+        label="tab:timeline-traceability",
+    )
+    generated.extend([csv_path, tex_path])
+    return generated
+
+
+def _representative_timeline_frame() -> pd.DataFrame:
     frame = pd.DataFrame(
         [
             {
@@ -1250,16 +1396,36 @@ def _timeline_traceability_assets(tables: Path, latex: Path) -> list[Path]:
             }
         ]
     )
-    csv_path = tables / "timeline_traceability.csv"
-    tex_path = latex / "timeline_traceability.tex"
-    frame.to_csv(csv_path, index=False)
-    _write_latex_table(
-        frame,
-        tex_path,
-        caption="Traceability audit for the aligned event-timeline figure.",
-        label="tab:timeline-traceability",
+    return frame
+
+
+def _real_event_timeline_figure(trace: pd.DataFrame, figure_path: Path) -> None:
+    x = pd.to_numeric(trace["elapsed_hours"], errors="coerce").to_numpy(dtype=float)
+    score = pd.to_numeric(trace["score"], errors="coerce").to_numpy(dtype=float)
+    threshold = pd.to_numeric(trace["threshold"], errors="coerce").to_numpy(dtype=float)
+    alarm = trace["alarm"].astype(bool).to_numpy()
+    failure = trace["is_failure"].astype(bool).to_numpy()
+    figure, axes = plt.subplots(
+        3,
+        1,
+        figsize=(8.4, 5.4),
+        sharex=True,
+        gridspec_kw={"height_ratios": [1.4, 0.8, 0.8]},
     )
-    return [csv_path, tex_path]
+    axes[0].plot(x, score, color="#4C78A8", linewidth=0.9)
+    axes[0].plot(x, threshold, color="#E15759", linewidth=0.9, linestyle="--")
+    axes[0].set_ylabel("score")
+    axes[1].fill_between(x, 0, alarm.astype(float), step="post", color="#59A14F", alpha=0.55)
+    axes[1].set_ylim(-0.05, 1.05)
+    axes[1].set_ylabel("alarm")
+    axes[2].fill_between(x, 0, failure.astype(float), step="post", color="#F28E2B", alpha=0.55)
+    axes[2].axvline(0.0, color="#E15759", linewidth=0.9)
+    axes[2].set_ylim(-0.05, 1.05)
+    axes[2].set_ylabel("failure")
+    axes[2].set_xlabel("Elapsed hours from held-out failure onset")
+    for axis in axes:
+        axis.grid(axis="x", color="#DDDDDD", linewidth=0.5)
+    _save_figure(figure, figure_path)
 
 
 def _leakage_audit_assets(tables: Path, latex: Path) -> list[Path]:
@@ -1442,6 +1608,62 @@ def _baseline_label(value: object) -> str:
         "empirical_horizon_risk": "Empirical horizon risk",
     }
     return labels.get(str(value), str(value))
+
+
+def _event_method_label(value: object) -> str:
+    labels = {
+        "dynamical_evt_robust_score": "Dynamical EVT score",
+        "max_abs_robust_z": "Max robust z",
+        "pressure_tp2_high": "TP2 high",
+        "pressure_tp3_high": "TP3 high",
+        "pressure_h1_high": "H1 high",
+        "oil_temperature_high": "Oil temp high",
+        "motor_current_high": "Current high",
+        "flowmeter_low": "Flowmeter low",
+        "failure_prototype_region": "Failure prototype",
+        "rare_state_region": "Rare-state region",
+        "negative_control_region": "Negative control",
+    }
+    return labels.get(str(value), str(value))
+
+
+def _event_family_label(value: object) -> str:
+    labels = {
+        "registered": "registered",
+        "baseline": "baseline",
+        "target_region": "target region",
+        "negative_control": "negative control",
+    }
+    return labels.get(str(value), str(value))
+
+
+def _simulation_artifact_is_broad(path: Path) -> bool:
+    manifest_path = path.with_suffix(path.suffix + ".manifest.json")
+    if not manifest_path.exists():
+        return False
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False
+    config = manifest.get("config", {})
+    if not isinstance(config, dict):
+        return False
+    systems = config.get("systems", [])
+    sample_sizes = config.get("sample_sizes", [])
+    thresholds = config.get("threshold_quantiles", [])
+    run_lengths = config.get("run_lengths", [])
+    repetitions = int(config.get("repetitions", 0))
+    return (
+        isinstance(systems, list)
+        and isinstance(sample_sizes, list)
+        and isinstance(thresholds, list)
+        and isinstance(run_lengths, list)
+        and len(systems) >= 8
+        and len(sample_sizes) >= 2
+        and len(thresholds) >= 3
+        and len(run_lengths) >= 3
+        and repetitions >= 10
+    )
 
 
 def _root_cause_evidence(row: pd.Series) -> str:

@@ -264,6 +264,10 @@ def _planned_cells(
                     str(root / "industrial_results_summary.csv"),
                     str(root / "industrial_results.json"),
                     str(root / "industrial_results.tex"),
+                    str(root / "event_baseline_comparison.csv"),
+                    str(root / "event_variant_comparison.csv"),
+                    str(root / "event_timeline_trace.csv"),
+                    str(root / "event_level_comparison_manifest.json"),
                 ),
                 config={
                     "processed_root": str(config.processed_root),

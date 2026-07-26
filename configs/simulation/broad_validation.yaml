@@ -1,0 +1,15 @@
+simulation:
+  name: broad_validation
+  n_steps: 5000
+  noise_scale: 0.08
+  seed: 42
+experiment:
+  sample_sizes: [2000, 5000]
+  thresholds: [0.95, 0.98, 0.99]
+  run_lengths: [0, 5, 10]
+  repetitions: 10
+  estimands:
+    - extremal_index
+    - mean_cluster_size
+    - failure_rate
+    - monte_carlo_standard_error

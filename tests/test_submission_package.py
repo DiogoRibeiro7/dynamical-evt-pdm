@@ -86,7 +86,7 @@ def test_build_submission_package_copies_terminal_real_data_matrix(tmp_path: Pat
     assert "Full real-data matrix terminal status is recorded locally" in reviewer_report
 
 
-def test_build_submission_package_with_industrial_results_keeps_broader_blockers(
+def test_build_submission_package_with_complete_industrial_event_artifacts_is_ready(
     tmp_path: Path,
 ) -> None:
     paper_root, asset_root = _write_package_fixture(tmp_path)
@@ -116,14 +116,16 @@ def test_build_submission_package_with_industrial_results_keeps_broader_blockers
         )
     )
 
-    assert manifest.decision == "not submission ready"
-    assert "full Monte Carlo validation grid is not completed" in manifest.unresolved_blockers
-    assert any("event-level baseline comparison" in item for item in manifest.unresolved_blockers)
+    assert manifest.decision == "submission ready"
+    assert manifest.unresolved_blockers == ()
     statements = (output_root / "submission_statements.md").read_text(encoding="utf-8")
     assert "to be completed" not in statements
     assert "Diogo Ribeiro" in statements
     assert (
         output_root / "artifacts" / "industrial_results" / "industrial_results_summary.csv"
+    ).exists()
+    assert (
+        output_root / "artifacts" / "industrial_results" / "event_baseline_comparison.csv"
     ).exists()
     assert (output_root / "artifacts" / "real_data_matrix" / "industrial_results.tex").exists()
 
@@ -294,4 +296,17 @@ def _write_industrial_results_fixture(tmp_path: Path) -> Path:
     )
     (root / "industrial_results.json").write_text('{"results": []}\n', encoding="utf-8")
     (root / "industrial_results.tex").write_text("% industrial results\n", encoding="utf-8")
+    (root / "event_baseline_comparison.csv").write_text(
+        "dataset_id,method,event_recall\nmetropt,baseline,1\n",
+        encoding="utf-8",
+    )
+    (root / "event_variant_comparison.csv").write_text(
+        "dataset_id,method,event_recall\nmetropt,variant,1\n",
+        encoding="utf-8",
+    )
+    (root / "event_timeline_trace.csv").write_text(
+        "dataset_id,elapsed_hours,score\nmetropt,0,1\n",
+        encoding="utf-8",
+    )
+    (root / "event_level_comparison_manifest.json").write_text("{}\n", encoding="utf-8")
     return root

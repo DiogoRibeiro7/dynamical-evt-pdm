@@ -82,6 +82,9 @@ class IndustrialResultsManifest:
     details_json: str
     latex_table: str
     results: tuple[IndustrialDatasetResult, ...]
+    event_baseline_csv: str | None = None
+    event_variant_csv: str | None = None
+    event_timeline_csv: str | None = None
 
 
 def run_industrial_results(config: IndustrialResultsConfig) -> IndustrialResultsManifest:
@@ -108,6 +111,7 @@ def run_industrial_results(config: IndustrialResultsConfig) -> IndustrialResults
         encoding="utf-8",
     )
     latex_table.write_text(_render_latex_table(results), encoding="utf-8")
+    event_artifacts = _run_event_level_comparison_artifacts(config)
     return IndustrialResultsManifest(
         output_root=str(config.output_root),
         datasets=REQUIRED_DATASETS,
@@ -115,6 +119,9 @@ def run_industrial_results(config: IndustrialResultsConfig) -> IndustrialResults
         details_json=str(details_json),
         latex_table=str(latex_table),
         results=results,
+        event_baseline_csv=event_artifacts.get("event_baseline_csv"),
+        event_variant_csv=event_artifacts.get("event_variant_csv"),
+        event_timeline_csv=event_artifacts.get("event_timeline_csv"),
     )
 
 
@@ -253,6 +260,318 @@ def _run_metropt_family(
         median_warning_lead_time=evaluation.median_warning_lead_time,
         brier_score=None,
         limitation="few independent failure episodes; diagnostic result only",
+    )
+
+
+def _run_event_level_comparison_artifacts(config: IndustrialResultsConfig) -> dict[str, str]:
+    baseline_rows: list[dict[str, object]] = []
+    variant_rows: list[dict[str, object]] = []
+    timeline_frames: list[pd.DataFrame] = []
+    for dataset_id in ("metropt", "metropt2"):
+        manifest_path = config.processed_root / dataset_id / "manifest.json"
+        if not manifest_path.exists():
+            continue
+        manifest = _read_json_object(manifest_path)
+        rows, variants, timeline = _run_metropt_event_comparison(dataset_id, manifest, config)
+        baseline_rows.extend(rows)
+        variant_rows.extend(variants)
+        if timeline is not None:
+            timeline_frames.append(timeline)
+
+    artifacts: dict[str, str] = {}
+    if baseline_rows:
+        path = config.output_root / "event_baseline_comparison.csv"
+        pd.DataFrame(baseline_rows).to_csv(path, index=False)
+        artifacts["event_baseline_csv"] = str(path)
+    if variant_rows:
+        path = config.output_root / "event_variant_comparison.csv"
+        pd.DataFrame(variant_rows).to_csv(path, index=False)
+        artifacts["event_variant_csv"] = str(path)
+    if timeline_frames:
+        path = config.output_root / "event_timeline_trace.csv"
+        pd.concat(timeline_frames, ignore_index=True).to_csv(path, index=False)
+        artifacts["event_timeline_csv"] = str(path)
+    manifest_path = config.output_root / "event_level_comparison_manifest.json"
+    manifest_path.write_text(json.dumps(artifacts, indent=2), encoding="utf-8")
+    return artifacts
+
+
+def _run_metropt_event_comparison(
+    dataset_id: str,
+    manifest: dict[str, Any],
+    config: IndustrialResultsConfig,
+) -> tuple[list[dict[str, object]], list[dict[str, object]], pd.DataFrame | None]:
+    files = _manifest_files(manifest)
+    rows = int(manifest.get("rows", 0))
+    feature_columns = _available_columns(manifest, METROPT_FEATURE_PRIORITY)
+    if not files or rows <= 0 or not feature_columns:
+        return [], [], None
+
+    train = _collect_metropt_split(files, rows, feature_columns, config, split_name="train")
+    if train.empty:
+        return [], [], None
+    center, scale = _robust_center_scale(train, feature_columns)
+    train_refs = _event_method_references(train, feature_columns, center=center, scale=scale)
+    train_scores = _event_method_scores(
+        train, feature_columns, center=center, scale=scale, refs=train_refs
+    )
+    thresholds = {
+        method: float(np.nanquantile(scores[np.isfinite(scores)], config.threshold_quantile))
+        for method, scores in train_scores.items()
+        if np.isfinite(scores).any()
+    }
+    if not thresholds:
+        return [], [], None
+
+    flags_by_method: dict[str, list[np.ndarray[Any, Any]]] = {method: [] for method in thresholds}
+    target_parts: list[np.ndarray[Any, Any]] = []
+    timestamp_parts: list[np.ndarray[Any, Any]] = []
+    robust_score_parts: list[np.ndarray[Any, Any]] = []
+    offset = 0
+    columns = [*feature_columns, "timestamp", "is_failure"]
+    for path in files:
+        frame = pd.read_parquet(path, columns=columns)
+        split = _temporal_split(offset, len(frame), rows, config)
+        test = frame.loc[split == "test", columns]
+        if not test.empty:
+            scores = _event_method_scores(
+                test, feature_columns, center=center, scale=scale, refs=train_refs
+            )
+            for method, threshold in thresholds.items():
+                flags_by_method[method].append(scores[method] > threshold)
+            target_parts.append(test["is_failure"].astype(bool).to_numpy())
+            timestamp_parts.append(test["timestamp"].to_numpy())
+            robust_score_parts.append(scores["dynamical_evt_robust_score"])
+        offset += len(frame)
+
+    target_flags = np.concatenate(target_parts) if target_parts else np.array([], dtype=bool)
+    failures = flags_to_events(target_flags, label="failure")
+    if not failures:
+        return [], [], None
+    baseline_rows: list[dict[str, object]] = []
+    variant_rows: list[dict[str, object]] = []
+    for method, parts in flags_by_method.items():
+        alarm_flags = np.concatenate(parts) if parts else np.array([], dtype=bool)
+        alarms = flags_to_events(alarm_flags, label="alarm", merge_gap=config.merge_gap)
+        evaluation = evaluate_event_predictions(
+            alarms,
+            failures,
+            policy=EarlyWarningPolicy(
+                horizon=config.horizon,
+                tolerance_after=config.matching_tolerance_after,
+            ),
+            method="optimal",
+            total_operating_time=len(target_flags),
+            samples_per_day=config.samples_per_day,
+        )
+        row = {
+            "dataset_id": dataset_id,
+            "failure_id": f"{dataset_id}_test_failure_001",
+            "method": method,
+            "method_family": _event_method_family(method),
+            "target_events": len(failures),
+            "predicted_alarm_events": len(alarms),
+            "event_recall": evaluation.recall,
+            "event_precision": evaluation.precision,
+            "event_f1": evaluation.f1,
+            "false_alarm_events_per_day": evaluation.false_alarm_events_per_operating_day,
+            "duplicate_alarm_events": evaluation.duplicate_alarm_events,
+            "median_warning_lead_time": evaluation.median_warning_lead_time,
+            "time_under_warning": evaluation.time_under_warning,
+            "threshold": thresholds[method],
+            "leakage_control": "train thresholds and references only",
+        }
+        baseline_rows.append(row)
+        if row["method_family"] in {"target_region", "negative_control", "registered"}:
+            variant_rows.append(
+                {
+                    **row,
+                    "distance_metric": "robust euclidean" if "region" in method else "robust max-z",
+                    "variant_status": "completed",
+                }
+            )
+
+    timeline = None
+    if dataset_id == "metropt" and timestamp_parts and robust_score_parts:
+        timestamps = np.concatenate(timestamp_parts)
+        robust_scores = np.concatenate(robust_score_parts)
+        robust_flags = (
+            np.concatenate(flags_by_method["dynamical_evt_robust_score"])
+            if "dynamical_evt_robust_score" in flags_by_method
+            else np.zeros(len(target_flags), dtype=bool)
+        )
+        timeline = _event_timeline_trace(
+            dataset_id,
+            timestamps=timestamps,
+            scores=robust_scores,
+            alarm_flags=robust_flags,
+            target_flags=target_flags,
+            threshold=thresholds["dynamical_evt_robust_score"],
+            samples_per_day=config.samples_per_day,
+        )
+    return baseline_rows, variant_rows, timeline
+
+
+def _collect_metropt_split(
+    files: tuple[Path, ...],
+    rows: int,
+    feature_columns: tuple[str, ...],
+    config: IndustrialResultsConfig,
+    *,
+    split_name: str,
+) -> pd.DataFrame:
+    frames: list[pd.DataFrame] = []
+    offset = 0
+    columns = [*feature_columns, "is_failure"]
+    for path in files:
+        frame = pd.read_parquet(path, columns=columns)
+        split = _temporal_split(offset, len(frame), rows, config)
+        selected = frame.loc[split == split_name, columns]
+        if not selected.empty:
+            frames.append(selected)
+        offset += len(frame)
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=columns)
+
+
+def _robust_center_scale(
+    frame: pd.DataFrame,
+    feature_columns: tuple[str, ...],
+) -> tuple[pd.Series, pd.Series]:
+    numeric = frame.loc[:, feature_columns].apply(pd.to_numeric, errors="coerce")
+    center = numeric.median(numeric_only=True)
+    q75 = numeric.quantile(0.75, numeric_only=True)
+    q25 = numeric.quantile(0.25, numeric_only=True)
+    scale = (q75 - q25).replace(0.0, np.nan).fillna(1.0)
+    return center, scale
+
+
+def _event_method_references(
+    train: pd.DataFrame,
+    feature_columns: tuple[str, ...],
+    *,
+    center: pd.Series,
+    scale: pd.Series,
+) -> dict[str, np.ndarray[Any, Any]]:
+    scaled = _scaled_matrix(train, feature_columns, center=center, scale=scale)
+    robust = _nanmax_abs(pd.DataFrame(scaled, columns=list(feature_columns)), feature_columns)
+    targets = train["is_failure"].astype(bool).to_numpy()
+    references: dict[str, np.ndarray[Any, Any]] = {}
+    references["failure_prototype_region"] = _reference_subset(scaled[targets], limit=16)
+    rare_count = min(16, len(scaled))
+    if rare_count:
+        rare_indices = np.argsort(robust)[-rare_count:]
+        references["rare_state_region"] = scaled[rare_indices]
+    references["negative_control_region"] = _reference_subset(scaled[~targets], limit=16)
+    return references
+
+
+def _event_method_scores(
+    frame: pd.DataFrame,
+    feature_columns: tuple[str, ...],
+    *,
+    center: pd.Series,
+    scale: pd.Series,
+    refs: dict[str, np.ndarray[Any, Any]],
+) -> dict[str, np.ndarray[Any, Any]]:
+    scaled = _scaled_matrix(frame, feature_columns, center=center, scale=scale)
+    robust = np.nanmax(np.abs(np.where(np.isfinite(scaled), scaled, np.nan)), axis=1)
+    robust = np.nan_to_num(robust, nan=0.0, posinf=0.0, neginf=0.0)
+    scores: dict[str, np.ndarray[Any, Any]] = {
+        "dynamical_evt_robust_score": robust,
+        "max_abs_robust_z": robust,
+    }
+    for column in (
+        "pressure_tp2",
+        "pressure_tp3",
+        "pressure_h1",
+        "oil_temperature",
+        "motor_current",
+    ):
+        if column in feature_columns:
+            index = feature_columns.index(column)
+            scores[f"{column}_high"] = np.nan_to_num(scaled[:, index], nan=0.0)
+    if "flowmeter" in feature_columns:
+        index = feature_columns.index("flowmeter")
+        scores["flowmeter_low"] = -np.nan_to_num(scaled[:, index], nan=0.0)
+    for method in ("failure_prototype_region", "rare_state_region", "negative_control_region"):
+        reference = refs.get(method)
+        if reference is not None and len(reference):
+            scores[method] = -_minimum_distance(scaled, reference)
+    return scores
+
+
+def _scaled_matrix(
+    frame: pd.DataFrame,
+    feature_columns: tuple[str, ...],
+    *,
+    center: pd.Series,
+    scale: pd.Series,
+) -> np.ndarray[Any, Any]:
+    numeric = frame.loc[:, feature_columns].apply(pd.to_numeric, errors="coerce")
+    scaled = (numeric - center.loc[list(feature_columns)]) / scale.loc[list(feature_columns)]
+    return cast(np.ndarray[Any, Any], scaled.to_numpy(dtype=float))
+
+
+def _reference_subset(values: np.ndarray[Any, Any], *, limit: int) -> np.ndarray[Any, Any]:
+    if len(values) <= limit:
+        return values
+    indices = np.linspace(0, len(values) - 1, limit, dtype=int)
+    return cast(np.ndarray[Any, Any], values[indices])
+
+
+def _minimum_distance(
+    values: np.ndarray[Any, Any],
+    references: np.ndarray[Any, Any],
+) -> np.ndarray[Any, Any]:
+    clean_values = np.nan_to_num(values, nan=0.0, posinf=0.0, neginf=0.0)
+    clean_refs = np.nan_to_num(references, nan=0.0, posinf=0.0, neginf=0.0)
+    best = np.full(len(clean_values), np.inf, dtype=float)
+    for reference in clean_refs:
+        distance = np.sqrt(np.sum((clean_values - reference) ** 2, axis=1))
+        best = np.minimum(best, distance)
+    return best
+
+
+def _event_method_family(method: str) -> str:
+    if method == "dynamical_evt_robust_score":
+        return "registered"
+    if method in {"failure_prototype_region", "rare_state_region"}:
+        return "target_region"
+    if method == "negative_control_region":
+        return "negative_control"
+    return "baseline"
+
+
+def _event_timeline_trace(
+    dataset_id: str,
+    *,
+    timestamps: np.ndarray[Any, Any],
+    scores: np.ndarray[Any, Any],
+    alarm_flags: np.ndarray[Any, Any],
+    target_flags: np.ndarray[Any, Any],
+    threshold: float,
+    samples_per_day: int,
+) -> pd.DataFrame:
+    failure_indices = np.flatnonzero(target_flags)
+    if not len(failure_indices):
+        return pd.DataFrame()
+    center = int(failure_indices[0])
+    samples_per_hour = max(1.0, samples_per_day / 24.0)
+    start = max(0, center - int(samples_per_hour))
+    end = min(len(target_flags), center + int(2 * samples_per_hour))
+    index = np.arange(start, end, dtype=int)
+    return pd.DataFrame(
+        {
+            "dataset_id": dataset_id,
+            "failure_id": f"{dataset_id}_test_failure_001",
+            "test_index": index,
+            "timestamp": timestamps[index].astype(str),
+            "elapsed_hours": (index - center) / samples_per_hour,
+            "score": scores[index],
+            "threshold": threshold,
+            "alarm": alarm_flags[index],
+            "is_failure": target_flags[index],
+        }
     )
 
 

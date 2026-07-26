@@ -41,7 +41,7 @@ simulate:
 	poetry run dyn-evt simulate --output data/processed/synthetic_cyclic.csv --n-steps 20000 --seed 42
 
 simulation-study:
-	poetry run dyn-evt run-simulation-study --smoke --output artifacts/simulation_study_smoke.parquet
+	poetry run dyn-evt run-simulation-study --config configs/simulation/broad_validation.yaml --output artifacts/simulation_study_broad.parquet
 
 experiment-matrix:
 	poetry run dyn-evt run-experiment-matrix --output-root artifacts/experiment_matrix
@@ -63,11 +63,11 @@ end-to-end-smoke:
 	poetry run dyn-evt run-simulation-study --smoke --output artifacts/master_smoke_simulation_study.parquet
 	poetry run dyn-evt build-paper-assets --input data/processed/master_smoke.csv --output-root reports/master_smoke --simulation-study-path artifacts/master_smoke_simulation_study.parquet
 
-paper-assets: simulate simulation-study
+paper-assets: simulate simulation-study industrial-results
 	poetry run dyn-evt build-paper-assets \
 		--input data/processed/synthetic_cyclic.csv \
 		--output-root reports/paper \
-		--simulation-study-path artifacts/simulation_study_smoke.parquet
+		--simulation-study-path artifacts/simulation_study_broad.parquet
 	poetry run dyn-evt verify-paper-assets --output-root reports/paper
 
 paper-assets-verify:
