@@ -2,7 +2,7 @@
 name = "dyn-evt-pdm"
 version = "0.1.0"
 description = "Regime-conditioned dynamical extreme value theory for cluster-aware predictive maintenance"
-authors = ["Diogo <diogo@example.invalid>"]
+authors = ["Diogo"]
 readme = "README.md"
 license = "BSD-3-Clause"
 homepage = "https://github.com/DiogoRibeiro7/dynamical-evt-pdm"
