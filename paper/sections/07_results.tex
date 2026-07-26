@@ -1,85 +1,96 @@
 \section{Results}
 \label{sec:results}
 
-The generated results support a diagnostic and reproducibility claim, not a broad industrial performance claim. Synthetic figures and tables are produced by version-controlled code under experiment identifier \DynEvtExperimentId{} and dataset checksum \DynEvtDatasetChecksum{}. Real-data tables are produced by the registered matrix after local public-data acquisition, preparation, manifest verification, and conservative dataset-specific diagnostics.
+\subsection{Simulation validity and estimator stability}
 
-\subsection{Synthetic Diagnostic Assets}
+The first research question asks whether the extremal-index diagnostics are stable enough to interpret. The current simulation artifact is a limited recovery study rather than the full Monte Carlo validation required for a methodological paper. Figure~\ref{fig:simulation-rmse} reports runs-estimator RMSE by threshold quantile and simulation family; it supports CLM-003 only as finite-sample diagnostic evidence. The result is useful for finding unstable threshold regions, but it is not sufficient to claim estimator reliability across industrial fault mechanisms.
 
-Threshold and run-length sensitivity is shown in Figure~\ref{fig:threshold-stability} and Table~\ref{tab:threshold-stability}. The grid changes exceedance and cluster behavior, supporting CLM-002. This is expected under dependent telemetry and is the reason the manuscript reports sensitivity rather than a single chosen threshold as if it were model-free.
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.78\linewidth]{../reports/paper/figures/simulation_bias_rmse.png}
+  \caption{Limited simulation recovery summary. The plotted quantity is runs-estimator RMSE by threshold quantile and simulation family; broader Monte Carlo bias, coverage, and failure-rate validation remains a required extension.}
+  \label{fig:simulation-rmse}
+\end{figure}
+
+Threshold and run-length sensitivity in Figure~\ref{fig:threshold-stability} and Table~\ref{tab:threshold-stability} show that clustering conclusions depend on \(q\) and \(m\). That supports a negative-result interpretation: regime-conditioned dynamical-EVT diagnostics are sensitive design objects, not model-free evidence of impending failure.
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.78\linewidth]{../reports/paper/figures/threshold_stability.png}
-  \caption{Threshold and run-length stability diagnostic. The figure is generated from the cached processed data and records the empirical runs extremal-index estimate across the registered grid.}
+  \caption{Threshold and run-length stability diagnostic for the registered recurrence observable.}
   \label{fig:threshold-stability}
 \end{figure}
 
 \input{../reports/paper/latex/threshold_stability.tex}
 
-The alarm frontier in Figure~\ref{fig:frontier} and Table~\ref{tab:frontier} reports the trade-off between event recall, lead time, and false-alarm event rate. It supports CLM-004 only as an exploratory operational trade-off. In particular, a visually acceptable frontier is not evidence of calibrated failure probability, and a reduction in duplicate alarms would be useful only if recall, lead time, and time under warning remain acceptable.
+\subsection{Alarm conversion and failed-detection regions}
+
+The second research question asks whether declustering and alarm merging reduce duplicate alarms while preserving event recall. In the registered threshold grid, Figure~\ref{fig:failed-detection} and Table~\ref{tab:frontier} show zero event recall at all reported quantiles, with false-alarm burdens between 133.92 and 168.48 alarm episodes per operating day. This is not an operational frontier. It is a failed-detection region under the current observable, threshold grid, and matching rule, and it supports CLM-004 only as evidence that alarm conversion can destroy utility.
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.72\linewidth]{../reports/paper/figures/lead_time_false_alarm_frontier.png}
-  \caption{Lead-time versus false-alarm frontier generated under the frozen event-matching protocol.}
-  \label{fig:frontier}
+  \caption{Failed-detection region for the registered alarm policy. The plotted grid has zero event recall, so the figure must not be read as a useful lead-time trade-off.}
+  \label{fig:failed-detection}
 \end{figure}
 
 \input{../reports/paper/latex/lead_time_false_alarm_frontier.tex}
 
-Matching sensitivity is shown in Figure~\ref{fig:matching-tolerance} and Table~\ref{tab:matching-tolerance}. This surface varies both the alarm merge gap and the post-onset matching tolerance, making explicit whether an operational conclusion depends on one favorable episode-conversion rule. It extends CLM-004 but does not change its permitted strength: the evidence is still an exploratory operational trade-off.
+Matching sensitivity in Figure~\ref{fig:matching-tolerance} and Table~\ref{tab:matching-tolerance} shows whether event \(F_1\) changes under alternative merge gaps and post-onset tolerances. The scientific result is the dependence of conclusions on episode-conversion policy. A setting that looks better only because the matching rule is relaxed is not evidence of earlier warning.
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.72\linewidth]{../reports/paper/figures/matching_tolerance_surface.png}
-  \caption{Event F1 sensitivity over alarm merge gap and matching tolerance after failure onset.}
+  \caption{Event \(F_1\) sensitivity over alarm merge gap and post-onset matching tolerance.}
   \label{fig:matching-tolerance}
 \end{figure}
 
 \input{../reports/paper/latex/matching_tolerance_surface.tex}
 
-Calibration is reported as a reliability diagnostic rather than a probability guarantee. Figure~\ref{fig:reliability} uses ranked horizon-risk surrogates and observed future-event indicators. Figure~\ref{fig:split-calibration} and Table~\ref{tab:split-calibration} add split-aware intervals using training-ranked risk scores. This supports CLM-005 as a narrow diagnostic claim: generated intervals are now present, but they are not a substitute for a prospective calibrated probability model.
+\subsection{Real-data diagnostic outcomes}
+
+The third and fourth research questions ask whether the dangerous-region observable adds operational value, and why empirical failures occur. Table~\ref{tab:industrial-results} gives the registered diagnostic row for each dataset role. MetroPT and MetroPT2 each contain one labelled test event in the registered split. Both events are detected, but the detection is operationally weak: MetroPT produces 2527 predicted alarm episodes with precision \(0.00040\), and MetroPT2 produces 849 predicted alarm episodes with precision \(0.00118\). The median lead times, 3346 and 3469 samples respectively, are not persuasive by themselves because they are paired with extreme false-alarm burdens.
+
+Hydraulic Systems, SCANIA Component X, and SECOM all have \(F_1=0\) under the conservative high-quantile diagnostic. These are not hidden failures. They are evidence that a simple extreme-score adapter does not transfer across laboratory cycle states, vehicle-level repair risk, and wafer-level yield labels without changing the estimand and evaluation design.
+
+\begin{table}[t]
+  \centering
+  \caption{Conservative real-data diagnostic rows by dataset role and independent unit.}
+  \label{tab:industrial-results}
+  \resizebox{\linewidth}{!}{\input{../artifacts/real_data_matrix/industrial_results.tex}}
+\end{table}
+
+The dominant root-cause classifications are therefore provisional but informative. For MetroPT and MetroPT2, the current evidence points to alarm-conversion failure and insufficient independent failures: recall can be obtained, but only by issuing many alarms around sparse labelled events. For SCANIA, the dominant issue is estimand mismatch: a vehicle-level repair-risk task is not the same as compressor event warning. For Hydraulic Systems and SECOM, the current high-quantile score finds no useful positive-event detection, consistent with non-event labels and signatures that need different feature families or supervised baselines.
+
+\subsection{Score stratification and calibration limits}
+
+Figure~\ref{fig:reliability} and Figure~\ref{fig:split-calibration} are retained as score-stratification diagnostics, not probability calibration evidence. The current model outputs are ranks or anomaly scores. Table~\ref{tab:split-calibration} reports Brier-style summaries by split, but the independent positive-event evidence is too limited for a strong calibrated probability claim under CLM-005.
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.58\linewidth]{../reports/paper/figures/reliability_diagram.png}
-  \caption{Reliability diagnostic for ranked horizon risk. Bin counts are preserved in the generated table and provenance file.}
+  \caption{Score-stratification diagnostic for ranked horizon scores. Probability interpretation is not claimed.}
   \label{fig:reliability}
 \end{figure}
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.62\linewidth]{../reports/paper/figures/split_calibration_intervals.png}
-  \caption{Split-aware calibration intervals for training-ranked horizon-risk scores.}
+  \caption{Split-aware score-stratification intervals for ranked horizon scores.}
   \label{fig:split-calibration}
 \end{figure}
 
 \input{../reports/paper/latex/split_calibration_intervals.tex}
 
-The ablation registry is summarized in Table~\ref{tab:ablations}. It supports CLM-006 as a coverage claim: the artifact records the registered ablation families, but families with missing or non-estimable effect summaries still require direct artifact inspection before a stronger statement is made.
+\subsection{Ablations and audit timeline}
+
+The ablation summary in Table~\ref{tab:ablations} records coverage of registered sensitivity families. It does not establish that every alternative has been fairly optimized. The event timeline in Figure~\ref{fig:timeline} is retained because aligned raw score, threshold, alarm, and failure displays expose timing mistakes that aggregate metrics hide.
 
 \input{../reports/paper/latex/ablation_summary.tex}
-
-The complete event timeline in Figure~\ref{fig:timeline} is included for auditability. It shows the observable, threshold, labelled failure samples, and alarm points on aligned axes. The figure is useful for detecting visually obvious timing problems, but it is not itself statistical validation.
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.95\linewidth]{../reports/paper/figures/event_timeline.png}
-  \caption{Generated alarm timeline with failures and threshold exceedances on aligned axes.}
+  \caption{Aligned alarm timeline with failures and threshold exceedances.}
   \label{fig:timeline}
 \end{figure}
-
-\subsection{Five-Dataset Real-Data Matrix}
-
-The real-data matrix verifies five public datasets and records four distinct sampling structures: ordered compressor telemetry, fleet-level irregular vehicle histories, hydraulic test-rig cycles with multi-rate sensor traces, and semiconductor process measurements per production entity. Table~\ref{tab:evidence-scope} shows that the independence units also differ: failure episode or operating day, vehicle, load cycle, and wafer or production example. This is the intended broadening of the study base. It does not make the datasets exchangeable; it makes their non-equivalence auditable.
-
-Table~\ref{tab:industrial-results} reports the conservative diagnostic row produced for each registered real dataset. MetroPT and MetroPT2 are evaluated as event-level early-warning tasks on temporal test splits. SCANIA is evaluated as vehicle-level repair risk on the published test split. Hydraulic Systems is evaluated as cycle-level hydraulic component degradation, and SECOM as wafer-level semiconductor yield-failure detection. These rows are useful precisely because they preserve weak results. The compressor rows recover the single labelled test event with very low precision, while Hydraulic Systems, SCANIA, and SECOM have \(F_1=0\) under the registered high-quantile diagnostic. The result is not a performance victory. It is evidence that the pipeline now runs across materially different public industrial-monitoring settings and records when a simple extreme-score diagnostic is insufficient.
-
-\begin{table}[t]
-  \centering
-  \caption{Conservative real-data diagnostic rows generated by the five-dataset matrix.}
-  \label{tab:industrial-results}
-  \resizebox{\linewidth}{!}{\input{../artifacts/real_data_matrix/industrial_results.tex}}
-\end{table}
-
-The real-data evidence therefore changes the manuscript claim in a specific way. The study is broader than a single synthetic cache or one compressor case study: it now covers five fetched and prepared public datasets with manifest checks, schema summaries, and terminal diagnostic rows. At the same time, CLM-007 remains active because the diagnostic table contains heterogeneous estimands and weak rows, not a controlled demonstration of population-level superiority.

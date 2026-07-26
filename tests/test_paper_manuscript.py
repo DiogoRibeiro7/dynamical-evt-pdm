@@ -50,6 +50,27 @@ def test_check_paper_sources_rejects_unknown_claim(tmp_path: Path) -> None:
     assert any("unknown claim" in failure for failure in report.failures)
 
 
+def test_check_paper_sources_rejects_dataset_count_overclaims(tmp_path: Path) -> None:
+    paper_root, asset_root = _write_minimal_paper_tree(tmp_path)
+    section = paper_root / "sections" / "01_introduction.tex"
+    section.write_text(
+        section.read_text(encoding="utf-8")
+        + " The method is validated across five datasets with general industrial applicability.",
+        encoding="utf-8",
+    )
+
+    report = check_paper_sources(
+        paper_root=paper_root,
+        asset_root=asset_root,
+        require_pdfs=False,
+        write_reports=False,
+    )
+
+    assert not report.ok
+    assert any("dataset-count generalisation" in failure for failure in report.failures)
+    assert any("general-industrial-applicability" in failure for failure in report.failures)
+
+
 def test_check_paper_sources_audits_real_data_matrix_references(tmp_path: Path) -> None:
     paper_root, asset_root = _write_minimal_paper_tree(tmp_path)
     section = paper_root / "sections" / "05_datasets.tex"

@@ -242,7 +242,13 @@ def _claims_from_tables(config: ClaimLedgerConfig) -> tuple[Claim, ...]:
     ablations = _read_optional_csv(config.output_root / "tables" / "ablation_summary.csv")
 
     rows = int(split_summary["rows"].sum()) if "rows" in split_summary else 0
-    failures = int(split_summary["failures"].sum()) if "failures" in split_summary else 0
+    positive_samples = (
+        int(split_summary["positive_samples"].sum())
+        if "positive_samples" in split_summary
+        else int(split_summary["failures"].sum())
+        if "failures" in split_summary
+        else 0
+    )
     regimes = (
         int(split_summary["regimes"].max())
         if "regimes" in split_summary and len(split_summary)
@@ -266,16 +272,16 @@ def _claims_from_tables(config: ClaimLedgerConfig) -> tuple[Claim, ...]:
             claim_id="CLM-001",
             wording=(
                 f"The generated paper assets for {config.dataset_name} cover {rows} rows, "
-                f"{failures} labelled failure samples, and {regimes} observed regimes."
+                f"{positive_samples} labelled positive samples, and {regimes} observed regimes."
             ),
             claim_class="descriptive",
             hypothesis_id="H-DATA-001",
             datasets=config.dataset_name,
             independent_units=_independent_units(split_summary),
-            estimand="processed rows, labelled failure samples, and observed regimes",
+            estimand="processed rows, labelled positive samples, and observed regimes",
             experiment_ids=config.experiment_id,
             table_or_figure_reference="tables/dataset_split_summary.csv",
-            effect_estimate=f"rows={rows}; failure_samples={failures}; regimes={regimes}",
+            effect_estimate=f"rows={rows}; positive_samples={positive_samples}; regimes={regimes}",
             uncertainty="not applicable for deterministic data inventory",
             sensitivity_status="source checksum recorded",
             assumptions="processed cache preserves declared split and label columns",
@@ -356,9 +362,9 @@ def _claims_from_tables(config: ClaimLedgerConfig) -> tuple[Claim, ...]:
             assumptions="failure labels define independent event targets",
             counterevidence="few or no labelled failures make the frontier non-estimable",
             permitted_strength="exploratory operational tradeoff",
-            manuscript_sections_allowed="Results; Limitations" if failures > 0 else "",
+            manuscript_sections_allowed="Results; Limitations" if positive_samples > 0 else "",
             final_status="exploratory"
-            if failures > 0 and np.isfinite(frontier_recall)
+            if positive_samples > 0 and np.isfinite(frontier_recall)
             else "not estimable",
         ),
         Claim(

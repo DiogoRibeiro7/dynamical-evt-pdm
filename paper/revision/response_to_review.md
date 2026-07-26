@@ -1,0 +1,10 @@
+# Response To Review
+
+| Review issue | Action taken | Code change | Experiment change | Manuscript change | Artifact | Residual limitation |
+| --- | --- | --- | --- | --- | --- | --- |
+| Scientific contribution reads procedural | Reframed as negative-result study | Added unsupported-language gates in paper checker | None | Rewrote title, abstract, introduction, results, discussion, conclusion | `paper/main.tex`; `paper/sections/*.tex` | Larger experiments would strengthen scientific depth |
+| Dataset breadth overclaimed | Dataset roles made explicit | Paper checker rejects dataset-count generalisation phrases | None | Rewrote datasets and results | `paper/revision/identity_decision_memo.md` | Generated tables still use compact role metadata |
+| Degenerate frontier shown as trade-off | Relabelled in text as failed-detection region | None | None | Rewrote results caption and interpretation | `paper/sections/07_results.tex` | Generated asset filename remains historical |
+| Calibration claims too strong | Replaced probability language with score-stratification language | Paper checker indirectly blocks main overclaim phrasing | None | Rewrote method, results, and discussion | `paper/revision/hypothesis_registry.md` | Full probability calibration is not supported by current event counts |
+| Method underspecified | Added exact evaluated algorithm and leakage contract | None in this increment | None | Rewrote method section | `paper/sections/03_method.tex` | Dedicated leakage audit should be added to every experiment runner |
+| Negative results not explained | Added dataset-role root-cause interpretation | None | None | Rewrote results and discussion | `paper/sections/07_results.tex`; `paper/sections/08_discussion.tex` | Additional negative controls remain future work |

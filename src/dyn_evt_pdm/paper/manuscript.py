@@ -59,6 +59,36 @@ GRAPHICS_PATTERN = re.compile(r"\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}")
 INPUT_PATTERN = re.compile(r"\\input\{([^}]+)\}")
 CLAIM_PATTERN = re.compile(r"\bCLM-\d{3}\b")
 REAL_DATA_MATRIX_PREFIX = "../artifacts/real_data_matrix/"
+UNSUPPORTED_CLAIM_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(r"\bvalidated across (?:the )?five datasets\b", re.IGNORECASE),
+        "validated-across-five-datasets overclaim",
+    ),
+    (
+        re.compile(r"\bfive[- ]datasets?\b", re.IGNORECASE),
+        "dataset-count generalisation",
+    ),
+    (
+        re.compile(r"\bgeneral industrial applicability\b", re.IGNORECASE),
+        "general-industrial-applicability overclaim",
+    ),
+    (
+        re.compile(r"\bpopulation-level superiority\b", re.IGNORECASE),
+        "population-level-superiority overclaim",
+    ),
+    (
+        re.compile(r"\bevent-level replication on Hydraulic Systems or SECOM\b", re.IGNORECASE),
+        "event-level replication overclaim for Hydraulic Systems or SECOM",
+    ),
+    (
+        re.compile(r"\bcommon estimand across all datasets\b", re.IGNORECASE),
+        "common-estimand overclaim",
+    ),
+    (
+        re.compile(r"\basset bundle\b", re.IGNORECASE),
+        "repository-status result in main narrative",
+    ),
+)
 
 
 def check_paper_sources(
@@ -74,6 +104,7 @@ def check_paper_sources(
     source_files = _required_sources(paper_root, failures)
     source_text = {path: path.read_text(encoding="utf-8") for path in source_files}
     _check_placeholders(source_text, failures)
+    _check_unsupported_claim_language(source_text, failures)
 
     cited_keys, bib_keys = _check_citations(source_text, paper_root / "references.bib", failures)
     asset_references = _check_asset_references(source_text, paper_root, asset_root, failures)
@@ -125,6 +156,16 @@ def _check_placeholders(source_text: dict[Path, str], failures: list[str]) -> No
     for path, text in source_text.items():
         for match in PLACEHOLDER_PATTERN.finditer(text):
             failures.append(f"placeholder marker {match.group(0)!r} in {path}")
+
+
+def _check_unsupported_claim_language(source_text: dict[Path, str], failures: list[str]) -> None:
+    for path, text in source_text.items():
+        for pattern, reason in UNSUPPORTED_CLAIM_PATTERNS:
+            for match in pattern.finditer(text):
+                failures.append(
+                    f"unsupported manuscript claim language ({reason}) in {path}: "
+                    f"{match.group(0)!r}"
+                )
 
 
 def _check_citations(

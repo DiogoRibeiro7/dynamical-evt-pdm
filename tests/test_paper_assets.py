@@ -39,6 +39,9 @@ def test_build_paper_assets_writes_figures_tables_and_manifest(tmp_path: Path) -
     assert (output_root / "figures" / "threshold_stability.png").exists()
     assert (output_root / "figures" / "event_timeline.png").exists()
     assert (output_root / "tables" / "dataset_split_summary.csv").exists()
+    split_summary = pd.read_csv(output_root / "tables" / "dataset_split_summary.csv")
+    assert "positive_samples" in split_summary.columns
+    assert "failures" not in split_summary.columns
     assert (output_root / "tables" / "computational_benchmark.csv").exists()
     assert (output_root / "tables" / "claim_ledger.csv").exists()
     assert (output_root / "claim_ledger.json").exists()

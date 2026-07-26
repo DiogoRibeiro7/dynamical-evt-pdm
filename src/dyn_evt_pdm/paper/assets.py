@@ -710,7 +710,7 @@ def _dataset_split_assets(
                 "dataset": config.input_path.stem,
                 "split": str(split),
                 "rows": len(group),
-                "failures": int(group[config.failure_column].astype(bool).sum()),
+                "positive_samples": int(group[config.failure_column].astype(bool).sum()),
                 "regimes": int(group[config.regime_column].nunique(dropna=False)),
             }
         )
