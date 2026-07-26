@@ -7,7 +7,7 @@ authors:
 version: 0.1.0
 date-released: 2026-07-23
 license: BSD-3-Clause
-repository-code: "https://github.com/REPLACE_ME/dynamical-evt-pdm"
+repository-code: "https://github.com/DiogoRibeiro7/dynamical-evt-pdm"
 keywords:
   - extreme value theory
   - dynamical systems
