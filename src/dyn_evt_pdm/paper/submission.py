@@ -659,6 +659,9 @@ def _copy_required_deliverables(config: SubmissionPackageConfig, output_root: Pa
             output_root / "supplement" / "supplement.pdf",
         ),
         (config.paper_root / "references.bib", output_root / "sources" / "references.bib"),
+        (config.paper_root / "main.tex", output_root / "sources" / "main.tex"),
+        (config.paper_root / "latexmkrc", output_root / "sources" / "latexmkrc"),
+        (config.paper_root / "Makefile", output_root / "sources" / "Makefile"),
         (config.protocol_path, output_root / "artifacts" / "evaluation_protocol.yaml"),
         (config.lock_path, output_root / "environment" / "poetry.lock"),
         (config.license_path, output_root / "LICENSE"),
@@ -688,9 +691,23 @@ def _copy_required_deliverables(config: SubmissionPackageConfig, output_root: Pa
     copied.extend(
         _copy_tree_files(config.paper_root / "supplement", output_root / "sources" / "supplement")
     )
+    copied.extend(
+        _copy_tree_files(config.paper_root / "generated", output_root / "sources" / "generated")
+    )
     copied.extend(_copy_tree_files(config.asset_root / "figures", output_root / "figures"))
     copied.extend(_copy_tree_files(config.asset_root / "tables", output_root / "tables"))
     copied.extend(_copy_tree_files(config.asset_root / "latex", output_root / "generated"))
+    copied.extend(
+        _copy_tree_files(
+            config.asset_root / "figures", output_root / "reports" / "paper" / "figures"
+        )
+    )
+    copied.extend(
+        _copy_tree_files(config.asset_root / "tables", output_root / "reports" / "paper" / "tables")
+    )
+    copied.extend(
+        _copy_tree_files(config.asset_root / "latex", output_root / "reports" / "paper" / "latex")
+    )
     copied.extend(_copy_real_data_matrix_files(config.real_data_matrix_root, output_root))
     copied.extend(_copy_industrial_result_files(config.industrial_results_root, output_root))
     return copied
@@ -725,6 +742,10 @@ def _copy_industrial_result_files(source_root: Path, output_root: Path) -> list[
             copied.append(
                 _copy_file(source, output_root / "artifacts" / "industrial_results" / name)
             )
+            if name == "industrial_results.tex":
+                copied.append(
+                    _copy_file(source, output_root / "artifacts" / "real_data_matrix" / name)
+                )
     return copied
 
 

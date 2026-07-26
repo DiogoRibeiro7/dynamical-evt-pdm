@@ -37,6 +37,11 @@ def test_build_submission_package_writes_review_matrix_and_decision(tmp_path: Pa
     assert (output_root / "revision_matrix.csv").exists()
     assert (output_root / "submission_statements.md").exists()
     assert (output_root / "manuscript" / "main.pdf").exists()
+    assert (output_root / "sources" / "main.tex").exists()
+    assert (output_root / "sources" / "generated" / "result_macros.tex").exists()
+    assert (output_root / "reports" / "paper" / "figures" / "figure.png").exists()
+    assert (output_root / "reports" / "paper" / "latex" / "table.tex").exists()
+    assert (output_root / "reports" / "paper" / "tables" / "table.csv").exists()
     assert not (output_root / "data").exists()
     payload = json.loads((output_root / "submission_manifest.json").read_text(encoding="utf-8"))
     assert payload["decision"] == manifest.decision
@@ -119,6 +124,7 @@ def test_build_submission_package_with_industrial_results_is_submission_ready(
     assert (
         output_root / "artifacts" / "industrial_results" / "industrial_results_summary.csv"
     ).exists()
+    assert (output_root / "artifacts" / "real_data_matrix" / "industrial_results.tex").exists()
 
 
 def _write_package_fixture(tmp_path: Path) -> tuple[Path, Path]:
