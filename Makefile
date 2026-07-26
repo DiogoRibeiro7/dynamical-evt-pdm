@@ -11,7 +11,7 @@ lint:
 	poetry run ruff check src tests
 
 typecheck:
-	poetry run mypy -p dyn_evt_pdm
+	poetry run mypy src
 
 test:
 	poetry run pytest
