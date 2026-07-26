@@ -22,6 +22,10 @@ from dyn_evt_pdm.models.baseline_runner import (
     baseline_metadata_to_frame,
     run_baseline_experiment,
 )
+from dyn_evt_pdm.pipelines.industrial_results import (
+    IndustrialResultsConfig,
+    run_industrial_results,
+)
 from dyn_evt_pdm.simulation.cyclic import CyclicSimulationConfig, simulate_cyclic_machine
 from dyn_evt_pdm.simulation.study import (
     simulation_study_config_from_mapping,
@@ -116,6 +120,7 @@ def run_experiment_matrix(config: ExperimentMatrixConfig) -> ExperimentMatrixMan
         "simulation_recovery": lambda _cell: _run_simulation_cell(config),
         "baseline_smoke": lambda _cell: _run_baseline_smoke_cell(config),
         "real_data_verification": lambda _cell: _run_real_data_verification_cell(config),
+        "industrial_real_data_results": lambda _cell: _run_industrial_results_cell(config),
     }
     for cell in cells:
         executor = executors.get(cell.name)
@@ -247,6 +252,23 @@ def _planned_cells(
                 },
             )
         )
+        cells.append(
+            ExperimentCell(
+                name="industrial_real_data_results",
+                family="real_data",
+                dataset_id="metropt+metropt2+scania_component_x",
+                output_paths=(
+                    str(root / "industrial_results_summary.csv"),
+                    str(root / "industrial_results.json"),
+                    str(root / "industrial_results.tex"),
+                ),
+                config={
+                    "processed_root": str(config.processed_root),
+                    "required_datasets": "metropt,metropt2,scania_component_x",
+                    "threshold_quantile": 0.98,
+                },
+            )
+        )
     return tuple(cells)
 
 
@@ -324,6 +346,18 @@ def _run_real_data_verification_cell(config: ExperimentMatrixConfig) -> None:
             f"{blocked}; run `poetry run dyn-evt fetch-data --dataset all` and "
             "`make prepare-data` before the real-data matrix"
         )
+
+
+def _run_industrial_results_cell(config: ExperimentMatrixConfig) -> None:
+    manifest = run_industrial_results(
+        IndustrialResultsConfig(
+            processed_root=config.processed_root,
+            output_root=config.output_root,
+        )
+    )
+    failed = [result.dataset_id for result in manifest.results if result.status == "failed"]
+    if failed:
+        raise RuntimeError(f"industrial real-data results failed for {failed}")
 
 
 def _record(

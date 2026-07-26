@@ -46,6 +46,7 @@ class SubmissionPackageConfig:
     asset_root: Path = Path("reports/paper")
     output_root: Path = Path("reports/submission")
     real_data_matrix_root: Path = Path("artifacts/real_data_matrix")
+    industrial_results_root: Path = Path("artifacts/real_data_matrix")
     protocol_path: Path = Path("configs/evaluation/base.yaml")
     lock_path: Path = Path("poetry.lock")
     license_path: Path = Path("LICENSE")
@@ -73,7 +74,8 @@ def build_submission_package(config: SubmissionPackageConfig) -> SubmissionPacka
         require_pdfs=True,
     )
     real_data_audit = audit_real_data_matrix(config.real_data_matrix_root)
-    issues = adversarial_review_issues(real_data_audit)
+    industrial_results_audit = audit_industrial_results(config.industrial_results_root)
+    issues = adversarial_review_issues(real_data_audit, industrial_results_audit)
     decision = final_submission_decision(issues, paper_check.failures)
     blockers = tuple(
         issue.residual_limitation
@@ -140,6 +142,23 @@ class RealDataMatrixAudit:
     manifest_path: Path
     status_path: Path
     verified_datasets: tuple[str, ...]
+    failed_datasets: tuple[str, ...]
+    missing_datasets: tuple[str, ...]
+    reason: str
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "succeeded" and not self.failed_datasets and not self.missing_datasets
+
+
+@dataclass(frozen=True, slots=True)
+class IndustrialResultsAudit:
+    """Evidence that industrial result artifacts exist for every registered dataset."""
+
+    status: str
+    summary_path: Path
+    details_path: Path
+    datasets: tuple[str, ...]
     failed_datasets: tuple[str, ...]
     missing_datasets: tuple[str, ...]
     reason: str
@@ -239,13 +258,91 @@ def audit_real_data_matrix(root: Path) -> RealDataMatrixAudit:
     )
 
 
+def audit_industrial_results(root: Path) -> IndustrialResultsAudit:
+    """Read industrial result artifacts and require terminal rows for all real datasets."""
+
+    summary_path = root / "industrial_results_summary.csv"
+    details_path = root / "industrial_results.json"
+    if not summary_path.exists():
+        return IndustrialResultsAudit(
+            status="missing",
+            summary_path=summary_path,
+            details_path=details_path,
+            datasets=(),
+            failed_datasets=(),
+            missing_datasets=tuple(sorted(REQUIRED_REAL_DATASETS)),
+            reason=f"missing industrial result summary: {summary_path}",
+        )
+    if not details_path.exists():
+        return IndustrialResultsAudit(
+            status="missing",
+            summary_path=summary_path,
+            details_path=details_path,
+            datasets=(),
+            failed_datasets=(),
+            missing_datasets=tuple(sorted(REQUIRED_REAL_DATASETS)),
+            reason=f"missing industrial result details: {details_path}",
+        )
+    table = pd.read_csv(summary_path)
+    required_columns = {"dataset_id", "status"}
+    if not required_columns.issubset(table.columns):
+        return IndustrialResultsAudit(
+            status="failed",
+            summary_path=summary_path,
+            details_path=details_path,
+            datasets=(),
+            failed_datasets=(),
+            missing_datasets=tuple(sorted(REQUIRED_REAL_DATASETS)),
+            reason="industrial result summary is missing dataset_id or status",
+        )
+    datasets = tuple(str(value) for value in table["dataset_id"].dropna())
+    failed = tuple(
+        str(row.dataset_id)
+        for row in table.itertuples(index=False)
+        if str(row.status).lower() == "failed"
+    )
+    missing = tuple(sorted(REQUIRED_REAL_DATASETS.difference(datasets)))
+    if failed:
+        reason = f"industrial result rows failed: {', '.join(failed)}"
+    elif missing:
+        reason = f"required industrial result rows are missing: {', '.join(missing)}"
+    else:
+        reason = f"industrial result artifacts cover: {', '.join(datasets)}"
+    status = "succeeded" if not failed and not missing else "failed"
+    return IndustrialResultsAudit(
+        status=status,
+        summary_path=summary_path,
+        details_path=details_path,
+        datasets=datasets,
+        failed_datasets=failed,
+        missing_datasets=missing,
+        reason=reason,
+    )
+
+
 def adversarial_review_issues(
     real_data_audit: RealDataMatrixAudit | None = None,
+    industrial_results_audit: IndustrialResultsAudit | None = None,
 ) -> tuple[ReviewIssue, ...]:
     """Return the final adversarial review matrix."""
 
     audit = real_data_audit or audit_real_data_matrix(Path("artifacts/real_data_matrix"))
+    industrial_audit = industrial_results_audit or audit_industrial_results(
+        Path("artifacts/real_data_matrix")
+    )
+    rev001_resolved = industrial_audit.ok
     rev005_resolved = audit.ok
+    rev001_experiment = (
+        "Industrial result artifacts exist for MetroPT, MetroPT2, and SCANIA; "
+        "the manuscript still blocks population-level superiority language."
+        if rev001_resolved
+        else "Full industrial matrix remains required before stronger claims."
+    )
+    rev001_artifact = (
+        f"{industrial_audit.summary_path}; {industrial_audit.details_path}"
+        if rev001_resolved
+        else "paper/main.tex; reports/paper/claim_ledger.json; paper/generated/claim_audit.json"
+    )
     rev005_experiment = (
         f"Full real-data matrix reached terminal status with {len(audit.verified_datasets)} "
         f"verified datasets."
@@ -264,11 +361,11 @@ def adversarial_review_issues(
             affected_claim="CLM-003; CLM-007",
             required_action="Prevent the manuscript from presenting the workflow as a new industrial theorem or broad superiority result.",
             code_change="Claim-ledger and paper-check commands block untracked claim IDs and generated-asset provenance failures.",
-            experiment_change="Full industrial matrix remains required before stronger claims.",
+            experiment_change=rev001_experiment,
             manuscript_change="Title, abstract, results, discussion, and conclusion use diagnostic and limitation language.",
-            resolution_status="partially resolved",
-            resulting_artifact="paper/main.tex; reports/paper/claim_ledger.json; paper/generated/claim_audit.json",
-            residual_limitation="Complete MetroPT, MetroPT2, and SCANIA result artifacts are still needed for submission-level industrial claims.",
+            resolution_status="resolved" if rev001_resolved else "partially resolved",
+            resulting_artifact=rev001_artifact,
+            residual_limitation="" if rev001_resolved else industrial_audit.reason,
         ),
         ReviewIssue(
             issue_id="REV-002",
@@ -371,6 +468,14 @@ def render_reviewer_report(
         else "- The reproducibility subset rebuilds locally, but full real-data terminal "
         f"experiment status remains a blocker: {audit.reason}."
     )
+    confidence = (
+        "Confidence: high for the readiness decision because it follows generated checks "
+        "and all adversarial-review issues are resolved."
+        if not blockers
+        else "Confidence: high for the readiness decision because it follows generated checks "
+        "and explicit unresolved blockers."
+    )
+    blocker_lines = [f"- {blocker}" for blocker in blockers] if blockers else ["- None."]
     return "\n".join(
         [
             "# Final Adversarial Reviewer Report",
@@ -426,11 +531,11 @@ def render_reviewer_report(
             "",
             "## Confidence",
             "",
-            "Confidence: high for the readiness decision because it follows generated checks and explicit unresolved blockers.",
+            confidence,
             "",
             "## Unresolved Blockers",
             "",
-            *[f"- {blocker}" for blocker in blockers],
+            *blocker_lines,
             "",
         ]
     )
@@ -585,6 +690,7 @@ def _copy_required_deliverables(config: SubmissionPackageConfig, output_root: Pa
     copied.extend(_copy_tree_files(config.asset_root / "tables", output_root / "tables"))
     copied.extend(_copy_tree_files(config.asset_root / "latex", output_root / "generated"))
     copied.extend(_copy_real_data_matrix_files(config.real_data_matrix_root, output_root))
+    copied.extend(_copy_industrial_result_files(config.industrial_results_root, output_root))
     return copied
 
 
@@ -599,6 +705,21 @@ def _copy_real_data_matrix_files(source_root: Path, output_root: Path) -> list[P
         source = source_root / name
         if source.exists():
             copied.append(_copy_file(source, output_root / "artifacts" / "real_data_matrix" / name))
+    return copied
+
+
+def _copy_industrial_result_files(source_root: Path, output_root: Path) -> list[Path]:
+    copied: list[Path] = []
+    for name in (
+        "industrial_results_summary.csv",
+        "industrial_results.json",
+        "industrial_results.tex",
+    ):
+        source = source_root / name
+        if source.exists():
+            copied.append(
+                _copy_file(source, output_root / "artifacts" / "industrial_results" / name)
+            )
     return copied
 
 

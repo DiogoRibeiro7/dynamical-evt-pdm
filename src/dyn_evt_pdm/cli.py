@@ -52,6 +52,10 @@ from dyn_evt_pdm.pipelines.experiment_matrix import (
     ExperimentMatrixConfig,
     run_experiment_matrix,
 )
+from dyn_evt_pdm.pipelines.industrial_results import (
+    IndustrialResultsConfig,
+    run_industrial_results,
+)
 from dyn_evt_pdm.simulation.cyclic import CyclicSimulationConfig, simulate_cyclic_machine
 from dyn_evt_pdm.simulation.study import (
     simulation_study_config_from_mapping,
@@ -693,6 +697,9 @@ def build_submission_package_command(
     real_data_matrix_root: Annotated[
         Path, typer.Option(help="Real-data matrix artifact root used for terminal-status audit.")
     ] = Path("artifacts/real_data_matrix"),
+    industrial_results_root: Annotated[
+        Path, typer.Option(help="Industrial result artifact root used for submission audit.")
+    ] = Path("artifacts/real_data_matrix"),
 ) -> None:
     """Assemble reviewed manuscript, artifacts, statements, and revision matrix."""
 
@@ -703,6 +710,7 @@ def build_submission_package_command(
                 asset_root=asset_root,
                 output_root=output_root,
                 real_data_matrix_root=real_data_matrix_root,
+                industrial_results_root=industrial_results_root,
             )
         )
     except (FileNotFoundError, ValueError) as exc:
@@ -885,6 +893,32 @@ def run_experiment_matrix_command(
     typer.echo(
         f"wrote experiment matrix {manifest.matrix_id} status={manifest.status} "
         f"to {output_root / 'experiment_manifest.json'}"
+    )
+
+
+@app.command("run-industrial-results")
+def run_industrial_results_command(
+    processed_root: Annotated[Path, typer.Option(help="Prepared real-data root.")] = Path(
+        "data/processed"
+    ),
+    output_root: Annotated[Path, typer.Option(help="Industrial result artifact root.")] = Path(
+        "artifacts/real_data_matrix"
+    ),
+) -> None:
+    """Generate conservative result artifacts from prepared real datasets."""
+
+    manifest = run_industrial_results(
+        IndustrialResultsConfig(
+            processed_root=processed_root,
+            output_root=output_root,
+        )
+    )
+    failed = [result.dataset_id for result in manifest.results if result.status == "failed"]
+    if failed:
+        raise typer.BadParameter(f"industrial results failed for {failed}")
+    typer.echo(
+        f"wrote industrial results for {len(manifest.results)} datasets to "
+        f"{manifest.summary_csv}"
     )
 
 

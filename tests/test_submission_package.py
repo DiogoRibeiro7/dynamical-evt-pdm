@@ -23,6 +23,7 @@ def test_build_submission_package_writes_review_matrix_and_decision(tmp_path: Pa
             asset_root=asset_root,
             output_root=output_root,
             real_data_matrix_root=tmp_path / "missing_real_matrix",
+            industrial_results_root=tmp_path / "missing_industrial_results",
             protocol_path=protocol_path,
             lock_path=lock_path,
             license_path=license_path,
@@ -61,6 +62,7 @@ def test_build_submission_package_copies_terminal_real_data_matrix(tmp_path: Pat
             asset_root=asset_root,
             output_root=output_root,
             real_data_matrix_root=real_data_matrix_root,
+            industrial_results_root=tmp_path / "missing_industrial_results",
             protocol_path=protocol_path,
             lock_path=lock_path,
             license_path=license_path,
@@ -76,6 +78,43 @@ def test_build_submission_package_copies_terminal_real_data_matrix(tmp_path: Pat
     assert (output_root / "artifacts" / "real_data_matrix" / "real_data_status.csv").exists()
     reviewer_report = (output_root / "reviewer_report.md").read_text(encoding="utf-8")
     assert "Full real-data matrix terminal status is recorded locally" in reviewer_report
+
+
+def test_build_submission_package_with_industrial_results_is_minor_ready(
+    tmp_path: Path,
+) -> None:
+    paper_root, asset_root = _write_package_fixture(tmp_path)
+    real_data_matrix_root = _write_terminal_real_data_matrix_fixture(tmp_path)
+    industrial_results_root = _write_industrial_results_fixture(tmp_path)
+    output_root = tmp_path / "submission"
+    protocol_path = tmp_path / "protocol.yaml"
+    lock_path = tmp_path / "poetry.lock"
+    license_path = tmp_path / "LICENSE"
+    readme_path = tmp_path / "README.md"
+    protocol_path.write_text("protocol_id: fixture\n", encoding="utf-8")
+    lock_path.write_text("# lock\n", encoding="utf-8")
+    license_path.write_text("BSD-3-Clause\n", encoding="utf-8")
+    readme_path.write_text("# fixture\n", encoding="utf-8")
+
+    manifest = build_submission_package(
+        SubmissionPackageConfig(
+            paper_root=paper_root,
+            asset_root=asset_root,
+            output_root=output_root,
+            real_data_matrix_root=real_data_matrix_root,
+            industrial_results_root=industrial_results_root,
+            protocol_path=protocol_path,
+            lock_path=lock_path,
+            license_path=license_path,
+            readme_path=readme_path,
+        )
+    )
+
+    assert manifest.decision == "submission ready after minor editorial changes"
+    assert manifest.unresolved_blockers == ()
+    assert (
+        output_root / "artifacts" / "industrial_results" / "industrial_results_summary.csv"
+    ).exists()
 
 
 def _write_package_fixture(tmp_path: Path) -> tuple[Path, Path]:
@@ -211,4 +250,24 @@ def _write_terminal_real_data_matrix_fixture(tmp_path: Path) -> Path:
     )
     (root / "real_data_report.json").write_text('{"datasets": []}\n', encoding="utf-8")
     (root / "dataset_characteristics.tex").write_text("% datasets\n", encoding="utf-8")
+    return root
+
+
+def _write_industrial_results_fixture(tmp_path: Path) -> Path:
+    root = tmp_path / "industrial_results"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "industrial_results_summary.csv").write_text(
+        "\n".join(
+            [
+                "dataset_id,status,estimand",
+                "metropt,not_estimable,event-level early warning",
+                "metropt2,succeeded,event-level early warning",
+                "scania_component_x,succeeded,vehicle-level repair risk",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (root / "industrial_results.json").write_text('{"results": []}\n', encoding="utf-8")
+    (root / "industrial_results.tex").write_text("% industrial results\n", encoding="utf-8")
     return root
