@@ -6,7 +6,7 @@ This document maps the executable repository to the paper hypotheses, generated 
 
 | Hypothesis | Implemented support | Current interpretation |
 |---|---|---|
-| Fault-related extremes cluster more strongly than normal extremes. | Cyclic degradation simulator, univariate EVT diagnostics, run declustering, extremal-index estimators, threshold/run-length stability tables. | Supported as a diagnostic workflow claim, not as a universal industrial theorem. |
+| Fault-related extremes cluster more strongly than normal extremes. | Cyclic degradation simulator, univariate EVT diagnostics, run declustering, extremal-index estimators, threshold/run-length stability tables. | Supported as a diagnostic workflow claim for the evaluated evidence. |
 | Dynamical declustering reduces duplicate alarms without materially reducing recall. | Event-level evaluation, merge-gap alarms, duplicate accounting, fixed-run baselines, matching-tolerance surfaces and fair baseline runner. | Reported as an operational trade-off with explicit sensitivity artifacts. |
 | Lagged multivariate extremes may warn earlier than simultaneous thresholds. | Component-specific regime thresholds, empirical lag-pattern tests, clustering-preserving nulls and Benjamini-Hochberg correction. | Exploratory unless a held-out, predeclared lag-selection protocol is used. |
 | Regime conditioning changes calibration and alarm burden. | Rule, hidden-state and changepoint regimes; regime reports; regime-conditioned thresholds; ablation tables; split-aware calibration intervals. | Reported as diagnostic evidence with limitations on probability calibration. |

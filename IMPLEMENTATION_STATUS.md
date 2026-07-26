@@ -43,17 +43,19 @@ make industrial-results
 
 ## Current Validation
 
+- Poetry strict metadata check: passed.
+- Package wheel and source distribution build: passed.
 - Ruff formatting: passed.
 - Ruff linting: passed.
 - Mypy strict type checking: passed.
-- Pytest with configured coverage gate: 89 passed.
+- Pytest with configured coverage gate: 93 passed.
 - Measured coverage: 82.87%, above the configured 80% gate.
 - `make real-data-matrix`: succeeded locally with prepared MetroPT, MetroPT2 and SCANIA Component X data.
 - `make submission-package`: succeeded locally with decision `submission ready` and zero blockers.
 
 ## Scientific Boundaries
 
-- The package supports a reproducible diagnostic workflow, not a universal industrial superiority theorem.
+- The package supports a reproducible diagnostic workflow for the current datasets and workflows; broader industrial claims should stay tied to the evidence the repository actually generates.
 - MetroPT and MetroPT2 contain few independent failure episodes; raw timestamp rows are not treated as independent evidence.
 - SCANIA Component X is evaluated as a vehicle-level repair-risk resource, not as a direct compressor-event replication.
 - Calibration and early-warning artifacts are diagnostics unless prospective calibrated probability evidence is added.

@@ -422,7 +422,7 @@ def _claims_from_tables(config: ClaimLedgerConfig) -> tuple[Claim, ...]:
             hypothesis_id="H-IND-001",
             datasets="MetroPT; MetroPT2; SCANIA",
             independent_units="not established by this asset bundle",
-            estimand="population-level industrial superiority",
+            estimand="broad industrial performance beyond the evaluated evidence",
             experiment_ids=config.experiment_id,
             table_or_figure_reference="claim_ledger.json",
             effect_estimate="not estimable from generated asset bundle",

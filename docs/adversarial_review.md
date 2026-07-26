@@ -42,7 +42,7 @@ These analyses would strengthen the paper, but they are not blockers for the cur
 
 The manuscript and claim ledger intentionally preserve these limits:
 
-1. Population-level industrial superiority is not claimed.
+1. Broad industrial performance beyond the evaluated evidence is not claimed.
 2. Causal mechanical degradation detection is not claimed.
 3. Calibration is described as a diagnostic unless prospective calibrated probabilities are available.
 4. SCANIA evidence is vehicle-level operational validation, not compressor-event replication.
