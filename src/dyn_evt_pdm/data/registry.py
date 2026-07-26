@@ -75,7 +75,7 @@ REGISTRY: dict[str, DatasetRegistryEntry] = {
         failure_or_repair_event_source="version-controlled failure metadata YAML",
         statistical_independence_unit="failure episode / operating day, not timestamp",
         known_limitations=(
-            "failure metadata currently requires source verification",
+            "three source-verified catastrophic failure episodes limit inferential power",
             "small number of independent failure episodes",
         ),
     ),

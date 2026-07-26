@@ -4,12 +4,25 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from dyn_evt_pdm.cli import app
-from dyn_evt_pdm.data.registry import build_data_report, normalize_dataset_ids, sha256_file
+from dyn_evt_pdm.data.registry import (
+    REGISTRY,
+    build_data_report,
+    normalize_dataset_ids,
+    sha256_file,
+)
 
 
 def test_normalize_dataset_ids_accepts_public_aliases() -> None:
     assert normalize_dataset_ids("scania-component-x") == ("scania_component_x",)
     assert normalize_dataset_ids("all") == ("metropt", "metropt2", "scania_component_x")
+
+
+def test_metropt_registry_matches_source_verified_failure_metadata() -> None:
+    metropt = REGISTRY["metropt"]
+
+    assert metropt.failure_or_repair_event_source == "version-controlled failure metadata YAML"
+    assert not any("requires source verification" in item for item in metropt.known_limitations)
+    assert any("three source-verified" in item for item in metropt.known_limitations)
 
 
 def test_build_data_report_verifies_local_manifests(tmp_path: Path) -> None:

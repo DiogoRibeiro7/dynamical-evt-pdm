@@ -11,7 +11,7 @@ MetroPT and MetroPT2:
 - Preserve original columns and attach schema manifests with inferred dtype, missing rate, range and unique count.
 - Verify monotonicity, duplicates, sampling gaps and file checksums.
 - Create canonical sensor aliases without discarding source names.
-- Add failure labels from machine-readable YAML after checking timezone and timestamp precision.
+- Maintain source-verified failure labels in machine-readable YAML.
 - Generate exclusion masks for maintenance, corrupt sequences and configurable warm-up periods.
 
 SCANIA Component X:
