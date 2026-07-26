@@ -3,8 +3,27 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import yaml
 
 from dyn_evt_pdm.data.prepare import prepare_metropt, prepare_scania
+
+
+def test_tracked_metropt_failure_metadata_is_source_verified() -> None:
+    failure_yaml = Path(__file__).parents[1] / "docs" / "datasets" / "metropt_failures.yaml"
+    metadata = yaml.safe_load(failure_yaml.read_text(encoding="utf-8"))
+
+    assert metadata["dataset"] == "metropt"
+    assert metadata["status"] == "source_verified"
+    assert [failure["id"] for failure in metadata["failures"]] == [
+        "failure_1",
+        "failure_2",
+        "failure_3",
+    ]
+    assert [(failure["start"], failure["end"]) for failure in metadata["failures"]] == [
+        ("2022-02-28 21:53:00", "2022-03-01 02:00:00"),
+        ("2022-03-23 14:54:00", "2022-03-23 15:24:00"),
+        ("2022-05-30 12:00:00", "2022-06-02 06:18:00"),
+    ]
 
 
 def test_prepare_metropt_writes_labels_manifest_and_parquet(tmp_path: Path) -> None:

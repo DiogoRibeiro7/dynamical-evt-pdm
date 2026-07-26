@@ -1,17 +1,21 @@
-# Populate exact MetroPT failure timestamps directly from the released article/table
-# and verify them against the downloaded dataset timezone and timestamp resolution.
+# Failure intervals from Veloso et al., Scientific Data 9:764 (2022), Table 2.
+# Intervals are source-local, timezone-naive timestamps matching dataset_train.csv.
 dataset: metropt
-status: requires_source_verification
+status: source_verified
+source: https://doi.org/10.1038/s41597-022-01877-3
 failures:
   - id: failure_1
     type: air_leak_clients
-    start: null
-    end: null
+    component: clients
+    start: "2022-02-28 21:53:00"
+    end: "2022-03-01 02:00:00"
   - id: failure_2
-    type: air_leak_recovered
-    start: null
-    end: null
+    type: air_leak_air_dryer
+    component: air_dryer
+    start: "2022-03-23 14:54:00"
+    end: "2022-03-23 15:24:00"
   - id: failure_3
     type: oil_leak_compressor
-    start: null
-    end: null
+    component: compressor
+    start: "2022-05-30 12:00:00"
+    end: "2022-06-02 06:18:00"
