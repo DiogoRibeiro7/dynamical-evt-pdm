@@ -1,8 +1,21 @@
 import json
+import re
 from pathlib import Path
 
 from dyn_evt_pdm.paper.claims import sha256_file
 from dyn_evt_pdm.paper.manuscript import check_paper_sources
+
+
+def test_tracked_bibliography_has_verified_scania_article_metadata() -> None:
+    bib_path = Path(__file__).parents[1] / "paper" / "references.bib"
+    bib_text = bib_path.read_text(encoding="utf-8")
+    match = re.search(r"@article\{Kharazian2025Scania,\s*(.*?)\n\}", bib_text, flags=re.DOTALL)
+
+    assert match is not None
+    entry = match.group(1)
+    assert "volume = {12}" in entry
+    assert "number = {493}" in entry
+    assert "doi = {10.1038/s41597-025-04802-6}" in entry
 
 
 def test_check_paper_sources_accepts_provenance_backed_manuscript(tmp_path: Path) -> None:
