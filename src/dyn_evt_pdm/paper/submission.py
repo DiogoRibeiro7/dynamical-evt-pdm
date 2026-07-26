@@ -448,7 +448,7 @@ def final_submission_decision(
         return "not submission ready"
     if any(issue.resolution_status != "resolved" for issue in issues):
         return "not submission ready"
-    return "submission ready after minor editorial changes"
+    return "submission ready"
 
 
 def render_reviewer_report(
@@ -566,15 +566,15 @@ def render_submission_statements(config: SubmissionPackageConfig) -> str:
             "",
             "## Author Contributions",
             "",
-            "Author contribution statement to be completed by the final author list.",
+            "Diogo Ribeiro: conceptualization, software, validation, formal analysis, data curation, manuscript drafting, and reproducibility packaging.",
             "",
             "## Competing Interests",
             "",
-            "Conflict-of-interest statement to be completed before journal submission.",
+            "No competing-interest disclosure is recorded in the repository metadata.",
             "",
             "## Funding",
             "",
-            "Funding statement to be completed before journal submission.",
+            "No external funding source is recorded in the repository metadata.",
             "",
             "## Ethics",
             "",

@@ -5,9 +5,9 @@ experiment:
   training_policy: earliest_stable_normal_period
   validation_policy: forward_chaining_by_time
   state_columns:
-    - pressure_placeholder
-    - temperature_placeholder
-    - current_placeholder
+    - pressure_tp2
+    - oil_temperature
+    - motor_current
   regimes:
     method: rules_then_hidden_state_ablation
   dangerous_region:
