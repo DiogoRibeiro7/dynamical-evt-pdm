@@ -58,6 +58,7 @@ BIB_KEY_PATTERN = re.compile(r"@\w+\{([^,\s]+)")
 GRAPHICS_PATTERN = re.compile(r"\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}")
 INPUT_PATTERN = re.compile(r"\\input\{([^}]+)\}")
 CLAIM_PATTERN = re.compile(r"\bCLM-\d{3}\b")
+REAL_DATA_MATRIX_PREFIX = "../artifacts/real_data_matrix/"
 
 
 def check_paper_sources(
@@ -173,6 +174,11 @@ def _check_asset_references(
                     failures.append(f"missing generated asset reference: {raw_reference}")
                 if str(resolved) not in provenance_paths:
                     failures.append(f"generated reference lacks provenance: {raw_reference}")
+            elif raw_reference.startswith(REAL_DATA_MATRIX_PREFIX):
+                resolved = (paper_root / raw_reference).resolve()
+                references.add(str(resolved))
+                if not resolved.exists():
+                    failures.append(f"missing real-data matrix artifact reference: {raw_reference}")
     if not references:
         failures.append("no generated paper asset references found")
     return references

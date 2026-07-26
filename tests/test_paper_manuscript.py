@@ -50,6 +50,41 @@ def test_check_paper_sources_rejects_unknown_claim(tmp_path: Path) -> None:
     assert any("unknown claim" in failure for failure in report.failures)
 
 
+def test_check_paper_sources_audits_real_data_matrix_references(tmp_path: Path) -> None:
+    paper_root, asset_root = _write_minimal_paper_tree(tmp_path)
+    section = paper_root / "sections" / "05_datasets.tex"
+    section.write_text(
+        "\\input{../artifacts/real_data_matrix/evidence_scope.tex}\n",
+        encoding="utf-8",
+    )
+
+    missing_report = check_paper_sources(
+        paper_root=paper_root,
+        asset_root=asset_root,
+        require_pdfs=False,
+        write_reports=False,
+    )
+
+    assert not missing_report.ok
+    assert any(
+        "missing real-data matrix artifact reference" in item for item in missing_report.failures
+    )
+
+    matrix_table = tmp_path / "artifacts" / "real_data_matrix" / "evidence_scope.tex"
+    matrix_table.parent.mkdir(parents=True)
+    matrix_table.write_text("\\begin{tabular}{l}ok\\\\\\end{tabular}\n", encoding="utf-8")
+
+    present_report = check_paper_sources(
+        paper_root=paper_root,
+        asset_root=asset_root,
+        require_pdfs=False,
+        write_reports=False,
+    )
+
+    assert present_report.ok, present_report.failures
+    assert present_report.checked_asset_references == 3
+
+
 def _write_minimal_paper_tree(tmp_path: Path) -> tuple[Path, Path]:
     paper_root = tmp_path / "paper"
     asset_root = tmp_path / "reports" / "paper"
