@@ -416,20 +416,20 @@ def _claims_from_tables(config: ClaimLedgerConfig) -> tuple[Claim, ...]:
             claim_id="CLM-007",
             wording=(
                 "The current generated assets do not support a positive claim that the proposed "
-                "method is population-level superior on industrial predictive maintenance data."
+                "method is population-level superior beyond the five registered real datasets."
             ),
             claim_class="limitation",
             hypothesis_id="H-IND-001",
-            datasets="MetroPT; MetroPT2; SCANIA",
-            independent_units="not established by this asset bundle",
+            datasets="Hydraulic Systems; MetroPT; MetroPT2; SCANIA Component X; SECOM",
+            independent_units="failure episode or operating day; load cycle; vehicle; wafer",
             estimand="broad industrial performance beyond the evaluated evidence",
             experiment_ids=config.experiment_id,
             table_or_figure_reference="claim_ledger.json",
-            effect_estimate="not estimable from generated asset bundle",
+            effect_estimate="not estimable beyond the registered evidence matrix",
             uncertainty="not estimable",
-            sensitivity_status="blocked until complete industrial artifacts exist",
-            assumptions="requires complete real-data experiment matrix and baseline comparison",
-            counterevidence="generated assets are currently cache- and simulation-facing",
+            sensitivity_status="five-dataset evidence matrix generated; external generalization blocked",
+            assumptions="requires additional real datasets or prospective deployment for broader claims",
+            counterevidence="registered datasets use different estimands and include weak diagnostic rows",
             permitted_strength="negative/null finding only",
             manuscript_sections_allowed="Limitations",
             final_status="narrowly supported",
