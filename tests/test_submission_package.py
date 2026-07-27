@@ -2,34 +2,25 @@ import json
 from pathlib import Path
 
 from dyn_evt_pdm.paper.claims import sha256_file
-from dyn_evt_pdm.paper.submission import SubmissionPackageConfig, build_submission_package
+from dyn_evt_pdm.paper.submission import (
+    SubmissionPackageConfig,
+    _broad_simulation_artifact_ok,
+    build_submission_package,
+)
 
 
 def test_build_submission_package_writes_review_matrix_and_decision(tmp_path: Path) -> None:
     paper_root, asset_root = _write_package_fixture(tmp_path)
-    output_root = tmp_path / "submission"
-    protocol_path = tmp_path / "protocol.yaml"
-    lock_path = tmp_path / "poetry.lock"
-    license_path = tmp_path / "LICENSE"
-    readme_path = tmp_path / "README.md"
-    protocol_path.write_text("protocol_id: fixture\n", encoding="utf-8")
-    lock_path.write_text("# lock\n", encoding="utf-8")
-    license_path.write_text("BSD-3-Clause\n", encoding="utf-8")
-    readme_path.write_text("# fixture\n", encoding="utf-8")
-
-    manifest = build_submission_package(
-        SubmissionPackageConfig(
-            paper_root=paper_root,
-            asset_root=asset_root,
-            output_root=output_root,
-            real_data_matrix_root=tmp_path / "missing_real_matrix",
-            industrial_results_root=tmp_path / "missing_industrial_results",
-            protocol_path=protocol_path,
-            lock_path=lock_path,
-            license_path=license_path,
-            readme_path=readme_path,
-        )
+    config = _write_submission_config(
+        tmp_path,
+        paper_root,
+        asset_root,
+        real_data_matrix_root=tmp_path / "missing_real_matrix",
+        industrial_results_root=tmp_path / "missing_industrial_results",
     )
+    output_root = config.output_root
+
+    manifest = build_submission_package(config)
 
     assert manifest.decision == "not submission ready"
     assert manifest.unresolved_blockers
@@ -45,35 +36,24 @@ def test_build_submission_package_writes_review_matrix_and_decision(tmp_path: Pa
     assert not (output_root / "data").exists()
     payload = json.loads((output_root / "submission_manifest.json").read_text(encoding="utf-8"))
     assert payload["decision"] == manifest.decision
+    assert payload["files"] == list(manifest.files)
     assert any(item["path"] == "reviewer_report.md" for item in payload["files"])
+    assert not any(item["path"] == "submission_manifest.json" for item in payload["files"])
 
 
 def test_build_submission_package_copies_terminal_real_data_matrix(tmp_path: Path) -> None:
     paper_root, asset_root = _write_package_fixture(tmp_path)
     real_data_matrix_root = _write_terminal_real_data_matrix_fixture(tmp_path)
-    output_root = tmp_path / "submission"
-    protocol_path = tmp_path / "protocol.yaml"
-    lock_path = tmp_path / "poetry.lock"
-    license_path = tmp_path / "LICENSE"
-    readme_path = tmp_path / "README.md"
-    protocol_path.write_text("protocol_id: fixture\n", encoding="utf-8")
-    lock_path.write_text("# lock\n", encoding="utf-8")
-    license_path.write_text("BSD-3-Clause\n", encoding="utf-8")
-    readme_path.write_text("# fixture\n", encoding="utf-8")
-
-    manifest = build_submission_package(
-        SubmissionPackageConfig(
-            paper_root=paper_root,
-            asset_root=asset_root,
-            output_root=output_root,
-            real_data_matrix_root=real_data_matrix_root,
-            industrial_results_root=tmp_path / "missing_industrial_results",
-            protocol_path=protocol_path,
-            lock_path=lock_path,
-            license_path=license_path,
-            readme_path=readme_path,
-        )
+    config = _write_submission_config(
+        tmp_path,
+        paper_root,
+        asset_root,
+        real_data_matrix_root=real_data_matrix_root,
+        industrial_results_root=tmp_path / "missing_industrial_results",
     )
+    output_root = config.output_root
+
+    manifest = build_submission_package(config)
 
     assert manifest.decision == "not submission ready"
     assert "Full registered real-data matrix terminal statuses" not in " ".join(
@@ -92,6 +72,37 @@ def test_build_submission_package_with_complete_industrial_event_artifacts_is_re
     paper_root, asset_root = _write_package_fixture(tmp_path)
     real_data_matrix_root = _write_terminal_real_data_matrix_fixture(tmp_path)
     industrial_results_root = _write_industrial_results_fixture(tmp_path)
+    config = _write_submission_config(
+        tmp_path,
+        paper_root,
+        asset_root,
+        real_data_matrix_root=real_data_matrix_root,
+        industrial_results_root=industrial_results_root,
+    )
+    output_root = config.output_root
+
+    manifest = build_submission_package(config)
+
+    assert manifest.decision == "submission ready"
+    assert manifest.unresolved_blockers == ()
+    statements = (output_root / "submission_statements.md").read_text(encoding="utf-8")
+    assert "to be completed" not in statements
+    assert "Diogo Ribeiro" in statements
+    assert (
+        output_root / "artifacts" / "industrial_results" / "industrial_results_summary.csv"
+    ).exists()
+    assert (
+        output_root / "artifacts" / "industrial_results" / "event_baseline_comparison.csv"
+    ).exists()
+    assert (output_root / "artifacts" / "real_data_matrix" / "industrial_results.tex").exists()
+
+
+def test_build_submission_package_reports_paper_check_failures_as_blockers(
+    tmp_path: Path,
+) -> None:
+    paper_root, asset_root = _write_package_fixture(tmp_path)
+    real_data_matrix_root = _write_terminal_real_data_matrix_fixture(tmp_path)
+    industrial_results_root = _write_industrial_results_fixture(tmp_path)
     output_root = tmp_path / "submission"
     protocol_path = tmp_path / "protocol.yaml"
     lock_path = tmp_path / "poetry.lock"
@@ -101,6 +112,10 @@ def test_build_submission_package_with_complete_industrial_event_artifacts_is_re
     lock_path.write_text("# lock\n", encoding="utf-8")
     license_path.write_text("BSD-3-Clause\n", encoding="utf-8")
     readme_path.write_text("# fixture\n", encoding="utf-8")
+    (paper_root / "sections" / "01_introduction.tex").write_text(
+        "TODO unresolved source marker. See CLM-001 and \\cite{Known}.",
+        encoding="utf-8",
+    )
 
     manifest = build_submission_package(
         SubmissionPackageConfig(
@@ -116,18 +131,417 @@ def test_build_submission_package_with_complete_industrial_event_artifacts_is_re
         )
     )
 
-    assert manifest.decision == "submission ready"
-    assert manifest.unresolved_blockers == ()
-    statements = (output_root / "submission_statements.md").read_text(encoding="utf-8")
-    assert "to be completed" not in statements
-    assert "Diogo Ribeiro" in statements
-    assert (
-        output_root / "artifacts" / "industrial_results" / "industrial_results_summary.csv"
-    ).exists()
-    assert (
-        output_root / "artifacts" / "industrial_results" / "event_baseline_comparison.csv"
-    ).exists()
-    assert (output_root / "artifacts" / "real_data_matrix" / "industrial_results.tex").exists()
+    assert manifest.decision == "not submission ready"
+    assert manifest.paper_check_failures
+    assert any("paper check failed" in blocker for blocker in manifest.unresolved_blockers)
+    decision_text = (output_root / "final_decision.md").read_text(encoding="utf-8")
+    assert "placeholder marker" in decision_text
+
+
+def test_build_submission_package_requires_real_data_manifest_cell(tmp_path: Path) -> None:
+    paper_root, asset_root = _write_package_fixture(tmp_path)
+    real_data_matrix_root = _write_terminal_real_data_matrix_fixture(tmp_path)
+    industrial_results_root = _write_industrial_results_fixture(tmp_path)
+    output_root = tmp_path / "submission"
+    protocol_path = tmp_path / "protocol.yaml"
+    lock_path = tmp_path / "poetry.lock"
+    license_path = tmp_path / "LICENSE"
+    readme_path = tmp_path / "README.md"
+    protocol_path.write_text("protocol_id: fixture\n", encoding="utf-8")
+    lock_path.write_text("# lock\n", encoding="utf-8")
+    license_path.write_text("BSD-3-Clause\n", encoding="utf-8")
+    readme_path.write_text("# fixture\n", encoding="utf-8")
+    (real_data_matrix_root / "experiment_manifest.json").write_text(
+        json.dumps({"status": "succeeded", "cells": []}),
+        encoding="utf-8",
+    )
+
+    manifest = build_submission_package(
+        SubmissionPackageConfig(
+            paper_root=paper_root,
+            asset_root=asset_root,
+            output_root=output_root,
+            real_data_matrix_root=real_data_matrix_root,
+            industrial_results_root=industrial_results_root,
+            protocol_path=protocol_path,
+            lock_path=lock_path,
+            license_path=license_path,
+            readme_path=readme_path,
+        )
+    )
+
+    assert manifest.decision == "not submission ready"
+    assert any("no real-data cell" in blocker for blocker in manifest.unresolved_blockers)
+
+
+def test_build_submission_package_rejects_nonterminal_industrial_rows(
+    tmp_path: Path,
+) -> None:
+    paper_root, asset_root = _write_package_fixture(tmp_path)
+    real_data_matrix_root = _write_terminal_real_data_matrix_fixture(tmp_path)
+    industrial_results_root = _write_industrial_results_fixture(tmp_path)
+    output_root = tmp_path / "submission"
+    protocol_path = tmp_path / "protocol.yaml"
+    lock_path = tmp_path / "poetry.lock"
+    license_path = tmp_path / "LICENSE"
+    readme_path = tmp_path / "README.md"
+    protocol_path.write_text("protocol_id: fixture\n", encoding="utf-8")
+    lock_path.write_text("# lock\n", encoding="utf-8")
+    license_path.write_text("BSD-3-Clause\n", encoding="utf-8")
+    readme_path.write_text("# fixture\n", encoding="utf-8")
+    (industrial_results_root / "industrial_results_summary.csv").write_text(
+        "\n".join(
+            [
+                "dataset_id,status,estimand",
+                "hydraulic_systems,succeeded,cycle-level hydraulic component degradation",
+                "metropt,running,event-level early warning",
+                "metropt2,succeeded,event-level early warning",
+                "scania_component_x,succeeded,vehicle-level repair risk",
+                "secom,succeeded,wafer-level semiconductor yield-failure detection",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = build_submission_package(
+        SubmissionPackageConfig(
+            paper_root=paper_root,
+            asset_root=asset_root,
+            output_root=output_root,
+            real_data_matrix_root=real_data_matrix_root,
+            industrial_results_root=industrial_results_root,
+            protocol_path=protocol_path,
+            lock_path=lock_path,
+            license_path=license_path,
+            readme_path=readme_path,
+        )
+    )
+
+    assert manifest.decision == "not submission ready"
+    assert any("not terminal" in blocker for blocker in manifest.unresolved_blockers)
+
+
+def test_build_submission_package_rejects_empty_event_artifact_without_crashing(
+    tmp_path: Path,
+) -> None:
+    paper_root, asset_root = _write_package_fixture(tmp_path)
+    real_data_matrix_root = _write_terminal_real_data_matrix_fixture(tmp_path)
+    industrial_results_root = _write_industrial_results_fixture(tmp_path)
+    output_root = tmp_path / "submission"
+    protocol_path = tmp_path / "protocol.yaml"
+    lock_path = tmp_path / "poetry.lock"
+    license_path = tmp_path / "LICENSE"
+    readme_path = tmp_path / "README.md"
+    protocol_path.write_text("protocol_id: fixture\n", encoding="utf-8")
+    lock_path.write_text("# lock\n", encoding="utf-8")
+    license_path.write_text("BSD-3-Clause\n", encoding="utf-8")
+    readme_path.write_text("# fixture\n", encoding="utf-8")
+    (industrial_results_root / "event_baseline_comparison.csv").write_text("", encoding="utf-8")
+
+    manifest = build_submission_package(
+        SubmissionPackageConfig(
+            paper_root=paper_root,
+            asset_root=asset_root,
+            output_root=output_root,
+            real_data_matrix_root=real_data_matrix_root,
+            industrial_results_root=industrial_results_root,
+            protocol_path=protocol_path,
+            lock_path=lock_path,
+            license_path=license_path,
+            readme_path=readme_path,
+        )
+    )
+
+    assert manifest.decision == "not submission ready"
+    assert any(
+        "event-level baseline comparison" in blocker for blocker in manifest.unresolved_blockers
+    )
+
+
+def test_build_submission_package_reports_unreadable_real_data_manifest(
+    tmp_path: Path,
+) -> None:
+    paper_root, asset_root = _write_package_fixture(tmp_path)
+    real_data_matrix_root = _write_terminal_real_data_matrix_fixture(tmp_path)
+    industrial_results_root = _write_industrial_results_fixture(tmp_path)
+    output_root = tmp_path / "submission"
+    protocol_path = tmp_path / "protocol.yaml"
+    lock_path = tmp_path / "poetry.lock"
+    license_path = tmp_path / "LICENSE"
+    readme_path = tmp_path / "README.md"
+    protocol_path.write_text("protocol_id: fixture\n", encoding="utf-8")
+    lock_path.write_text("# lock\n", encoding="utf-8")
+    license_path.write_text("BSD-3-Clause\n", encoding="utf-8")
+    readme_path.write_text("# fixture\n", encoding="utf-8")
+    (real_data_matrix_root / "experiment_manifest.json").write_text("{", encoding="utf-8")
+
+    manifest = build_submission_package(
+        SubmissionPackageConfig(
+            paper_root=paper_root,
+            asset_root=asset_root,
+            output_root=output_root,
+            real_data_matrix_root=real_data_matrix_root,
+            industrial_results_root=industrial_results_root,
+            protocol_path=protocol_path,
+            lock_path=lock_path,
+            license_path=license_path,
+            readme_path=readme_path,
+        )
+    )
+
+    assert manifest.decision == "not submission ready"
+    assert any("manifest is unreadable" in blocker for blocker in manifest.unresolved_blockers)
+
+
+def test_build_submission_package_rejects_nonobject_real_data_manifest(
+    tmp_path: Path,
+) -> None:
+    paper_root, asset_root = _write_package_fixture(tmp_path)
+    real_data_matrix_root = _write_terminal_real_data_matrix_fixture(tmp_path)
+    industrial_results_root = _write_industrial_results_fixture(tmp_path)
+    output_root = tmp_path / "submission"
+    protocol_path = tmp_path / "protocol.yaml"
+    lock_path = tmp_path / "poetry.lock"
+    license_path = tmp_path / "LICENSE"
+    readme_path = tmp_path / "README.md"
+    protocol_path.write_text("protocol_id: fixture\n", encoding="utf-8")
+    lock_path.write_text("# lock\n", encoding="utf-8")
+    license_path.write_text("BSD-3-Clause\n", encoding="utf-8")
+    readme_path.write_text("# fixture\n", encoding="utf-8")
+    (real_data_matrix_root / "experiment_manifest.json").write_text("[]", encoding="utf-8")
+
+    manifest = build_submission_package(
+        SubmissionPackageConfig(
+            paper_root=paper_root,
+            asset_root=asset_root,
+            output_root=output_root,
+            real_data_matrix_root=real_data_matrix_root,
+            industrial_results_root=industrial_results_root,
+            protocol_path=protocol_path,
+            lock_path=lock_path,
+            license_path=license_path,
+            readme_path=readme_path,
+        )
+    )
+
+    assert manifest.decision == "not submission ready"
+    assert any(
+        "manifest root is not an object" in blocker for blocker in manifest.unresolved_blockers
+    )
+
+
+def test_build_submission_package_reports_unreadable_real_data_report(
+    tmp_path: Path,
+) -> None:
+    paper_root, asset_root = _write_package_fixture(tmp_path)
+    real_data_matrix_root = _write_terminal_real_data_matrix_fixture(tmp_path)
+    industrial_results_root = _write_industrial_results_fixture(tmp_path)
+    output_root = tmp_path / "submission"
+    protocol_path = tmp_path / "protocol.yaml"
+    lock_path = tmp_path / "poetry.lock"
+    license_path = tmp_path / "LICENSE"
+    readme_path = tmp_path / "README.md"
+    protocol_path.write_text("protocol_id: fixture\n", encoding="utf-8")
+    lock_path.write_text("# lock\n", encoding="utf-8")
+    license_path.write_text("BSD-3-Clause\n", encoding="utf-8")
+    readme_path.write_text("# fixture\n", encoding="utf-8")
+    (real_data_matrix_root / "real_data_report.json").write_text("{", encoding="utf-8")
+
+    manifest = build_submission_package(
+        SubmissionPackageConfig(
+            paper_root=paper_root,
+            asset_root=asset_root,
+            output_root=output_root,
+            real_data_matrix_root=real_data_matrix_root,
+            industrial_results_root=industrial_results_root,
+            protocol_path=protocol_path,
+            lock_path=lock_path,
+            license_path=license_path,
+            readme_path=readme_path,
+        )
+    )
+
+    assert manifest.decision == "not submission ready"
+    assert any(
+        "real-data report is unreadable" in blocker for blocker in manifest.unresolved_blockers
+    )
+
+
+def test_build_submission_package_rejects_nonobject_evidence_scope(
+    tmp_path: Path,
+) -> None:
+    paper_root, asset_root = _write_package_fixture(tmp_path)
+    real_data_matrix_root = _write_terminal_real_data_matrix_fixture(tmp_path)
+    industrial_results_root = _write_industrial_results_fixture(tmp_path)
+    output_root = tmp_path / "submission"
+    protocol_path = tmp_path / "protocol.yaml"
+    lock_path = tmp_path / "poetry.lock"
+    license_path = tmp_path / "LICENSE"
+    readme_path = tmp_path / "README.md"
+    protocol_path.write_text("protocol_id: fixture\n", encoding="utf-8")
+    lock_path.write_text("# lock\n", encoding="utf-8")
+    license_path.write_text("BSD-3-Clause\n", encoding="utf-8")
+    readme_path.write_text("# fixture\n", encoding="utf-8")
+    (real_data_matrix_root / "evidence_scope.json").write_text("[]", encoding="utf-8")
+
+    manifest = build_submission_package(
+        SubmissionPackageConfig(
+            paper_root=paper_root,
+            asset_root=asset_root,
+            output_root=output_root,
+            real_data_matrix_root=real_data_matrix_root,
+            industrial_results_root=industrial_results_root,
+            protocol_path=protocol_path,
+            lock_path=lock_path,
+            license_path=license_path,
+            readme_path=readme_path,
+        )
+    )
+
+    assert manifest.decision == "not submission ready"
+    assert any(
+        "evidence-scope report root is not an object" in blocker
+        for blocker in manifest.unresolved_blockers
+    )
+
+
+def test_build_submission_package_reports_unreadable_industrial_summary(
+    tmp_path: Path,
+) -> None:
+    paper_root, asset_root = _write_package_fixture(tmp_path)
+    real_data_matrix_root = _write_terminal_real_data_matrix_fixture(tmp_path)
+    industrial_results_root = _write_industrial_results_fixture(tmp_path)
+    output_root = tmp_path / "submission"
+    protocol_path = tmp_path / "protocol.yaml"
+    lock_path = tmp_path / "poetry.lock"
+    license_path = tmp_path / "LICENSE"
+    readme_path = tmp_path / "README.md"
+    protocol_path.write_text("protocol_id: fixture\n", encoding="utf-8")
+    lock_path.write_text("# lock\n", encoding="utf-8")
+    license_path.write_text("BSD-3-Clause\n", encoding="utf-8")
+    readme_path.write_text("# fixture\n", encoding="utf-8")
+    (industrial_results_root / "industrial_results_summary.csv").write_text(
+        '"unterminated',
+        encoding="utf-8",
+    )
+
+    manifest = build_submission_package(
+        SubmissionPackageConfig(
+            paper_root=paper_root,
+            asset_root=asset_root,
+            output_root=output_root,
+            real_data_matrix_root=real_data_matrix_root,
+            industrial_results_root=industrial_results_root,
+            protocol_path=protocol_path,
+            lock_path=lock_path,
+            license_path=license_path,
+            readme_path=readme_path,
+        )
+    )
+
+    assert manifest.decision == "not submission ready"
+    assert any("summary is unreadable" in blocker for blocker in manifest.unresolved_blockers)
+
+
+def test_build_submission_package_reports_unreadable_industrial_details(
+    tmp_path: Path,
+) -> None:
+    paper_root, asset_root = _write_package_fixture(tmp_path)
+    real_data_matrix_root = _write_terminal_real_data_matrix_fixture(tmp_path)
+    industrial_results_root = _write_industrial_results_fixture(tmp_path)
+    output_root = tmp_path / "submission"
+    protocol_path = tmp_path / "protocol.yaml"
+    lock_path = tmp_path / "poetry.lock"
+    license_path = tmp_path / "LICENSE"
+    readme_path = tmp_path / "README.md"
+    protocol_path.write_text("protocol_id: fixture\n", encoding="utf-8")
+    lock_path.write_text("# lock\n", encoding="utf-8")
+    license_path.write_text("BSD-3-Clause\n", encoding="utf-8")
+    readme_path.write_text("# fixture\n", encoding="utf-8")
+    (industrial_results_root / "industrial_results.json").write_text("{", encoding="utf-8")
+
+    manifest = build_submission_package(
+        SubmissionPackageConfig(
+            paper_root=paper_root,
+            asset_root=asset_root,
+            output_root=output_root,
+            real_data_matrix_root=real_data_matrix_root,
+            industrial_results_root=industrial_results_root,
+            protocol_path=protocol_path,
+            lock_path=lock_path,
+            license_path=license_path,
+            readme_path=readme_path,
+        )
+    )
+
+    assert manifest.decision == "not submission ready"
+    assert any("details are unreadable" in blocker for blocker in manifest.unresolved_blockers)
+
+
+def test_build_submission_package_rejects_nonobject_industrial_details(
+    tmp_path: Path,
+) -> None:
+    paper_root, asset_root = _write_package_fixture(tmp_path)
+    real_data_matrix_root = _write_terminal_real_data_matrix_fixture(tmp_path)
+    industrial_results_root = _write_industrial_results_fixture(tmp_path)
+    output_root = tmp_path / "submission"
+    protocol_path = tmp_path / "protocol.yaml"
+    lock_path = tmp_path / "poetry.lock"
+    license_path = tmp_path / "LICENSE"
+    readme_path = tmp_path / "README.md"
+    protocol_path.write_text("protocol_id: fixture\n", encoding="utf-8")
+    lock_path.write_text("# lock\n", encoding="utf-8")
+    license_path.write_text("BSD-3-Clause\n", encoding="utf-8")
+    readme_path.write_text("# fixture\n", encoding="utf-8")
+    (industrial_results_root / "industrial_results.json").write_text("[]", encoding="utf-8")
+
+    manifest = build_submission_package(
+        SubmissionPackageConfig(
+            paper_root=paper_root,
+            asset_root=asset_root,
+            output_root=output_root,
+            real_data_matrix_root=real_data_matrix_root,
+            industrial_results_root=industrial_results_root,
+            protocol_path=protocol_path,
+            lock_path=lock_path,
+            license_path=license_path,
+            readme_path=readme_path,
+        )
+    )
+
+    assert manifest.decision == "not submission ready"
+    assert any(
+        "details root is not an object" in blocker for blocker in manifest.unresolved_blockers
+    )
+
+
+def test_broad_simulation_artifact_rejects_malformed_counts(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "simulation_study_broad.parquet.manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "rows": "many",
+                "config": {
+                    "systems": ["a"] * 8,
+                    "sample_sizes": [1, 2],
+                    "threshold_quantiles": [0.95, 0.98, 0.99],
+                    "run_lengths": [0, 5, 10],
+                    "repetitions": "ten",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert not _broad_simulation_artifact_ok(manifest_path)
+
+
+def test_broad_simulation_artifact_rejects_nonobject_manifest(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "simulation_study_broad.parquet.manifest.json"
+    manifest_path.write_text("[]", encoding="utf-8")
+
+    assert not _broad_simulation_artifact_ok(manifest_path)
 
 
 def _write_package_fixture(tmp_path: Path) -> tuple[Path, Path]:

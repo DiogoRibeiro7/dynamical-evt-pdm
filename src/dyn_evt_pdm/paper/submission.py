@@ -16,7 +16,6 @@ from dyn_evt_pdm.paper.manuscript import check_paper_sources
 
 SubmissionDecision = Literal[
     "submission ready",
-    "submission ready after minor editorial changes",
     "not submission ready",
 ]
 REQUIRED_REAL_DATASETS = frozenset(
@@ -57,7 +56,7 @@ class SubmissionPackageConfig:
 
 @dataclass(frozen=True, slots=True)
 class SubmissionPackageManifest:
-    """Manifest for the assembled submission package."""
+    """Manifest for assembled package payload files, excluding the manifest itself."""
 
     output_root: str
     created_at: float
@@ -79,11 +78,7 @@ def build_submission_package(config: SubmissionPackageConfig) -> SubmissionPacka
     industrial_results_audit = audit_industrial_results(config.industrial_results_root)
     issues = adversarial_review_issues(real_data_audit, industrial_results_audit)
     decision = final_submission_decision(issues, paper_check.failures)
-    blockers = tuple(
-        issue.residual_limitation
-        for issue in issues
-        if issue.resolution_status != "resolved" and issue.residual_limitation
-    )
+    blockers = _submission_blockers(issues, paper_check.failures)
 
     output_root = config.output_root
     _ensure_clean_package_tree(output_root)
@@ -126,14 +121,7 @@ def build_submission_package(config: SubmissionPackageConfig) -> SubmissionPacka
         paper_check_failures=paper_check.failures,
     )
     manifest_path.write_text(json.dumps(asdict(manifest), indent=2), encoding="utf-8")
-    return SubmissionPackageManifest(
-        output_root=manifest.output_root,
-        created_at=manifest.created_at,
-        decision=manifest.decision,
-        files=tuple([*manifest.files, _file_record(manifest_path, output_root)]),
-        unresolved_blockers=manifest.unresolved_blockers,
-        paper_check_failures=manifest.paper_check_failures,
-    )
+    return manifest
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +163,8 @@ def audit_real_data_matrix(root: Path) -> RealDataMatrixAudit:
 
     manifest_path = root / "experiment_manifest.json"
     status_path = root / "real_data_status.csv"
+    report_path = root / "real_data_report.json"
+    evidence_scope_path = root / "evidence_scope.json"
     if not manifest_path.exists():
         return RealDataMatrixAudit(
             status="missing",
@@ -195,7 +185,43 @@ def audit_real_data_matrix(root: Path) -> RealDataMatrixAudit:
             missing_datasets=tuple(sorted(REQUIRED_REAL_DATASETS)),
             reason=f"missing real-data status table: {status_path}",
         )
-    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    for path, label in (
+        (report_path, "real-data report"),
+        (evidence_scope_path, "evidence-scope report"),
+    ):
+        artifact_error = _json_object_artifact_error(path, label)
+        if artifact_error:
+            return RealDataMatrixAudit(
+                status="failed",
+                manifest_path=manifest_path,
+                status_path=status_path,
+                verified_datasets=(),
+                failed_datasets=(),
+                missing_datasets=tuple(sorted(REQUIRED_REAL_DATASETS)),
+                reason=artifact_error,
+            )
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return RealDataMatrixAudit(
+            status="failed",
+            manifest_path=manifest_path,
+            status_path=status_path,
+            verified_datasets=(),
+            failed_datasets=(),
+            missing_datasets=tuple(sorted(REQUIRED_REAL_DATASETS)),
+            reason=f"real-data matrix manifest is unreadable: {exc}",
+        )
+    if not isinstance(payload, dict):
+        return RealDataMatrixAudit(
+            status="failed",
+            manifest_path=manifest_path,
+            status_path=status_path,
+            verified_datasets=(),
+            failed_datasets=(),
+            missing_datasets=tuple(sorted(REQUIRED_REAL_DATASETS)),
+            reason="real-data matrix manifest root is not an object",
+        )
     manifest_status = str(payload.get("status", "missing")).lower()
     cells = payload.get("cells", [])
     real_data_cells = [
@@ -209,7 +235,18 @@ def audit_real_data_matrix(root: Path) -> RealDataMatrixAudit:
         for cell in real_data_cells
         if str(cell.get("status", "")).lower() not in terminal_statuses
     ]
-    table = pd.read_csv(status_path)
+    try:
+        table = pd.read_csv(status_path)
+    except (OSError, pd.errors.EmptyDataError, pd.errors.ParserError) as exc:
+        return RealDataMatrixAudit(
+            status="failed",
+            manifest_path=manifest_path,
+            status_path=status_path,
+            verified_datasets=(),
+            failed_datasets=(),
+            missing_datasets=tuple(sorted(REQUIRED_REAL_DATASETS)),
+            reason=f"real-data status table is unreadable: {exc}",
+        )
     required_columns = {"dataset_id", "status"}
     if not required_columns.issubset(table.columns):
         return RealDataMatrixAudit(
@@ -246,7 +283,11 @@ def audit_real_data_matrix(root: Path) -> RealDataMatrixAudit:
         reason = f"verified datasets: {', '.join(verified)}"
     status = (
         "succeeded"
-        if manifest_status == "succeeded" and not nonterminal and not failed and not missing
+        if manifest_status == "succeeded"
+        and real_data_cells
+        and not nonterminal
+        and not failed
+        and not missing
         else "failed"
     )
     return RealDataMatrixAudit(
@@ -285,7 +326,29 @@ def audit_industrial_results(root: Path) -> IndustrialResultsAudit:
             missing_datasets=tuple(sorted(REQUIRED_REAL_DATASETS)),
             reason=f"missing industrial result details: {details_path}",
         )
-    table = pd.read_csv(summary_path)
+    artifact_error = _json_object_artifact_error(details_path, "industrial result details")
+    if artifact_error:
+        return IndustrialResultsAudit(
+            status="failed",
+            summary_path=summary_path,
+            details_path=details_path,
+            datasets=(),
+            failed_datasets=(),
+            missing_datasets=tuple(sorted(REQUIRED_REAL_DATASETS)),
+            reason=artifact_error,
+        )
+    try:
+        table = pd.read_csv(summary_path)
+    except (OSError, pd.errors.EmptyDataError, pd.errors.ParserError) as exc:
+        return IndustrialResultsAudit(
+            status="failed",
+            summary_path=summary_path,
+            details_path=details_path,
+            datasets=(),
+            failed_datasets=(),
+            missing_datasets=tuple(sorted(REQUIRED_REAL_DATASETS)),
+            reason=f"industrial result summary is unreadable: {exc}",
+        )
     required_columns = {"dataset_id", "status"}
     if not required_columns.issubset(table.columns):
         return IndustrialResultsAudit(
@@ -298,19 +361,27 @@ def audit_industrial_results(root: Path) -> IndustrialResultsAudit:
             reason="industrial result summary is missing dataset_id or status",
         )
     datasets = tuple(str(value) for value in table["dataset_id"].dropna())
+    terminal_statuses = {"succeeded", "not_estimable", "failed"}
+    nonterminal = tuple(
+        str(row.dataset_id)
+        for row in table.itertuples(index=False)
+        if str(row.status).lower() not in terminal_statuses
+    )
     failed = tuple(
         str(row.dataset_id)
         for row in table.itertuples(index=False)
         if str(row.status).lower() == "failed"
     )
     missing = tuple(sorted(REQUIRED_REAL_DATASETS.difference(datasets)))
-    if failed:
+    if nonterminal:
+        reason = f"industrial result rows are not terminal: {', '.join(nonterminal)}"
+    elif failed:
         reason = f"industrial result rows failed: {', '.join(failed)}"
     elif missing:
         reason = f"required industrial result rows are missing: {', '.join(missing)}"
     else:
         reason = f"industrial result artifacts cover: {', '.join(datasets)}"
-    status = "succeeded" if not failed and not missing else "failed"
+    status = "succeeded" if not nonterminal and not failed and not missing else "failed"
     return IndustrialResultsAudit(
         status=status,
         summary_path=summary_path,
@@ -327,7 +398,7 @@ def _csv_has_rows(path: Path) -> bool:
         return False
     try:
         table = pd.read_csv(path)
-    except (OSError, pd.errors.ParserError):
+    except (OSError, pd.errors.EmptyDataError, pd.errors.ParserError):
         return False
     return not table.empty
 
@@ -339,6 +410,8 @@ def _broad_simulation_artifact_ok(manifest_path: Path) -> bool:
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return False
+    if not isinstance(payload, dict):
+        return False
     config = payload.get("config", {})
     if not isinstance(config, dict):
         return False
@@ -346,8 +419,11 @@ def _broad_simulation_artifact_ok(manifest_path: Path) -> bool:
     sample_sizes = config.get("sample_sizes", [])
     thresholds = config.get("threshold_quantiles", [])
     run_lengths = config.get("run_lengths", [])
-    repetitions = int(config.get("repetitions", 0))
-    rows = int(payload.get("rows", 0))
+    try:
+        repetitions = int(config.get("repetitions", 0))
+        rows = int(payload.get("rows", 0))
+    except (TypeError, ValueError):
+        return False
     return (
         isinstance(systems, list)
         and isinstance(sample_sizes, list)
@@ -360,6 +436,19 @@ def _broad_simulation_artifact_ok(manifest_path: Path) -> bool:
         and repetitions >= 10
         and rows >= 2500
     )
+
+
+def _json_object_artifact_error(path: Path, label: str) -> str:
+    if not path.exists():
+        return f"missing {label}: {path}"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        verb = "are" if label.endswith("details") else "is"
+        return f"{label} {verb} unreadable: {exc}"
+    if not isinstance(payload, dict):
+        return f"{label} root is not an object"
+    return ""
 
 
 def adversarial_review_issues(
@@ -570,6 +659,19 @@ def final_submission_decision(
     if any(issue.resolution_status != "resolved" for issue in issues):
         return "not submission ready"
     return "submission ready"
+
+
+def _submission_blockers(
+    issues: tuple[ReviewIssue, ...],
+    paper_check_failures: tuple[str, ...],
+) -> tuple[str, ...]:
+    issue_blockers = tuple(
+        issue.residual_limitation
+        for issue in issues
+        if issue.resolution_status != "resolved" and issue.residual_limitation
+    )
+    paper_blockers = tuple(f"paper check failed: {failure}" for failure in paper_check_failures)
+    return (*issue_blockers, *paper_blockers)
 
 
 def render_reviewer_report(
