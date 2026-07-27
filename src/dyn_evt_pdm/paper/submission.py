@@ -881,6 +881,10 @@ def _copy_required_deliverables(config: SubmissionPackageConfig, output_root: Pa
         ),
         (config.paper_root / "references.bib", output_root / "sources" / "references.bib"),
         (config.paper_root / "main.tex", output_root / "sources" / "main.tex"),
+        (
+            config.paper_root / "pdf_reproducibility.tex",
+            output_root / "sources" / "pdf_reproducibility.tex",
+        ),
         (config.paper_root / "latexmkrc", output_root / "sources" / "latexmkrc"),
         (config.paper_root / "Makefile", output_root / "sources" / "Makefile"),
         (config.protocol_path, output_root / "artifacts" / "evaluation_protocol.yaml"),

@@ -68,21 +68,21 @@ Table~\ref{tab:event-baseline-comparison} reports real held-out event-level base
 \input{../reports/paper/latex/event_baseline_comparison.tex}
 \input{../reports/paper/latex/event_variant_comparison.tex}
 
-Table~\ref{tab:metric-provenance} resolves the apparent conflict between synthetic validation scores and weak operational event metrics. The smoke-runner scores come from a synthetic validation split and are pointwise checks. The MetroPT and MetroPT2 values are held-out event-level alarm metrics. They are different quantities and cannot be compared as if they were the same result.
+Table~\ref{tab:metric-provenance} records the source artifact, split, metric class, value, and independent unit for the real event-level alarm metrics used in this section. The MetroPT and MetroPT2 values are held-out event-level alarm metrics, not timestamp-level classification scores. This provenance prevents event precision, false-alarm burden, and pointwise validation checks from being compared as if they were the same result.
 
 \input{../reports/paper/latex/metric_provenance.tex}
 \input{../reports/paper/latex/method_scope_completion.tex}
 
-Figure~\ref{fig:metric-collapse} visualizes the same distinction: pointwise smoke \(F_1\) can be high while event-level precision remains operationally poor after alarm conversion.
+Figure~\ref{fig:metric-collapse} visualizes the operational scale of the real event-level metrics: event precision is near zero while false-alarm burden remains large after alarm conversion.
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.76\linewidth]{../reports/paper/figures/metric_collapse_decomposition.png}
-  \caption{Metric provenance diagnostic separating synthetic pointwise validation from real event-level alarm precision.}
+  \caption{Real event-level metric diagnostic showing near-zero event precision and large false-alarm burden after alarm conversion.}
   \label{fig:metric-collapse}
 \end{figure}
 
-The synthetic baseline-family table remains in the supplement as a runner audit. The empirical comparison in Table~\ref{tab:event-baseline-comparison} is the event-level evidence. The event timeline in Figure~\ref{fig:timeline} is now generated from the MetroPT held-out test failure; Table~\ref{tab:timeline-traceability} records the figure source.
+Synthetic baseline-family outputs remain in the supplement as runner audits. The empirical comparison in Table~\ref{tab:event-baseline-comparison} is the event-level evidence. The event timeline in Figure~\ref{fig:timeline} is now generated from the MetroPT held-out test failure; Table~\ref{tab:timeline-traceability} records the figure source.
 
 \begin{figure}[t]
   \centering

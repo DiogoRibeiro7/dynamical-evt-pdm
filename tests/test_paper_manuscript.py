@@ -91,6 +91,25 @@ def test_check_paper_sources_rejects_generated_frontier_caption(tmp_path: Path) 
     assert any("zero-recall frontier framing" in failure for failure in report.failures)
 
 
+def test_check_paper_sources_rejects_main_text_smoke_audit_language(tmp_path: Path) -> None:
+    paper_root, asset_root = _write_minimal_paper_tree(tmp_path)
+    generated_table = asset_root / "latex" / "table.tex"
+    generated_table.write_text(
+        "\\begin{table}\\caption{Pointwise smoke metric provenance.}\\end{table}\n",
+        encoding="utf-8",
+    )
+
+    report = check_paper_sources(
+        paper_root=paper_root,
+        asset_root=asset_root,
+        require_pdfs=False,
+        write_reports=False,
+    )
+
+    assert not report.ok
+    assert any("synthetic smoke audit" in failure for failure in report.failures)
+
+
 def test_check_paper_sources_audits_real_data_matrix_references(tmp_path: Path) -> None:
     paper_root, asset_root = _write_minimal_paper_tree(tmp_path)
     section = paper_root / "sections" / "05_datasets.tex"
@@ -182,6 +201,9 @@ def _write_minimal_paper_tree(tmp_path: Path) -> tuple[Path, Path]:
         "\\input{sections/01_introduction}"
         "\\bibliography{references}\\end{document}\n",
         encoding="utf-8",
+    )
+    (paper_root / "pdf_reproducibility.tex").write_text(
+        "% deterministic PDF settings\n", encoding="utf-8"
     )
     (paper_root / "sections" / "01_introduction.tex").write_text(
         "See \\cite{Known}. "

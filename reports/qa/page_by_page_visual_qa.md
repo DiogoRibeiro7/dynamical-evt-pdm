@@ -19,12 +19,11 @@ The current PDF compiles cleanly, the main manuscript is internally consistent, 
 | 9 | Root-cause table and real comparison setup | Evidence status and competing explanations visible | No action |
 | 10 | Real event-level comparison table | Baselines and variants use the same held-out alarm policy | Added real comparison artifact |
 | 11 | Variant and negative-control table | Target-region variants and negative controls are traceable | Added variant artifact |
-| 12 | Metric provenance and method-scope tables | Broader requested analyses show completed artifact status | Updated method-scope table |
-| 13 | Score-stratification figures | Figures use score/rank semantics; no calibration diagonal | No action |
-| 14 | Metric-collapse and real timeline figures | Real MetroPT held-out timeline is visible and traceable | Replaced representative timeline |
-| 15 | Discussion and conclusion | Claims remain tied to current evidence | No action |
-| 16 | Availability and references start | Repository cited by URL; no invented DOI | No action |
-| 17 | References continuation | Bibliography continuous; no floats after References | No action |
+| 12 | Score-stratification figures and metric-provenance table | Figures use score/rank semantics; metric provenance is real event-level | Removed synthetic smoke comparison from main text |
+| 13 | Metric-collapse figure and method-scope table | Real event precision and false-alarm burden are visible; broader requested analyses show completed artifact status | Updated metric-collapse framing |
+| 14 | Real timeline figure | Real MetroPT held-out timeline is visible and traceable | Replaced representative timeline |
+| 15 | Discussion, conclusion, and availability | Claims remain tied to current evidence; repository cited by URL with no invented DOI | No action |
+| 16 | References | Bibliography continuous; no floats after References | No action |
 
 ## Automated Checks
 

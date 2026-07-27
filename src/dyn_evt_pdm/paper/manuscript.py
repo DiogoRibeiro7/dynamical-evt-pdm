@@ -34,6 +34,7 @@ class PaperCheckReport:
 
 REQUIRED_SOURCE_FILES = (
     "main.tex",
+    "pdf_reproducibility.tex",
     "sections/01_introduction.tex",
     "sections/02_related_work.tex",
     "sections/03_method.tex",
@@ -117,6 +118,10 @@ UNSUPPORTED_CLAIM_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         "unsupported literature assumption",
+    ),
+    (
+        re.compile(r"\b(?:pointwise smoke|smoke-runner|smoke runner)\b", re.IGNORECASE),
+        "synthetic smoke audit in main manuscript",
     ),
 )
 

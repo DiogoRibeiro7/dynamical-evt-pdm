@@ -492,6 +492,9 @@ def _write_package_fixture(tmp_path: Path) -> tuple[Path, Path]:
         "\\bibliography{references}\\end{document}\n",
         encoding="utf-8",
     )
+    (paper_root / "pdf_reproducibility.tex").write_text(
+        "% deterministic PDF settings\n", encoding="utf-8"
+    )
     (paper_root / "sections" / "01_introduction.tex").write_text(
         "See CLM-001 and \\cite{Known}. "
         "\\includegraphics{../reports/paper/figures/figure.png}"

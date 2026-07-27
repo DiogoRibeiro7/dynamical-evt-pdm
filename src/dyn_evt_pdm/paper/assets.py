@@ -1129,23 +1129,6 @@ def _metric_provenance_assets(
                         "Comparable to baseline F1": "no",
                     }
                 )
-    baseline_path = config.real_data_matrix_root / "baseline_metadata.json"
-    if baseline_path.exists():
-        baseline = pd.DataFrame(json.loads(baseline_path.read_text(encoding="utf-8")))
-        if not baseline.empty and "validation_score" in baseline:
-            best = baseline.sort_values("validation_score", ascending=False).iloc[0]
-            rows.append(
-                {
-                    "Source artifact": "baseline_metadata.json",
-                    "Dataset": "synthetic cyclic",
-                    "Split": "validation",
-                    "Metric class": "pointwise smoke",
-                    "Metric": f"best validation F1 ({_baseline_label(best['model'])})",
-                    "Value": _format_metric(best["validation_score"]),
-                    "Independent unit": "timestamp label",
-                    "Comparable to baseline F1": "yes",
-                }
-            )
     if not rows:
         return []
     frame = pd.DataFrame(rows)
@@ -1161,29 +1144,28 @@ def _metric_provenance_assets(
             "Value": frame["Value"],
             "Unit": frame["Independent unit"],
             "Use": frame["Comparable to baseline F1"].map(
-                {"yes": "same metric family", "no": "separate metric"}
+                {"yes": "same metric family", "no": "real event-level metric"}
             ),
         }
     )
     _write_latex_table(
         latex_frame,
         tex_path,
-        caption="Metric provenance separating pointwise smoke scores from event-level alarm metrics.",
+        caption="Metric provenance for real held-out event-level alarm metrics.",
         label="tab:metric-provenance",
     )
 
-    plot_frame = frame[frame["Metric"].isin(["event precision"])].copy()
-    baseline_rows = frame[frame["Metric class"] == "pointwise smoke"]
-    if not baseline_rows.empty:
-        plot_frame = pd.concat([plot_frame, baseline_rows.tail(1)], ignore_index=True)
+    plot_frame = frame[frame["Metric"].isin(["event precision", "false alarms per day"])].copy()
     figure, axis = plt.subplots(figsize=(6.0, 3.6))
     labels = plot_frame["Dataset"].astype(str) + "\n" + plot_frame["Metric"].astype(str)
     values = pd.to_numeric(plot_frame["Value"], errors="coerce").fillna(0.0)
-    axis.bar(np.arange(len(values)), values, color=["#4C78A8", "#59A14F", "#E15759"][: len(values)])
+    colors = ["#4C78A8", "#E15759", "#4C78A8", "#E15759"][: len(values)]
+    axis.bar(np.arange(len(values)), values, color=colors)
     axis.set_xticks(np.arange(len(values)))
     axis.set_xticklabels(labels, rotation=0, ha="center", fontsize=8)
     axis.set_ylabel("Metric value")
-    axis.set_ylim(0.0, max(1.0, float(values.max()) * 1.1))
+    axis.set_yscale("symlog", linthresh=0.01)
+    axis.set_ylim(0.0, max(1.0, float(values.max()) * 1.2))
     _save_figure(figure, figure_path)
     return [csv_path, tex_path, figure_path]
 
