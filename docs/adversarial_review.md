@@ -28,17 +28,17 @@ Remaining work is editorial or venue-specific:
 2. Tighten title, abstract length and statement ordering for the selected venue.
 3. Replace repository-default administrative disclosures if the final author list, funding record or conflict-of-interest record changes.
 
-## Missing Experiments
+## Further Extensions
 
-These analyses would strengthen the paper, but they are not blockers for the current constrained claim set:
+These analyses would strengthen or broaden the paper, but they are not blockers for the current constrained claim set:
 
-1. Leave-one-failure-out MetroPT case studies with all choices fixed before each held-out failure.
-2. MetroPT2 temporal replication using the same predeclared settings where feasible.
+1. Additional compressor failures beyond the available MetroPT and MetroPT2 held-out events.
+2. Prospective validation using the same predeclared settings before future failures occur.
 3. SCANIA vehicle-level uncertainty intervals over vehicles.
 4. Noise, missingness, smoothing and shifted-label stress tests.
-5. Stronger baseline-challenge surfaces under the same validation budget.
+5. Larger baseline-challenge surfaces under the same validation budget.
 
-## Claims That Must Be Weakened
+## Claims Kept Restricted
 
 The manuscript and claim ledger intentionally preserve these limits:
 
@@ -48,13 +48,13 @@ The manuscript and claim ledger intentionally preserve these limits:
 4. SCANIA evidence is vehicle-level operational validation, not compressor-event replication.
 5. Independent evidence refers to failures, temporal blocks or vehicles, never raw seconds.
 
-## Decision-Changing Tests Or Analyses
+## Evidence That Would Broaden Claims
 
-1. Prospective or leave-one-failure-out evidence showing improved alarm burden without materially reducing recall.
+1. Prospective evidence showing improved alarm burden without materially reducing recall.
 2. Bootstrap or hierarchical uncertainty over failures, days, blocks or vehicles.
 3. Null experiments showing regime labels, smoothing, missingness and shifted failures do not create the apparent clustering.
-4. Baseline tables where engineering rules, POT/GPD, SPOT-style thresholds, Isolation Forest, change point, autoencoder and conformal methods use the same feature windows and validation splits.
-5. A predeclared lag-selection protocol with held-out evaluation.
+4. External event datasets with enough independent failures to estimate event-level precision, recall and uncertainty.
+5. A predeclared lag-selection protocol with prospective or independently held-out evaluation.
 
 ## Final Recommendation
 

@@ -49,7 +49,7 @@ make industrial-results
 - Ruff linting: passed.
 - Mypy strict type checking: passed.
 - Pytest with configured coverage gate: 98 passed.
-- Measured coverage: 82.98%, above the configured 80% gate.
+- Measured coverage: 83.18%, above the configured 80% gate.
 - `make real-data-matrix`: succeeded locally with prepared MetroPT, MetroPT2, SCANIA Component X, Hydraulic Systems and SECOM data.
 - `make submission-package`: succeeded locally with decision `submission ready` and zero blockers.
 

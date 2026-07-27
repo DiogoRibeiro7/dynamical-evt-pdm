@@ -2,22 +2,22 @@
 
 ## Working title
 
-**From Extreme Samples to Failure Episodes: Regime-Conditioned Dynamical Extreme Value Theory for Predictive Maintenance**
+**When Clustered Extremes Do Not Become Early Warnings: A Negative-Result Dynamical-EVT Study for Public Industrial Monitoring Data**
 
 ## Abstract logic
 
-1. Industrial telemetry is cyclic and produces dependent alarms.
-2. Pointwise methods over-count physical events and often ignore recurrence structure.
-3. Introduce a regime-conditioned, dynamical-EVT-inspired finite-sample workflow with extremal-index-aware clustering and training-defined dangerous-region hitting probabilities.
-4. Validate estimator behaviour in deterministic, noisy and degradation simulations.
-5. Evaluate on MetroPT/MetroPT2 and transfer to SCANIA Component X.
-6. Report event-level alarm burden, warning lead time and calibration.
+1. Industrial telemetry can produce clustered extreme scores.
+2. Maintenance decisions happen at alarm-episode, failure, vehicle or repair-action level.
+3. Evaluate a regime-conditioned, dynamical-EVT-inspired workflow with training-only state construction, threshold sensitivity and event conversion.
+4. Use bounded finite-sample simulations and five public industrial datasets.
+5. Report negative and weak event-level outcomes instead of converting row counts into broad performance claims.
+6. State the conditions required before recurrence diagnostics can support operational early warning.
 
 ## 1. Introduction
 
-- Operational problem: alarms correspond poorly to physical episodes.
-- Statistical problem: extremes are dependent because machinery has cycles and control loops.
-- Gap: predictive-maintenance EVT often stops at POT or adaptive thresholds.
+- Operational problem: pointwise extreme scores can become unusable alarm streams.
+- Statistical problem: clustered extremes are dependence diagnostics, not maintenance decisions.
+- Gap: industrial studies often lack traceable episode conversion, independent-unit accounting and negative-result preservation.
 - Contribution list with no inflated claims.
 
 ## 2. Related work
@@ -47,10 +47,10 @@
 
 ## 5. Industrial datasets
 
-- MetroPT and MetroPT2;
-- SCANIA Component X;
-- failure labels, splitting and preprocessing;
-- limitations and independence units.
+- MetroPT and MetroPT2 as compressor event case studies;
+- SCANIA Component X as a vehicle-level repair-risk stress test;
+- Hydraulic Systems and SECOM as supplementary condition-monitoring demonstrations;
+- failure labels, splitting, preprocessing, limitations and independence units.
 
 ## 6. Experiments
 
@@ -61,12 +61,12 @@
 
 ## 7. Results
 
-- simulation tables first;
-- per-failure case studies;
-- aggregate event metrics with uncertainty;
-- calibration;
-- threshold/run-length stability;
-- external fleet validation.
+- bounded simulation diagnostics;
+- real compressor event baseline comparison;
+- target-region variants and negative controls;
+- pointwise-to-event metric collapse;
+- score stratification rather than probability calibration;
+- condition-monitoring and vehicle-level stress-test outcomes.
 
 ## 8. Discussion
 
@@ -78,4 +78,4 @@
 
 ## 9. Conclusion
 
-State the narrow supported contribution: recurrence diagnostics can provide a useful episode representation and risk diagnostic for cyclic industrial telemetry under the studied conditions.
+State the narrow supported contribution: recurrence diagnostics can expose dependence and alarm-conversion failure modes, but the evaluated public datasets do not establish reliable operational early warning.

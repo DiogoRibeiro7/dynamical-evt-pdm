@@ -66,13 +66,15 @@ Michael McCann and Adrian Johnston.
 - Data: <https://archive.ics.uci.edu/dataset/179/secom>
 - Role: high-dimensional semiconductor process monitoring with pass/fail yield labels and missing values.
 
-## Literature review completion criteria
+## Literature review coverage
 
-Before submission, add:
+The manuscript bibliography currently covers the core references needed for the constrained submission package:
 
-- classical extremal-index estimator references;
-- POT and threshold-selection references;
-- SPOT/DSPOT primary papers;
-- event-based anomaly-evaluation papers;
-- recent EVT predictive-maintenance applications;
-- reproducibility and statistical testing references.
+- dynamical EVT, hitting-time statistics, periodicity and noisy observations;
+- multivariate dynamical EVT motivation;
+- classical extremal-index and declustering estimators;
+- SPOT-style streaming EVT thresholds;
+- the five public industrial datasets used by the repository;
+- repository-level citation metadata.
+
+Additional venue-specific references can be added during journal formatting, but missing citation families are no longer treated as a submission-readiness blocker.

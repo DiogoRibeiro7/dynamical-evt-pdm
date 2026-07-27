@@ -8,9 +8,9 @@ def test_adversarial_review_contains_required_decision_sections() -> None:
         "## Fatal Flaws",
         "## Major Revisions",
         "## Minor Revisions",
-        "## Missing Experiments",
-        "## Claims That Must Be Weakened",
-        "## Decision-Changing Tests Or Analyses",
+        "## Further Extensions",
+        "## Claims Kept Restricted",
+        "## Evidence That Would Broaden Claims",
         "## Final Recommendation",
     ]
 

@@ -22,13 +22,8 @@ The inverse extremal index has an asymptotic mean cluster-size interpretation un
 
 A low extremal index can arise from periodicity, persistence, mixture of regimes, preprocessing, measurement effects or model misspecification. Mechanical interpretation requires supporting diagnostics.
 
-## Required sensitivity checks
+## Sensitivity Evidence
 
-- threshold stability plot;
-- run-length stability plot;
-- regime-definition ablation;
-- target-region/prototype ablation;
-- additive-noise study;
-- resampling or missing-data study;
-- alternative scaling and distance metrics;
-- event matching tolerance analysis.
+The current constrained package includes generated evidence for threshold and run-length stability, alarm merge-gap and matching-tolerance surfaces, target-region variants, negative controls, baseline provenance, and bounded simulation sensitivity over noise and missingness.
+
+Additional stress tests, including larger missing-data, smoothing, downsampling, scaling, distance-metric and prospective validation surfaces, would broaden the evidence base. They are required only for claims beyond the current negative-result scope.

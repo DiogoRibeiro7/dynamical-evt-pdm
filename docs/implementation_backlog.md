@@ -1,8 +1,8 @@
-# Implementation Backlog
+# Research Extension Backlog
 
-This document lists planned research and engineering work that is not yet part of the executable core. It is written as project planning material, not as implementation instructions for a specific tool.
+This document records extension criteria for broader claims than the current submission-ready package makes. Many foundations listed here are already implemented in the executable core; the authoritative current status is [`IMPLEMENTATION_STATUS.md`](../IMPLEMENTATION_STATUS.md). Items below should be read as future broadening work, larger validation surfaces, or stricter acceptance criteria for stronger methodological or deployment claims.
 
-## Data Ingestion And Contracts
+## Data Ingestion And Contract Extensions
 
 MetroPT and MetroPT2:
 
@@ -23,7 +23,7 @@ SCANIA Component X:
 - Preserve histogram groups as structured feature families.
 - Create vehicle-level train, validation and test splits with no entity leakage.
 
-Deliverables:
+Extension deliverables:
 
 - Typed adapter classes.
 - Dataset manifests and checksum validation.
@@ -32,13 +32,13 @@ Deliverables:
 - Tests for duplicate timestamps, missing columns, counter resets and split leakage.
 - Updated data dictionary and acquisition documentation.
 
-Acceptance criteria:
+Extension acceptance criteria:
 
 - No real-data path is hard-coded.
 - Processing 10 million rows is chunked and bounded in memory.
 - Transformations are auditable from generated manifests.
 
-## Simulation Study
+## Simulation Study Extensions
 
 Systems:
 
@@ -71,7 +71,7 @@ Estimator outputs:
 - Cluster-size error.
 - Hitting-probability calibration.
 
-Engineering requirements:
+Engineering requirements for larger studies:
 
 - Use `numpy.random.Generator` only.
 - Derive deterministic experiment IDs from normalized configs.
@@ -80,14 +80,14 @@ Engineering requirements:
 - Provide plotting functions outside notebooks.
 - Keep CI smoke mode under 30 seconds.
 
-Acceptance criteria:
+Extension acceptance criteria:
 
 - Every simulation figure can be recreated by one CLI command.
 - Tests verify known trivial cases and seeded reproducibility.
 
 ## Univariate EVT And Extremal Index
 
-Required methods:
+Method extensions:
 
 - Empirical and diagnostic threshold selection.
 - Generalized Pareto fitting to excesses.
@@ -114,7 +114,7 @@ Tests:
 
 ## Operating Regimes
 
-Compare three regime definitions:
+Compare or expand three regime definitions:
 
 - Auditable engineering rules using control signals and derivatives.
 - Unsupervised hidden-state model fit only on training data.
@@ -130,7 +130,7 @@ Requirements:
 - Quantify how much global thresholds mix incompatible distributions.
 - Provide regime-definition ablations in every real-data result.
 
-Acceptance criteria:
+Extension acceptance criteria:
 
 - The same EVT interface works with all regime methods.
 - Unknown regimes at inference time use an explicit fallback with a logged warning.
@@ -166,14 +166,14 @@ Hitting risk:
 - Estimate probability of entry within horizons such as 15 min, 30 min, 1 h and 2 h.
 - Add reliability diagrams, Brier score, calibration slope and bootstrap uncertainty.
 
-Acceptance criteria:
+Extension acceptance criteria:
 
 - No target state from a held-out failure may enter the training dangerous region.
 - Tests enforce provenance metadata for dangerous-region construction.
 
 ## Multivariate And Lagged Extremes
 
-Required functionality:
+Functionality extensions:
 
 - Component-specific regime-conditioned thresholds.
 - Simultaneous exceedance vectors.
@@ -188,14 +188,14 @@ Main hypothesis:
 
 - A lagged sequence across current, temperature and pressure-recovery extremes can provide earlier warning than simultaneous thresholds.
 
-Acceptance criteria:
+Extension acceptance criteria:
 
 - Report uncertainty and multiple-comparison controls over tested lags.
 - A pattern discovered on a held-out failure is exploratory and is not evaluated on the same event.
 
 ## Baselines
 
-Mandatory baselines:
+Baseline extensions:
 
 - Simple engineering thresholds.
 - Global empirical threshold.
@@ -217,7 +217,7 @@ Fairness rules:
 - Include runtime, peak memory and parameter count.
 - Keep strong simple baselines even when they outperform the proposed method.
 
-Acceptance criteria:
+Extension acceptance criteria:
 
 - One experiment runner produces a standardized prediction table for every model with timestamp, score, threshold, alarm flag, episode ID, regime, horizon risk and provenance.
 
@@ -254,13 +254,13 @@ Uncertainty:
 - Bootstrap complete failures, days or vehicles.
 - Do not bootstrap individual seconds as independent observations.
 
-Acceptance criteria:
+Extension acceptance criteria:
 
 - Tests cover touching intervals, nested alarms, no alarms, no failures, alarms before the early-warning window and multiple alarms around one failure.
 
 ## Experiments, Figures And Paper Assets
 
-Experiment matrix:
+Extension matrix:
 
 - Simulation recovery.
 - MetroPT leave-one-failure-out case studies.
@@ -273,7 +273,7 @@ Experiment matrix:
 - Multivariate lag ablation.
 - Computational benchmark.
 
-Outputs:
+Extension outputs:
 
 - Threshold stability.
 - Extremal index by regime and period.
@@ -290,13 +290,13 @@ Reproducibility:
 - Each output embeds or accompanies experiment ID, commit hash and configuration hash.
 - Figures are generated by library code, not manually edited notebook cells.
 
-Acceptance criteria:
+Extension acceptance criteria:
 
 - A single `make paper-assets` command rebuilds every non-text artifact used in the manuscript from cached processed data.
 
-## Scientific Review Checklist
+## Scientific Review Checklist For Broader Claims
 
-Before manuscript submission, check:
+Before broadening the manuscript beyond the current negative-result scope, check:
 
 - Whether the method is genuinely dynamical EVT or conventional declustering with new terminology.
 - Whether the extremal index is estimated reliably at the available sample sizes and thresholds.
@@ -316,7 +316,7 @@ Review outputs:
 - Fatal flaws.
 - Major revisions.
 - Minor revisions.
-- Missing experiments.
-- Claims that must be weakened.
-- Exact tests or analyses that would change the decision.
+- Further extensions.
+- Claims kept restricted.
+- Evidence that would broaden claims.
 - Final recommendation with confidence.

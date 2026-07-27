@@ -2,15 +2,17 @@
 
 ## 1. Target contribution
 
-The paper introduces a **regime-conditioned, dynamical-EVT-inspired monitoring framework** that converts pointwise extremes into operational episodes and estimates empirical recurrence to training-defined dangerous regions.
+The paper evaluates a **regime-conditioned, dynamical-EVT-inspired monitoring workflow** that converts pointwise extremes into operational episodes and estimates empirical recurrence to training-defined dangerous regions.
 
-The method is considered successful only when it demonstrates all of the following:
+The method would be considered operationally successful only if it demonstrated all of the following:
 
 - valid or diagnostically explainable extremal-index behaviour in controlled simulations;
 - fewer duplicate alarm episodes than pointwise and fixed-threshold baselines;
 - comparable or better event recall at an operationally useful warning horizon;
 - stable conclusions over threshold, run-length and regime specifications;
-- credible external validation from a single APU to a structurally different fleet-level dataset, without claiming the same mechanism unless supported by entity-level evidence.
+- credible external validation beyond the available compressor failures, without claiming the same mechanism unless supported by entity-level evidence.
+
+The current manuscript preserves the opposite outcome as the main result: the evaluated public-data workflows expose dependence and alarm-conversion failure modes, but they do not establish reliable operational early warning.
 
 ## 2. Estimands
 
@@ -69,6 +71,10 @@ Temporal replication on two reported failures. Do not merge failures into pointw
 ### SCANIA Component X
 
 External fleet-level validation. Unit of independence is the vehicle, not a readout row. Evaluate entity-level forward risk and repair outcomes.
+
+### Hydraulic Systems and SECOM
+
+Supplementary condition-monitoring demonstrations. Hydraulic Systems is cycle-level component health, and SECOM is wafer-level yield detection. They broaden the software and data-study base, but they are not compressor-event replications.
 
 ## 5. Leakage controls
 

@@ -4,7 +4,7 @@
 
 Primary identity: negative-result paper.
 
-The current evidence does not support a methodological-performance paper. The simulation artifact is still limited, the real-data event evidence has too few independent failures, and the strongest empirical findings are weak or null. A software/reproducibility identity is also possible, but the revised manuscript should not make procedural auditability the central scientific result. The defensible paper identity is therefore:
+The current evidence does not support a methodological-performance paper. The simulation artifact has been broadened enough for bounded finite-sample validation, and the real-data baseline and variant comparisons are now generated artifacts, but the event-level evidence still has too few independent compressor failures and the strongest empirical findings remain weak or null. A software/reproducibility identity is also possible, but the revised manuscript should not make procedural auditability the central scientific result. The defensible paper identity is therefore:
 
 > Under what conditions do dynamical-EVT-inspired clustering diagnostics fail to translate extreme recurrence into useful public-data industrial early warning?
 
@@ -12,8 +12,8 @@ The current evidence does not support a methodological-performance paper. The si
 
 | Candidate identity | Minimum evidence required | Evidence currently available | Missing evidence | Feasibility | Overclaiming risk | Likely contribution | Venue class | Decision |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Methodological paper | Full estimator validation, fair baselines, uncertainty, and positive empirical value | Limited simulation recovery, sensitivity assets, weak compressor event results | Large Monte Carlo study, full baseline suite, per-failure uncertainty | Medium to high effort | High | New EVT method only if future experiments succeed | Methods/statistical ML | Reject for current revision |
-| Negative-result paper | Honest weak/null results, failure-mode analysis, valid independent units, claim restrictions | Zero-recall threshold grid, low-precision compressor detection, F1=0 condition diagnostics, heterogeneous estimands | More root-cause experiments and fair baselines would strengthen it | Feasible | Low if claims stay narrow | Boundary conditions for using dynamical EVT in public industrial data | Applied ML, reliability, reproducibility, negative results | Select |
+| Methodological paper | Full estimator validation, fair baselines, uncertainty, and positive empirical value | Broad finite-sample diagnostics, sensitivity assets, fair baseline artifacts, weak compressor event results | Prospective or larger independent-failure evidence with useful alarm burden | Medium to high effort | High | New EVT method only if future experiments succeed | Methods/statistical ML | Reject for current revision |
+| Negative-result paper | Honest weak/null results, failure-mode analysis, valid independent units, claim restrictions | Zero-recall threshold grid, low-precision compressor event detection, F1=0 condition diagnostics, heterogeneous estimands, target-region variants and negative controls | Additional independent failures would broaden uncertainty estimates | Feasible | Low if claims stay narrow | Boundary conditions for using dynamical EVT in public industrial data | Applied ML, reliability, reproducibility, negative results | Select |
 | Software/reproducibility paper | Architecture/API comparison, auditability, package design evidence | Strong build checks, manifests, data acquisition, claim ledger | Package comparison and user-facing API study | Feasible | Medium if presented as science | Reproducible evaluation package | Software/research tools | Secondary |
 
 ## Revised Research Questions

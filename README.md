@@ -232,12 +232,12 @@ Large datasets are not committed. Acquisition notes and expected schemas are in 
 - Thresholds and model choices are fit on training periods only.
 - Validation is temporal and event-level; random row splitting is prohibited.
 - Simulations establish estimator behaviour under known ground truth.
-- Real datasets establish operational plausibility and external validity.
+- Real datasets broaden the evaluated estimands while keeping generalization claims evidence-bound.
 - Simple engineering thresholds remain mandatory baselines.
 
 See [`docs/statistical_claims.md`](docs/statistical_claims.md) before interpreting results.
 The hypothesis-to-artifact implementation map is in [`docs/implementation_plan.md`](docs/implementation_plan.md).
-The pre-submission rejection checklist is in [`docs/adversarial_review.md`](docs/adversarial_review.md).
+The adversarial readiness review is in [`docs/adversarial_review.md`](docs/adversarial_review.md).
 
 ## Primary references
 
