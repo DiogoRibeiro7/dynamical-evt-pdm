@@ -31,6 +31,7 @@ def test_check_paper_sources_accepts_provenance_backed_manuscript(tmp_path: Path
     assert report.ok, report.failures
     assert report.checked_citations == 1
     assert report.checked_claim_references == 0
+    assert report.checked_claim_ledger_entries == 1
     assert report.checked_asset_references == 2
 
 

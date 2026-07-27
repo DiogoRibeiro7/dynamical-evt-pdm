@@ -709,8 +709,9 @@ def check_paper_command(
         raise typer.BadParameter(f"paper check failed:\n{details}")
     typer.echo(
         f"checked {report.checked_sources} sources, {report.checked_citations} citations, "
-        f"{report.checked_asset_references} generated assets and "
-        f"{report.checked_claim_references} claim references"
+        f"{report.checked_asset_references} generated assets, "
+        f"{report.checked_claim_ledger_entries} claim-ledger entries and "
+        f"{report.checked_claim_references} visible claim references"
     )
 
 

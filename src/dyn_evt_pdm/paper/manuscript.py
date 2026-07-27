@@ -22,6 +22,7 @@ class PaperCheckReport:
     checked_asset_references: int
     checked_citations: int
     checked_claim_references: int
+    checked_claim_ledger_entries: int
     failures: tuple[str, ...]
 
     @property
@@ -160,6 +161,7 @@ def check_paper_sources(
         checked_asset_references=len(asset_references),
         checked_citations=len(cited_keys),
         checked_claim_references=len(claim_references),
+        checked_claim_ledger_entries=asset_verification.checked_claims,
         failures=tuple(dict.fromkeys(failures)),
     )
     if write_reports:
@@ -169,6 +171,7 @@ def check_paper_sources(
             cited_keys=tuple(sorted(cited_keys)),
             bib_keys=tuple(sorted(bib_keys)),
             claim_references=tuple(sorted(claim_references)),
+            claim_ledger_entries=asset_verification.checked_claims,
             asset_references=tuple(sorted(asset_references)),
         )
     return report
@@ -380,6 +383,7 @@ def _write_audit_reports(
     cited_keys: tuple[str, ...],
     bib_keys: tuple[str, ...],
     claim_references: tuple[str, ...],
+    claim_ledger_entries: int,
     asset_references: tuple[str, ...],
 ) -> None:
     generated = paper_root / "generated"
@@ -403,7 +407,9 @@ def _write_audit_reports(
     (generated / "claim_audit.json").write_text(
         json.dumps(
             {
+                "visible_claim_references": claim_references,
                 "claim_references": claim_references,
+                "claim_ledger_entries": claim_ledger_entries,
                 "asset_references": asset_references,
             },
             indent=2,
