@@ -31,6 +31,8 @@ Create a GitHub release from tag `v0.2.0` and attach:
 
 Create a Zenodo or equivalent DOI-backed archive from the GitHub release. Do not edit DOI fields until the archive provider returns a real DOI.
 
+The `v0.2.0` GitHub prerelease was created before `.zenodo.json` existed in the tagged tree. For that release, either enter the metadata from `.zenodo.json` manually in the archive provider, or create a follow-up DOI-ready tag after committing `.zenodo.json`.
+
 After the DOI exists:
 
 1. Add the DOI to `CITATION.cff`.

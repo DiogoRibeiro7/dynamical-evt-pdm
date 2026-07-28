@@ -79,6 +79,7 @@ class SubmissionPackageConfig:
     codemeta_path: Path = Path("codemeta.json")
     release_notes_path: Path = Path("RELEASE_NOTES.md")
     archive_manifest_path: Path = Path("ARCHIVE_MANIFEST.json")
+    zenodo_metadata_path: Path = Path(".zenodo.json")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1146,6 +1147,7 @@ def _copy_required_deliverables(config: SubmissionPackageConfig, output_root: Pa
         (config.codemeta_path, output_root / "codemeta.json"),
         (config.release_notes_path, output_root / "RELEASE_NOTES.md"),
         (config.archive_manifest_path, output_root / "ARCHIVE_MANIFEST.json"),
+        (config.zenodo_metadata_path, output_root / ".zenodo.json"),
         (Path("docs/release_archive.md"), output_root / "sources" / "release_archive.md"),
         (
             config.asset_root / "asset_manifest.json",

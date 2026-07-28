@@ -1,0 +1,32 @@
+{
+  "title": "Dynamical EVT for Predictive Maintenance",
+  "upload_type": "software",
+  "description": "Reproducible negative-result dynamical extreme-value diagnostics, high-replication Monte Carlo artifacts, real-data acquisition scripts, event-level alarm evaluation, matched controls, and manuscript assets for predictive-maintenance research.",
+  "creators": [
+    {
+      "name": "Ribeiro, Diogo"
+    }
+  ],
+  "license": "bsd-3-clause",
+  "version": "0.2.0",
+  "keywords": [
+    "extreme value theory",
+    "dynamical systems",
+    "extremal index",
+    "predictive maintenance",
+    "event-level evaluation",
+    "industrial data"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/DiogoRibeiro7/dynamical-evt-pdm",
+      "relation": "isSupplementTo",
+      "scheme": "url"
+    },
+    {
+      "identifier": "https://github.com/DiogoRibeiro7/dynamical-evt-pdm/releases/tag/v0.2.0",
+      "relation": "isVersionOf",
+      "scheme": "url"
+    }
+  ]
+}
