@@ -5,7 +5,7 @@ type: software
 authors:
   - family-names: "Ribeiro"
     given-names: "Diogo"
-version: 0.2.0
+version: 0.2.1
 date-released: 2026-07-28
 license: BSD-3-Clause
 repository-code: "https://github.com/DiogoRibeiro7/dynamical-evt-pdm"

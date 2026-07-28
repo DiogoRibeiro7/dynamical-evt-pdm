@@ -1,5 +1,11 @@
 # Release Notes
 
+## 0.2.1 - 2026-07-28
+
+This release candidate is DOI-archive ready: it adds `.zenodo.json` to the tagged tree and keeps the Prompt 61-70 scientific artifacts from `0.2.0`.
+
+No external software archive DOI is recorded for this release candidate. Do not cite a DOI until a Zenodo or equivalent archive record exists.
+
 ## 0.2.0 - 2026-07-28
 
 This release candidate contains the Prompt 61-70 research package.

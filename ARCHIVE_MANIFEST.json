@@ -1,5 +1,5 @@
 {
-  "release_candidate": "0.2.0",
+  "release_candidate": "0.2.1",
   "date": "2026-07-28",
   "repository": "https://github.com/DiogoRibeiro7/dynamical-evt-pdm",
   "doi_status": "not_created",
@@ -10,14 +10,14 @@
   ],
   "artifacts": [
     {
-      "path": "dist/dyn_evt_pdm-0.2.0.tar.gz",
-      "size_bytes": 127977,
-      "sha256": "edba729e3158691db17d2a90d6ab9ebdee2ea3d3956f9b27eab6bdd1139ca629"
+      "path": "dist/dyn_evt_pdm-0.2.1.tar.gz",
+      "size_bytes": 128034,
+      "sha256": "af0508dd7b085b4fd7f3e1a38fadeef8a615921a6800e8e5b08729772e04dcdb"
     },
     {
-      "path": "dist/dyn_evt_pdm-0.2.0-py3-none-any.whl",
-      "size_bytes": 149812,
-      "sha256": "cf7ea29fd8c020e6ddd94331703bd23c4b03fb7c2cbab4705987599662669fd1"
+      "path": "dist/dyn_evt_pdm-0.2.1-py3-none-any.whl",
+      "size_bytes": 149864,
+      "sha256": "01ec9e3d8c51a51576dda70867d8f7990481181c34d4ae83dc7d04bf4db41052"
     },
     {
       "path": "paper/main.pdf",
