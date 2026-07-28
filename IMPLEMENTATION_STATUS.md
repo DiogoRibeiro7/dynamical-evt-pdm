@@ -49,13 +49,15 @@ make industrial-results
 - Ruff linting: passed.
 - Mypy strict type checking: passed.
 - Pytest with configured coverage gate: 113 passed.
-- Measured coverage: 83.20%, above the configured 80% gate.
+- Measured coverage: 82.51%, above the configured 80% gate.
 - `make real-data-matrix`: succeeded locally with prepared MetroPT, MetroPT2, SCANIA Component X, Hydraulic Systems and SECOM data.
 - `poetry run dyn-evt run-simulation-study --config configs/simulation/high_replication.yaml --output artifacts/simulation_study_high_rep.parquet --n-jobs 6`: generated 7,000 high-replication simulation rows with 500 repetitions across fourteen process families.
 - `poetry run dyn-evt run-simulation-study --config configs/simulation/focused_coverage.yaml --output artifacts/simulation_study_focused_coverage.parquet --n-jobs 6`: generated 2,000 focused-coverage rows with 1,000 repetitions across the preregistered focused subset.
 - `poetry run dyn-evt run-industrial-results --processed-root data/processed --output-root artifacts/real_data_matrix`: regenerated real-data artifacts including complete MetroPT/MetroPT2 event-level baseline coverage, target-region transferability rows, 6,000 draw-level matched negative controls, score-threshold-alarm decomposition, and timeline reconciliation.
 - `poetry run dyn-evt build-submission-package --paper-root paper --asset-root reports/paper --output-root reports/submission`: returns `not submission ready` because the DOI-backed external software archive is not yet available.
-- `make -C paper paper`: blocked locally by MiKTeX setup (`fresh TeX installation` message), so the fresh PDF rebuild is not claimed in this validation pass.
+- `make -C paper paper` and `make -C paper supplement`: succeeded locally with MiKTeX; the manuscript builds to 16 pages and the build is byte-reproducible across clean rebuilds on the same toolchain.
+- `poetry run dyn-evt verify-paper-assets --output-root reports/paper`: verified 64 generated files and 7 claims.
+- `paper/main.pdf` and `paper/supplement/supplement.pdf` are rebuilt from the current generated assets in the same pass that records their hashes in `ARCHIVE_MANIFEST.json`, so the archived PDFs match a clean rebuild.
 
 ## Scientific Boundaries
 

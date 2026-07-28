@@ -8,7 +8,7 @@
     }
   ],
   "license": "bsd-3-clause",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "keywords": [
     "extreme value theory",
     "dynamical systems",
@@ -24,7 +24,7 @@
       "scheme": "url"
     },
     {
-      "identifier": "https://github.com/DiogoRibeiro7/dynamical-evt-pdm/releases/tag/v0.2.1",
+      "identifier": "https://github.com/DiogoRibeiro7/dynamical-evt-pdm/releases/tag/v0.2.2",
       "relation": "isVersionOf",
       "scheme": "url"
     }

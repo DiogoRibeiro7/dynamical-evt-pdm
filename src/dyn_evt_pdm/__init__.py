@@ -16,4 +16,4 @@ __all__ = [
     "runs_extremal_index",
 ]
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"

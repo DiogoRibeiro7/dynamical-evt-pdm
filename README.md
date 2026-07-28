@@ -254,4 +254,4 @@ Full links and the role of each source are documented in [`docs/literature_map.m
 
 ## Status
 
-The repository is a **submission-ready research package** when the public raw datasets have been fetched and prepared locally. The final package builder records a generated readiness decision in `reports/submission/final_decision.md`; raw third-party datasets and generated artifacts remain ignored and are rebuilt from the documented commands.
+The repository is a **complete research package that is not yet submission ready**. Every local scientific and quality gate passes once the public raw datasets have been fetched and prepared, but the generated readiness decision in `reports/submission/final_decision.md` remains `not submission ready` while the external DOI-backed software archive is missing. The release and archive runbook is in [`docs/release_archive.md`](docs/release_archive.md). Raw third-party datasets and generated artifacts remain ignored and are rebuilt from the documented commands.

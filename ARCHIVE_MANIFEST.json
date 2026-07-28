@@ -1,28 +1,33 @@
 {
-  "release_candidate": "0.2.1",
+  "release_candidate": "0.2.2",
   "date": "2026-07-28",
   "repository": "https://github.com/DiogoRibeiro7/dynamical-evt-pdm",
   "doi_status": "not_created",
-  "release_commit_status": "pending_commit",
+  "release_commit_status": "committed_and_tagged",
   "submission_decision": "not submission ready",
   "unresolved_blockers": [
     "DOI-backed software archive is incomplete"
   ],
   "artifacts": [
     {
-      "path": "dist/dyn_evt_pdm-0.2.1.tar.gz",
-      "size_bytes": 128034,
-      "sha256": "af0508dd7b085b4fd7f3e1a38fadeef8a615921a6800e8e5b08729772e04dcdb"
+      "path": "dist/dyn_evt_pdm-0.2.2.tar.gz",
+      "size_bytes": 128221,
+      "sha256": "9a8714b4c63a4ad3cc350553b0354e111a8fd0e847c9b8e8ce358da809f06251"
     },
     {
-      "path": "dist/dyn_evt_pdm-0.2.1-py3-none-any.whl",
-      "size_bytes": 149864,
-      "sha256": "01ec9e3d8c51a51576dda70867d8f7990481181c34d4ae83dc7d04bf4db41052"
+      "path": "dist/dyn_evt_pdm-0.2.2-py3-none-any.whl",
+      "size_bytes": 149952,
+      "sha256": "e1c942084015f7b619cc95c670ff55fc9a4a4bf496578e3185acbf3b26b50750"
     },
     {
       "path": "paper/main.pdf",
-      "size_bytes": 556545,
-      "sha256": "27aaf47a61f47775c50c8e3ce46cf936398cfb5fae16b92cc38a8e79229fbed8"
+      "size_bytes": 556632,
+      "sha256": "90d5302576cf7ee061dbf1d1118bb2926f6e96247f19b39ce4f1ec99ce1af455"
+    },
+    {
+      "path": "paper/supplement/supplement.pdf",
+      "size_bytes": 329221,
+      "sha256": "c930bca91695a4cf9103a4834c7428885cc373434da7595ddc77772b080f0550"
     },
     {
       "path": "artifacts/simulation_study_high_rep.parquet",
@@ -69,5 +74,11 @@
       "size_bytes": 115,
       "sha256": "b9679e0c7ec853b7e381eff685276a2bbd85d12ce0ec54a6ed6c502e6ff14fa3"
     }
-  ]
+  ],
+  "release_tag": "v0.2.2",
+  "supersedes": [
+    "0.2.0",
+    "0.2.1"
+  ],
+  "supersede_reason": "paper/main.pdf in 0.2.0 and 0.2.1 was compiled before the final regeneration of the reports/paper assets and reported superseded matched-negative-control values."
 }
