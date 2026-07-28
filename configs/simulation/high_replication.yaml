@@ -1,0 +1,25 @@
+simulation:
+  name: high_replication_validation
+  seed: 20260727
+experiment:
+  systems:
+    - iid_light_tail
+    - iid_bounded_tail
+    - iid_pareto
+    - logistic_nonperiodic_target
+    - logistic_periodic_target
+    - noisy_periodic_dynamics
+    - regime_mixture
+    - cyclic_degradation
+    - lagged_multivariate
+    - persistent_shift
+    - smoothing
+    - downsampling
+    - missing_at_random
+    - burst_missingness
+  sample_sizes: [2000]
+  thresholds: [0.98]
+  run_lengths: [5]
+  noise_scales: [0.08]
+  missing_rates: [0.05]
+  repetitions: 500

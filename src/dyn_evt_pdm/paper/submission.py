@@ -21,6 +21,29 @@ SubmissionDecision = Literal[
 REQUIRED_REAL_DATASETS = frozenset(
     {"hydraulic_systems", "metropt", "metropt2", "scania_component_x", "secom"}
 )
+ADVANCED_BASELINE_METHODS = frozenset(
+    {
+        "engineering_threshold",
+        "best_individual_sensor_threshold",
+        "global_empirical_threshold",
+        "regime_conditioned_empirical_threshold",
+        "classical_pot_gpd",
+        "fixed_run_declustering",
+        "ferro_segers_event_policy",
+        "k_gaps_event_policy",
+        "spot",
+        "isolation_forest",
+        "robust_online_changepoint",
+        "linear_autoencoder",
+        "compact_nonlinear_autoencoder",
+        "conformal_anomaly",
+        "empirical_horizon_risk",
+        "dynamical_evt_robust_score",
+        "failure_prototype_region",
+        "rare_state_region",
+    }
+)
+ADVANCED_EVENT_DATASETS = frozenset({"metropt", "metropt2"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +75,10 @@ class SubmissionPackageConfig:
     lock_path: Path = Path("poetry.lock")
     license_path: Path = Path("LICENSE")
     readme_path: Path = Path("README.md")
+    citation_path: Path = Path("CITATION.cff")
+    codemeta_path: Path = Path("codemeta.json")
+    release_notes_path: Path = Path("RELEASE_NOTES.md")
+    archive_manifest_path: Path = Path("ARCHIVE_MANIFEST.json")
 
 
 @dataclass(frozen=True, slots=True)
@@ -438,6 +465,53 @@ def _broad_simulation_artifact_ok(manifest_path: Path) -> bool:
     )
 
 
+def _high_replication_simulation_artifact_ok(manifest_path: Path) -> bool:
+    if not manifest_path.exists():
+        return False
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    config = payload.get("config", {})
+    if not isinstance(config, dict):
+        return False
+    try:
+        repetitions = int(config.get("repetitions", 0))
+        rows = int(payload.get("rows", 0))
+    except (TypeError, ValueError):
+        return False
+    return repetitions >= 500 and rows > 0
+
+
+def _event_baseline_family_complete(path: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        table = pd.read_csv(path)
+    except (OSError, pd.errors.EmptyDataError, pd.errors.ParserError):
+        return False
+    required = {"dataset_id", "method"}
+    if table.empty or not required.issubset(table.columns):
+        return False
+    for dataset_id in ADVANCED_EVENT_DATASETS:
+        observed = set(table.loc[table["dataset_id"] == dataset_id, "method"].astype(str))
+        if not ADVANCED_BASELINE_METHODS.issubset(observed):
+            return False
+    return True
+
+
+def _software_archive_doi_present(citation_path: Path) -> bool:
+    if not citation_path.exists():
+        return False
+    try:
+        text = citation_path.read_text(encoding="utf-8").lower()
+    except OSError:
+        return False
+    return "doi:" in text or "\ndoi:" in text or "\nidentifiers:" in text
+
+
 def _json_object_artifact_error(path: Path, label: str) -> str:
     if not path.exists():
         return f"missing {label}: {path}"
@@ -496,7 +570,37 @@ def adversarial_review_issues(
         industrial_artifact_root / "event_variant_comparison.csv"
     )
     event_timeline_resolved = _csv_has_rows(industrial_artifact_root / "event_timeline_trace.csv")
-    return (
+    high_rep_simulation_resolved = _high_replication_simulation_artifact_ok(
+        Path("artifacts/simulation_study_high_rep.parquet.manifest.json")
+    )
+    complete_baseline_family_resolved = _event_baseline_family_complete(
+        industrial_artifact_root / "event_baseline_comparison.csv"
+    )
+    transferability_resolved = _csv_has_rows(
+        industrial_artifact_root / "target_region_transferability.csv"
+    )
+    matched_controls_resolved = _csv_has_rows(
+        industrial_artifact_root / "matched_negative_controls.csv"
+    )
+    failure_decomposition_resolved = _csv_has_rows(
+        industrial_artifact_root / "score_threshold_alarm_decomposition.csv"
+    )
+    timeline_reconciliation_resolved = _csv_has_rows(
+        industrial_artifact_root / "timeline_reconciliation.csv"
+    )
+    main_results_streamlined = not (
+        (Path("paper/sections/07_results.tex").exists())
+        and any(
+            phrase in Path("paper/sections/07_results.tex").read_text(encoding="utf-8")
+            for phrase in (
+                "method-scope",
+                "timeline-traceability",
+                "metric-provenance",
+            )
+        )
+    )
+    software_archive_resolved = _software_archive_doi_present(Path("CITATION.cff"))
+    legacy_issues = (
         ReviewIssue(
             issue_id="REV-001",
             severity="fatal-if-unqualified",
@@ -641,6 +745,153 @@ def adversarial_review_issues(
             residual_limitation="",
         ),
     )
+    advanced_issues = (
+        ReviewIssue(
+            issue_id="REV-011",
+            severity="major",
+            affected_claim="simulation validity",
+            required_action="Replace ten-replication simulation with high-replication Monte Carlo evidence before claiming adequacy.",
+            code_change="Submission audit now gates high-replication simulation separately from the earlier broad smoke-scale grid.",
+            experiment_change=(
+                "High-replication simulation manifest found."
+                if high_rep_simulation_resolved
+                else "No high-replication simulation manifest with at least 500 repetitions per cell is present."
+            ),
+            manuscript_change="Simulation claims must remain bounded until high-replication evidence exists.",
+            resolution_status="resolved" if high_rep_simulation_resolved else "unresolved",
+            resulting_artifact="artifacts/simulation_study_high_rep.parquet",
+            residual_limitation=""
+            if high_rep_simulation_resolved
+            else "high-replication Monte Carlo validation is incomplete",
+        ),
+        ReviewIssue(
+            issue_id="REV-012",
+            severity="major",
+            affected_claim="event-level baseline comparison",
+            required_action="Run every declared baseline family on MetroPT and MetroPT2 under the same event policy.",
+            code_change="Submission audit checks declared baseline-family coverage in event_baseline_comparison.csv.",
+            experiment_change=(
+                "Every declared baseline has held-out event-level rows."
+                if complete_baseline_family_resolved
+                else "The event-level baseline artifact does not yet contain every declared baseline for both compressor datasets."
+            ),
+            manuscript_change="Comparative baseline claims must remain limited until the family is complete.",
+            resolution_status="resolved" if complete_baseline_family_resolved else "unresolved",
+            resulting_artifact="artifacts/real_data_matrix/event_baseline_comparison.csv",
+            residual_limitation=""
+            if complete_baseline_family_resolved
+            else "complete event-level baseline family is incomplete",
+        ),
+        ReviewIssue(
+            issue_id="REV-013",
+            severity="major",
+            affected_claim="target-region transferability",
+            required_action="Quantify MetroPT versus MetroPT2 failure-prototype divergence with state-space evidence.",
+            code_change="Submission audit requires a target-region transferability artifact.",
+            experiment_change=(
+                "Target-region transferability artifact found."
+                if transferability_resolved
+                else "No target-region transferability artifact is present."
+            ),
+            manuscript_change="Abstract, Results, Discussion, and Conclusion must mention prototype-region instability only after artifact support.",
+            resolution_status="resolved" if transferability_resolved else "unresolved",
+            resulting_artifact="artifacts/real_data_matrix/target_region_transferability.csv",
+            residual_limitation=""
+            if transferability_resolved
+            else "target-region transferability analysis is incomplete",
+        ),
+        ReviewIssue(
+            issue_id="REV-014",
+            severity="major",
+            affected_claim="negative-control validity",
+            required_action="Replace single negative controls with repeated matched controls preserving nuisance structure.",
+            code_change="Submission audit requires matched_negative_controls.csv.",
+            experiment_change=(
+                "Matched negative-control draws are present."
+                if matched_controls_resolved
+                else "No repeated matched negative-control artifact is present."
+            ),
+            manuscript_change="Negative-control conclusions must not exceed the generated control distribution.",
+            resolution_status="resolved" if matched_controls_resolved else "unresolved",
+            resulting_artifact="artifacts/real_data_matrix/matched_negative_controls.csv",
+            residual_limitation=""
+            if matched_controls_resolved
+            else "matched repeated negative controls are incomplete",
+        ),
+        ReviewIssue(
+            issue_id="REV-015",
+            severity="major",
+            affected_claim="root-cause analysis",
+            required_action="Separate score failure, threshold failure, and alarm-conversion failure before assigning root cause.",
+            code_change="Submission audit requires score_threshold_alarm_decomposition.csv.",
+            experiment_change=(
+                "Three-layer failure decomposition artifact found."
+                if failure_decomposition_resolved
+                else "No three-layer failure decomposition artifact is present."
+            ),
+            manuscript_change="Discussion cannot attribute failures to alarm conversion without score and threshold evidence.",
+            resolution_status="resolved" if failure_decomposition_resolved else "unresolved",
+            resulting_artifact="artifacts/real_data_matrix/score_threshold_alarm_decomposition.csv",
+            residual_limitation=""
+            if failure_decomposition_resolved
+            else "score-threshold-alarm failure decomposition is incomplete",
+        ),
+        ReviewIssue(
+            issue_id="REV-016",
+            severity="major",
+            affected_claim="timeline evidence",
+            required_action="Reconcile the local timeline panel with global alarm counts and full-test exposure.",
+            code_change="Submission audit requires timeline_reconciliation.csv.",
+            experiment_change=(
+                "Timeline reconciliation artifact found."
+                if timeline_reconciliation_resolved
+                else "No local/global timeline reconciliation artifact is present."
+            ),
+            manuscript_change="Timeline caption must state that local panels do not show all global alarms.",
+            resolution_status="resolved" if timeline_reconciliation_resolved else "unresolved",
+            resulting_artifact="artifacts/real_data_matrix/timeline_reconciliation.csv",
+            residual_limitation=""
+            if timeline_reconciliation_resolved
+            else "local/global timeline reconciliation is incomplete",
+        ),
+        ReviewIssue(
+            issue_id="REV-017",
+            severity="major",
+            affected_claim="main-results discipline",
+            required_action="Move audit-completion and traceability tables out of the main Results.",
+            code_change="Submission audit scans the main Results for repository-status table inputs.",
+            experiment_change="No experimental change.",
+            manuscript_change=(
+                "Main Results no longer includes audit-completion table inputs."
+                if main_results_streamlined
+                else "Main Results still includes audit-completion or traceability table inputs."
+            ),
+            resolution_status="resolved" if main_results_streamlined else "unresolved",
+            resulting_artifact="paper/sections/07_results.tex",
+            residual_limitation=""
+            if main_results_streamlined
+            else "main Results still contains audit-oriented tables",
+        ),
+        ReviewIssue(
+            issue_id="REV-018",
+            severity="major",
+            affected_claim="software availability",
+            required_action="Create and cite a DOI-backed software archive, or mark archive DOI creation incomplete.",
+            code_change="Submission audit checks citation metadata for a persistent DOI/identifier.",
+            experiment_change="No experimental change.",
+            manuscript_change=(
+                "Persistent software identifier is present in citation metadata."
+                if software_archive_resolved
+                else "Repository citation remains URL-only; no DOI-backed archive is claimed."
+            ),
+            resolution_status="resolved" if software_archive_resolved else "unresolved",
+            resulting_artifact="CITATION.cff; external archive record",
+            residual_limitation=""
+            if software_archive_resolved
+            else "DOI-backed software archive is incomplete",
+        ),
+    )
+    return (*legacy_issues, *advanced_issues)
 
 
 def final_submission_decision(
@@ -891,6 +1142,11 @@ def _copy_required_deliverables(config: SubmissionPackageConfig, output_root: Pa
         (config.lock_path, output_root / "environment" / "poetry.lock"),
         (config.license_path, output_root / "LICENSE"),
         (config.readme_path, output_root / "README.md"),
+        (config.citation_path, output_root / "CITATION.cff"),
+        (config.codemeta_path, output_root / "codemeta.json"),
+        (config.release_notes_path, output_root / "RELEASE_NOTES.md"),
+        (config.archive_manifest_path, output_root / "ARCHIVE_MANIFEST.json"),
+        (Path("docs/release_archive.md"), output_root / "sources" / "release_archive.md"),
         (
             config.asset_root / "asset_manifest.json",
             output_root / "artifacts" / "asset_manifest.json",

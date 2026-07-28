@@ -955,6 +955,8 @@ def _revision_summary_assets(
     generated += _baseline_summary_assets(config, tables, latex)
     generated += _event_baseline_comparison_assets(config, tables, latex)
     generated += _event_variant_comparison_assets(config, tables, latex)
+    generated += _target_region_transferability_assets(config, tables, latex)
+    generated += _matched_negative_control_assets(config, tables, latex)
     generated += _metric_provenance_assets(config, figures, tables, latex)
     generated += _method_scope_assets(config, tables, latex)
     generated += _timeline_traceability_assets(config, figures, tables, latex)
@@ -1155,19 +1157,57 @@ def _metric_provenance_assets(
         label="tab:metric-provenance",
     )
 
-    plot_frame = frame[frame["Metric"].isin(["event precision", "false alarms per day"])].copy()
-    figure, axis = plt.subplots(figsize=(6.0, 3.6))
-    labels = plot_frame["Dataset"].astype(str) + "\n" + plot_frame["Metric"].astype(str)
-    values = pd.to_numeric(plot_frame["Value"], errors="coerce").fillna(0.0)
-    colors = ["#4C78A8", "#E15759", "#4C78A8", "#E15759"][: len(values)]
-    axis.bar(np.arange(len(values)), values, color=colors)
-    axis.set_xticks(np.arange(len(values)))
-    axis.set_xticklabels(labels, rotation=0, ha="center", fontsize=8)
-    axis.set_ylabel("Metric value")
-    axis.set_yscale("symlog", linthresh=0.01)
-    axis.set_ylim(0.0, max(1.0, float(values.max()) * 1.2))
-    _save_figure(figure, figure_path)
+    decomposition_path = config.real_data_matrix_root / "score_threshold_alarm_decomposition.csv"
+    if decomposition_path.exists():
+        decomposition = pd.read_csv(decomposition_path)
+        _score_alarm_flow_figure(decomposition, figure_path)
     return [csv_path, tex_path, figure_path]
+
+
+def _score_alarm_flow_figure(source: pd.DataFrame, figure_path: Path) -> None:
+    required = {"dataset_id", "method", "point_exceedances", "alarm_events", "target_events"}
+    if source.empty or not required.issubset(source.columns):
+        figure, axis = plt.subplots(figsize=(6.0, 3.0))
+        axis.text(0.5, 0.5, "Decomposition artifact unavailable", ha="center", va="center")
+        axis.axis("off")
+        _save_figure(figure, figure_path)
+        return
+    selected = source.loc[
+        source["method"].isin(["dynamical_evt_robust_score", "failure_prototype_region"])
+    ].copy()
+    if selected.empty:
+        selected = source.head(4).copy()
+    selected["label"] = (
+        selected["dataset_id"].map(_dataset_label)
+        + "\n"
+        + selected["method"].map(_event_method_label)
+    )
+    stages = ["Failure\npoints", "Threshold\nexceedances", "Alarm\nepisodes", "Target\nevents"]
+    figure, axes = plt.subplots(
+        nrows=max(1, len(selected)),
+        ncols=1,
+        figsize=(7.0, max(2.8, 1.7 * len(selected))),
+        squeeze=False,
+    )
+    for axis, row in zip(axes[:, 0], selected.itertuples(index=False), strict=False):
+        values = [
+            max(1.0, float(getattr(row, "target_points", 0) or 0)),
+            float(getattr(row, "point_exceedances", 0) or 0),
+            float(getattr(row, "alarm_events", 0) or 0),
+            float(getattr(row, "target_events", 0) or 0),
+        ]
+        axis.plot(np.arange(len(stages)), values, color="#3B6EA8", marker="o", linewidth=2)
+        axis.fill_between(np.arange(len(stages)), values, color="#B9D6F2", alpha=0.35)
+        for index, value in enumerate(values):
+            axis.text(index, value, _format_count(value), ha="center", va="bottom", fontsize=8)
+        axis.set_yscale("symlog", linthresh=1.0)
+        axis.set_xticks(np.arange(len(stages)))
+        axis.set_xticklabels(stages, fontsize=8)
+        axis.set_ylabel(str(getattr(row, "label", "")), rotation=0, ha="right", va="center")
+        axis.grid(axis="y", alpha=0.25)
+    axes[0, 0].set_title("Score-threshold-alarm decomposition counts")
+    figure.tight_layout()
+    _save_figure(figure, figure_path)
 
 
 def _event_baseline_comparison_assets(
@@ -1181,7 +1221,17 @@ def _event_baseline_comparison_assets(
     source = pd.read_csv(path)
     if source.empty:
         return []
-    source = source.sort_values(["dataset_id", "method_family", "method"])
+    main_methods = {
+        "engineering_threshold",
+        "classical_pot_gpd",
+        "isolation_forest",
+        "dynamical_evt_robust_score",
+        "failure_prototype_region",
+        "rare_state_region",
+    }
+    source = source.loc[source["method"].isin(main_methods)].sort_values(
+        ["dataset_id", "method_family", "method"]
+    )
     frame = pd.DataFrame(
         {
             "Data": source["dataset_id"].map(_dataset_label),
@@ -1238,6 +1288,85 @@ def _event_variant_comparison_assets(
         tex_path,
         caption="Target-region variants and negative controls on real held-out event splits.",
         label="tab:event-variant-comparison",
+    )
+    return [csv_path, tex_path]
+
+
+def _target_region_transferability_assets(
+    config: PaperAssetConfig,
+    tables: Path,
+    latex: Path,
+) -> list[Path]:
+    path = config.real_data_matrix_root / "target_region_transferability.csv"
+    if not path.exists():
+        return []
+    source = pd.read_csv(path)
+    if source.empty:
+        return []
+    source = source.loc[source["method"].isin(["failure_prototype_region", "rare_state_region"])]
+    frame = pd.DataFrame(
+        {
+            "Source": source["source_dataset_id"].map(_dataset_label),
+            "Target": source["target_dataset_id"].map(_dataset_label),
+            "Region": source["method"].map(_event_method_label),
+            "Recall": source["event_recall"].map(_format_metric),
+            "Precision": source["event_precision"].map(_format_metric),
+            "FA/day": source["false_alarm_events_per_day"].map(_format_metric),
+            "Transfer": source["transfer_type"].astype(str),
+        }
+    )
+    csv_path = tables / "target_region_transferability.csv"
+    tex_path = latex / "target_region_transferability.tex"
+    frame.to_csv(csv_path, index=False)
+    _write_latex_table(
+        frame,
+        tex_path,
+        caption="Target-region behaviour across MetroPT and MetroPT2 held-out event splits.",
+        label="tab:target-region-transferability",
+    )
+    return [csv_path, tex_path]
+
+
+def _matched_negative_control_assets(
+    config: PaperAssetConfig,
+    tables: Path,
+    latex: Path,
+) -> list[Path]:
+    path = config.real_data_matrix_root / "matched_negative_controls.csv"
+    if not path.exists():
+        return []
+    source = pd.read_csv(path)
+    if source.empty:
+        return []
+    burden = source.loc[source["metric"] == "false_alarm_events_per_day"].copy()
+    if burden.empty:
+        burden = source.copy()
+    frame = pd.DataFrame(
+        {
+            "Data": burden["dataset_id"].map(_dataset_label),
+            "Observed": burden["observed_method"].map(_event_method_label),
+            "Control": burden["control_family"].map(_control_family_label),
+            "Observed FA/day": burden["observed_value"].map(_format_metric),
+            "Control median": burden["control_median"].map(_format_metric),
+            "95% interval": burden.apply(
+                lambda row: (
+                    f"{_format_metric(row['control_p025'])}-"
+                    f"{_format_metric(row['control_p975'])}"
+                ),
+                axis=1,
+            ),
+            "Percentile": burden["observed_percentile"].map(_format_metric),
+            "Interpretation": burden["interpretation"].astype(str),
+        }
+    )
+    csv_path = tables / "matched_negative_controls.csv"
+    tex_path = latex / "matched_negative_controls.tex"
+    frame.to_csv(csv_path, index=False)
+    _write_latex_table(
+        frame,
+        tex_path,
+        caption="Observed failure-prototype alarm burden against 500 matched-control draws per family.",
+        label="tab:matched-negative-controls",
     )
     return [csv_path, tex_path]
 
@@ -1472,7 +1601,7 @@ def _root_cause_assets(
     frame = pd.DataFrame(
         {
             "Dataset": source["dataset_id"].map(_dataset_label),
-            "Dominant explanation": source["dataset_id"].map(explanations),
+            "Primary explanation": source["dataset_id"].map(explanations),
             "Evidence": source.apply(_root_cause_evidence, axis=1),
             "Evidence status": source["dataset_id"].map(_root_cause_status),
             "Competing explanation": source["dataset_id"].map(_root_cause_alternative),
@@ -1485,7 +1614,7 @@ def _root_cause_assets(
     _write_latex_table(
         frame,
         tex_path,
-        caption="Evidence-based dominant explanations for diagnostic failure.",
+        caption="Most plausible explanations under the current evidence.",
         label="tab:root-cause",
     )
     return [csv_path, tex_path]
@@ -1594,6 +1723,21 @@ def _baseline_label(value: object) -> str:
 
 def _event_method_label(value: object) -> str:
     labels = {
+        "engineering_threshold": "Engineering threshold",
+        "best_individual_sensor_threshold": "Best sensor threshold",
+        "global_empirical_threshold": "Global empirical",
+        "regime_conditioned_empirical_threshold": "Regime empirical",
+        "classical_pot_gpd": "Classical POT/GPD",
+        "fixed_run_declustering": "Fixed-run declustering",
+        "ferro_segers_event_policy": "Ferro-Segers policy",
+        "k_gaps_event_policy": "K-gaps policy",
+        "spot": "SPOT-style",
+        "isolation_forest": "Isolation Forest",
+        "robust_online_changepoint": "Robust changepoint",
+        "linear_autoencoder": "Linear autoencoder",
+        "compact_nonlinear_autoencoder": "Compact autoencoder",
+        "conformal_anomaly": "Conformal anomaly",
+        "empirical_horizon_risk": "Empirical horizon risk",
         "dynamical_evt_robust_score": "Dynamical EVT score",
         "max_abs_robust_z": "Max robust z",
         "pressure_tp2_high": "TP2 high",
@@ -1615,6 +1759,18 @@ def _event_family_label(value: object) -> str:
         "baseline": "baseline",
         "target_region": "target region",
         "negative_control": "negative control",
+    }
+    return labels.get(str(value), str(value))
+
+
+def _control_family_label(value: object) -> str:
+    labels = {
+        "random_occupancy": "Random occupancy",
+        "time_shifted_prototype_window": "Time-shifted",
+        "regime_matched_rare_region": "Rare-region matched",
+        "episode_label_permutation": "Label permutation",
+        "prototype_source_permutation": "Prototype permutation",
+        "phase_randomised_score": "Phase-randomised",
     }
     return labels.get(str(value), str(value))
 

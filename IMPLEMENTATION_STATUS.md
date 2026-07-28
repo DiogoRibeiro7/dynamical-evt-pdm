@@ -48,10 +48,14 @@ make industrial-results
 - Ruff formatting: passed.
 - Ruff linting: passed.
 - Mypy strict type checking: passed.
-- Pytest with configured coverage gate: 111 passed.
-- Measured coverage: 83.42%, above the configured 80% gate.
+- Pytest with configured coverage gate: 113 passed.
+- Measured coverage: 83.20%, above the configured 80% gate.
 - `make real-data-matrix`: succeeded locally with prepared MetroPT, MetroPT2, SCANIA Component X, Hydraulic Systems and SECOM data.
-- `make submission-package`: succeeded locally with decision `submission ready` and zero blockers.
+- `poetry run dyn-evt run-simulation-study --config configs/simulation/high_replication.yaml --output artifacts/simulation_study_high_rep.parquet --n-jobs 6`: generated 7,000 high-replication simulation rows with 500 repetitions across fourteen process families.
+- `poetry run dyn-evt run-simulation-study --config configs/simulation/focused_coverage.yaml --output artifacts/simulation_study_focused_coverage.parquet --n-jobs 6`: generated 2,000 focused-coverage rows with 1,000 repetitions across the preregistered focused subset.
+- `poetry run dyn-evt run-industrial-results --processed-root data/processed --output-root artifacts/real_data_matrix`: regenerated real-data artifacts including complete MetroPT/MetroPT2 event-level baseline coverage, target-region transferability rows, 6,000 draw-level matched negative controls, score-threshold-alarm decomposition, and timeline reconciliation.
+- `poetry run dyn-evt build-submission-package --paper-root paper --asset-root reports/paper --output-root reports/submission`: returns `not submission ready` because the DOI-backed external software archive is not yet available.
+- `make -C paper paper`: blocked locally by MiKTeX setup (`fresh TeX installation` message), so the fresh PDF rebuild is not claimed in this validation pass.
 
 ## Scientific Boundaries
 
@@ -60,3 +64,4 @@ make industrial-results
 - SCANIA Component X is evaluated as a vehicle-level repair-risk resource, Hydraulic Systems as cycle-level component health, and SECOM as wafer-level yield-failure detection; none are direct compressor-event replications.
 - Calibration and early-warning artifacts are diagnostics unless prospective calibrated probability evidence is added.
 - Weak, failed or non-estimable real-data results are preserved as part of the evidence package.
+- The earlier submission-ready decision applied to the Prompt 40/50 scope. The Prompt 61-70 review contract is stricter; local scientific artifact gates now pass, while the external DOI-backed archive remains unresolved.

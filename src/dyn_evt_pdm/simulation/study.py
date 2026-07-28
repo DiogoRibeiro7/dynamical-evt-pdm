@@ -186,6 +186,9 @@ def simulation_decision_records(
         "runs": "runs_theta",
         "ferro_segers_intervals": "intervals_theta",
         "k_gaps": "k_gaps_theta",
+        "reciprocal_mean_cluster": "reciprocal_mean_cluster_theta",
+        "block": "block_theta",
+        "no_declustering": "no_declustering_theta",
     }
     missing = sorted(required.union(estimator_columns.values()).difference(results.columns))
     if missing:
@@ -242,12 +245,18 @@ def simulation_study_config_from_mapping(
     )
     run_lengths = tuple(int(value) for value in experiment.get("run_lengths", (0, 5, 10)))
     repetitions = int(experiment.get("repetitions", 10))
-    noise_scale = float(simulation.get("noise_scale", 0.08))
+    systems = tuple(str(value) for value in experiment.get("systems", ()))
+    noise_scales = tuple(float(value) for value in experiment.get("noise_scales", ()))
+    if not noise_scales:
+        noise_scales = (0.0, float(simulation.get("noise_scale", 0.08)))
+    missing_rates = tuple(float(value) for value in experiment.get("missing_rates", (0.0,)))
     config = SimulationStudyConfig(
+        systems=systems or SimulationStudyConfig().systems,
         sample_sizes=sample_sizes,
         threshold_quantiles=threshold_quantiles,
         run_lengths=run_lengths,
-        noise_scales=(0.0, noise_scale),
+        noise_scales=noise_scales,
+        missing_rates=missing_rates,
         repetitions=repetitions,
         seed=int(simulation.get("seed", 42)),
         n_jobs=1 if n_jobs is None else n_jobs,
@@ -294,6 +303,9 @@ def _evaluate_task(
     runs_theta = np.nan
     intervals_theta = np.nan
     k_gaps_theta = np.nan
+    reciprocal_mean_cluster_theta = np.nan
+    block_theta = np.nan
+    no_declustering_theta = np.nan
     mean_cluster_size = np.nan
     hit_probability = np.nan
 
@@ -313,6 +325,10 @@ def _evaluate_task(
             )
         if n_clusters:
             mean_cluster_size = float(np.mean([cluster.size for cluster in clusters]))
+            reciprocal_mean_cluster_theta = 1.0 / mean_cluster_size if mean_cluster_size else np.nan
+            block_theta = float(n_clusters / max(1, n_exceedances))
+        if n_exceedances:
+            no_declustering_theta = 1.0
         if len(values) > config.hit_horizon:
             hit_probability = empirical_hit_probability(exceedances, horizon=config.hit_horizon)
     except ValueError as exc:
@@ -338,10 +354,20 @@ def _evaluate_task(
         "runs_theta": runs_theta,
         "intervals_theta": intervals_theta,
         "k_gaps_theta": k_gaps_theta,
+        "reciprocal_mean_cluster_theta": reciprocal_mean_cluster_theta,
+        "block_theta": block_theta,
+        "no_declustering_theta": no_declustering_theta,
         "true_theta": true_theta if true_theta is not None else np.nan,
         "runs_bias": runs_theta - true_theta if true_theta is not None else np.nan,
         "intervals_bias": intervals_theta - true_theta if true_theta is not None else np.nan,
         "k_gaps_bias": k_gaps_theta - true_theta if true_theta is not None else np.nan,
+        "reciprocal_mean_cluster_bias": reciprocal_mean_cluster_theta - true_theta
+        if true_theta is not None
+        else np.nan,
+        "block_bias": block_theta - true_theta if true_theta is not None else np.nan,
+        "no_declustering_bias": no_declustering_theta - true_theta
+        if true_theta is not None
+        else np.nan,
         "mean_cluster_size": mean_cluster_size,
         "hit_probability": hit_probability,
         "failed": failed,
@@ -524,4 +550,120 @@ def _simulate_system(
         )
     if system == "lagged_multivariate":
         return simulate_lagged_multivariate_extremes(n_steps, rng=rng, missing_rate=missing_rate)
+    if system == "noisy_periodic_dynamics":
+        return _renamed_series(
+            simulate_logistic_target_observable(
+                n_steps,
+                rng=rng,
+                noise_scale=max(noise_scale, 0.12),
+                missing_rate=missing_rate,
+            ),
+            system,
+        )
+    if system == "persistent_shift":
+        return _persistent_shift_series(
+            n_steps,
+            rng=rng,
+            noise_scale=noise_scale,
+            missing_rate=missing_rate,
+        )
+    if system == "smoothing":
+        return _smoothed_series(
+            simulate_iid_pareto(n_steps, rng=rng, missing_rate=missing_rate),
+            window=5,
+            system=system,
+        )
+    if system == "downsampling":
+        return _downsampled_series(
+            simulate_iid_pareto(max(n_steps * 2, n_steps + 1), rng=rng, missing_rate=missing_rate),
+            n_steps=n_steps,
+            system=system,
+        )
+    if system == "missing_at_random":
+        return _renamed_series(
+            simulate_iid_pareto(n_steps, rng=rng, missing_rate=max(missing_rate, 0.10)),
+            system,
+        )
+    if system == "burst_missingness":
+        return _burst_missingness_series(
+            simulate_iid_pareto(n_steps, rng=rng, missing_rate=missing_rate),
+            rng=rng,
+            system=system,
+        )
     raise ValueError(f"unknown simulation system: {system}")
+
+
+def _renamed_series(series: SimulatedSeries, system: str) -> SimulatedSeries:
+    return SimulatedSeries(
+        system=system,
+        values=series.values,
+        true_theta=series.true_theta,
+        frame=series.frame.assign(system=system),
+    )
+
+
+def _smoothed_series(series: SimulatedSeries, *, window: int, system: str) -> SimulatedSeries:
+    values = pd.Series(series.values).rolling(window=window, min_periods=1).mean().to_numpy()
+    return SimulatedSeries(
+        system=system,
+        values=values.astype(np.float64),
+        true_theta=None,
+        frame=pd.DataFrame({"time": np.arange(len(values), dtype=np.int64), "observable": values}),
+    )
+
+
+def _downsampled_series(series: SimulatedSeries, *, n_steps: int, system: str) -> SimulatedSeries:
+    values = np.asarray(series.values[::2][:n_steps], dtype=np.float64)
+    if len(values) < n_steps:
+        values = np.pad(values, (0, n_steps - len(values)), mode="edge")
+    return SimulatedSeries(
+        system=system,
+        values=values,
+        true_theta=None,
+        frame=pd.DataFrame({"time": np.arange(len(values), dtype=np.int64), "observable": values}),
+    )
+
+
+def _burst_missingness_series(
+    series: SimulatedSeries,
+    *,
+    rng: np.random.Generator,
+    system: str,
+) -> SimulatedSeries:
+    values = np.asarray(series.values, dtype=np.float64).copy()
+    burst_count = max(1, len(values) // 500)
+    burst_width = max(2, len(values) // 200)
+    starts = rng.integers(0, max(1, len(values) - burst_width), size=burst_count)
+    for start in starts:
+        values[int(start) : int(start) + burst_width] = np.nan
+    return SimulatedSeries(
+        system=system,
+        values=values,
+        true_theta=series.true_theta,
+        frame=pd.DataFrame({"time": np.arange(len(values), dtype=np.int64), "observable": values}),
+    )
+
+
+def _persistent_shift_series(
+    n_steps: int,
+    *,
+    rng: np.random.Generator,
+    noise_scale: float,
+    missing_rate: float,
+) -> SimulatedSeries:
+    values = rng.normal(0.0, 1.0, size=n_steps).astype(np.float64)
+    shift_starts = np.arange(max(10, n_steps // 8), n_steps, max(10, n_steps // 4))
+    shift_width = max(5, n_steps // 20)
+    for start in shift_starts:
+        values[int(start) : min(n_steps, int(start) + shift_width)] += 4.0
+    if noise_scale:
+        values += rng.normal(0.0, noise_scale, size=n_steps)
+    if missing_rate:
+        missing = rng.random(n_steps) < missing_rate
+        values[missing] = np.nan
+    return SimulatedSeries(
+        system="persistent_shift",
+        values=values,
+        true_theta=None,
+        frame=pd.DataFrame({"time": np.arange(n_steps, dtype=np.int64), "observable": values}),
+    )

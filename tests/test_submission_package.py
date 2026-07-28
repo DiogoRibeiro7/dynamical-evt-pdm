@@ -66,7 +66,7 @@ def test_build_submission_package_copies_terminal_real_data_matrix(tmp_path: Pat
     assert "Full real-data matrix terminal status is recorded locally" in reviewer_report
 
 
-def test_build_submission_package_with_complete_industrial_event_artifacts_is_ready(
+def test_build_submission_package_with_complete_legacy_artifacts_still_blocks_advanced_review(
     tmp_path: Path,
 ) -> None:
     paper_root, asset_root = _write_package_fixture(tmp_path)
@@ -83,8 +83,10 @@ def test_build_submission_package_with_complete_industrial_event_artifacts_is_re
 
     manifest = build_submission_package(config)
 
-    assert manifest.decision == "submission ready"
-    assert manifest.unresolved_blockers == ()
+    assert manifest.decision == "not submission ready"
+    assert "complete event-level baseline family is incomplete" in manifest.unresolved_blockers
+    assert "target-region transferability analysis is incomplete" in manifest.unresolved_blockers
+    assert "DOI-backed software archive is incomplete" in manifest.unresolved_blockers
     statements = (output_root / "submission_statements.md").read_text(encoding="utf-8")
     assert "to be completed" not in statements
     assert "Diogo Ribeiro" in statements

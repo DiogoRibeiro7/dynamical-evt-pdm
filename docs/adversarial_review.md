@@ -12,7 +12,7 @@ This document records the hostile but technically fair review position used by t
 
 ## Major Revisions
 
-The resolvable major issues have been addressed in code and generated artifacts:
+The first-round resolvable major issues have been addressed in code and generated artifacts:
 
 1. Claim ledger and paper checks block unsupported claim IDs and generated-asset provenance failures.
 2. Dataset reporting separates independent units from row counts.
@@ -20,9 +20,22 @@ The resolvable major issues have been addressed in code and generated artifacts:
 4. Real-data verification and industrial diagnostic result artifacts are terminal for MetroPT, MetroPT2, SCANIA Component X, Hydraulic Systems and SECOM when local public data have been fetched and prepared.
 5. The submission package copies the manuscript, supplement, sources, claim ledger, real-data matrix evidence, industrial results, reviewer report and revision matrix without redistributing raw third-party datasets.
 
+## Prompt 61-70 Status
+
+The latest review contract added stricter scientific gates. The local computational artifacts have now been generated:
+
+1. High-replication Monte Carlo validation is present in `artifacts/simulation_study_high_rep.parquet` with 500 repetitions across fourteen process families.
+2. A focused 1,000-replication coverage subset is present in `artifacts/simulation_study_focused_coverage.parquet`.
+3. The held-out event-level baseline family is complete for every declared method in MetroPT and MetroPT2.
+4. Target-region transferability rows are present in `artifacts/real_data_matrix/target_region_transferability.csv`.
+5. Matched negative controls include 6,000 draw-level rows in `artifacts/real_data_matrix/matched_negative_control_draws.csv` and summaries in `matched_negative_controls.csv`.
+6. Score, threshold and alarm-conversion decomposition rows are present in `artifacts/real_data_matrix/score_threshold_alarm_decomposition.csv`.
+7. Timeline reconciliation rows are present in `artifacts/real_data_matrix/timeline_reconciliation.csv`.
+8. A DOI-backed software archive has not been created and remains the only submission-package blocker.
+
 ## Minor Revisions
 
-Remaining work is editorial or venue-specific:
+The minor venue-specific items remain secondary to the new scientific blockers:
 
 1. Fit long generated tables to a target journal template.
 2. Tighten title, abstract length and statement ordering for the selected venue.
@@ -58,6 +71,6 @@ The manuscript and claim ledger intentionally preserve these limits:
 
 ## Final Recommendation
 
-Recommendation: submission ready.
+Recommendation: not submission ready.
 
-Confidence: high for the readiness decision because it follows generated checks and all adversarial-review issues are resolved. The supported contribution remains narrow: a reproducible, artifact-backed diagnostic workflow with explicit limits on industrial generalization.
+Confidence: high for the remaining negative readiness decision because the only unresolved gate requires an external DOI-backed software archive. The supported contribution remains narrow and reproducible; no DOI has been invented locally.

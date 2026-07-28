@@ -3,7 +3,7 @@
 
 \subsection{Simulation validity and estimator stability}
 
-The first research question asks whether the extremal-index diagnostics are stable enough to interpret. The generated simulation artifact now covers eight process families, two sample sizes, three threshold quantiles, three run lengths, two noise settings, and ten replications per cell. Figure~\ref{fig:simulation-rmse} reports runs-estimator RMSE by threshold quantile and simulation family. The result is useful for finding unstable threshold regions, but it is still interpreted as bounded finite-sample validation rather than a universal theorem about industrial fault mechanisms.
+The first research question asks whether the extremal-index diagnostics are stable enough to interpret. The high-replication simulation artifact now covers fourteen process families with 500 replications per configured cell, and a focused coverage artifact uses 1000 replications on a preregistered subset. The retained estimators are runs, Ferro--Segers intervals, K-gaps, reciprocal mean cluster size, block-based clustering, and a no-declustering reference. Figure~\ref{fig:simulation-rmse} reports finite-sample RMSE by threshold quantile and simulation family. The result is useful for finding unstable threshold regions, but it is still interpreted as bounded finite-sample validation rather than a universal theorem about industrial fault mechanisms.
 
 \begin{figure}[t]
   \centering
@@ -31,58 +31,41 @@ Across all registered combinations of alarm merge gap and post-onset matching to
 
 \input{../reports/paper/latex/matching_tolerance_summary.tex}
 
-\subsection{Real-data diagnostic outcomes}
+\subsection{Held-out event-level method comparison}
 
-The third and fourth research questions ask whether the registered robust extreme-score diagnostic adds operational value after episode conversion, and why empirical failures occur. Table~\ref{tab:event-level-results} gives the held-out event-level rows for MetroPT and MetroPT2. Each dataset contains one labelled test event in the registered split. Both events are detected, but the detection is operationally weak: MetroPT produces 2527 predicted alarm episodes with precision \(0.00040\), and MetroPT2 produces 849 predicted alarm episodes with precision \(0.00118\). The median lead times, 3346 and 3469 samples respectively, are not persuasive by themselves because they are paired with extreme false-alarm burdens.
+The third and fourth research questions ask whether the registered robust extreme-score diagnostic adds operational value after episode conversion, and why empirical failures occur. Table~\ref{tab:event-level-results} gives the held-out event-level rows for MetroPT and MetroPT2. Each dataset contains one labelled test event in the registered split. Both events are detected by the registered score, but the detection is operationally weak: MetroPT produces 2527 predicted alarm episodes with precision \(0.00040\), and MetroPT2 produces 849 predicted alarm episodes with precision \(0.00118\). The median lead times, 3346 and 3469 samples respectively, are not persuasive by themselves because they are paired with extreme false-alarm burdens.
 
-Hydraulic Systems, SCANIA Component X, and SECOM are reported separately in Table~\ref{tab:non-event-results} because their independent units are cycles, vehicles, and wafers rather than compressor failure episodes. All three have \(F_1=0\) under the conservative high-quantile diagnostic. These are not hidden failures. They are evidence that a simple extreme-score adapter does not transfer across laboratory cycle states, vehicle-level repair risk, and wafer-level yield labels without changing the estimand and evaluation design. Table~\ref{tab:root-cause} summarizes the dominant explanation supported by each diagnostic row.
+Table~\ref{tab:event-baseline-comparison} compares the registered score with a compact event-level baseline set under the same held-out event policy. The table keeps the best simple rule class, a classical EVT baseline, an anomaly baseline, the registered recurrence score, and the two target-region methods. The full baseline family remains in the generated CSV artifact.
 
 \input{../reports/paper/latex/industrial_event_level_results.tex}
-\input{../reports/paper/latex/industrial_non_event_results.tex}
-\input{../reports/paper/latex/root_cause_summary.tex}
-
-The dominant root-cause classifications are therefore provisional but informative. For MetroPT and MetroPT2, the current evidence points to alarm-conversion failure and insufficient independent failures: recall can be obtained, but only by issuing many alarms around sparse labelled events. For SCANIA, the dominant issue is estimand mismatch: a vehicle-level repair-risk task is not the same as compressor event warning. For Hydraulic Systems and SECOM, the current high-quantile score finds no useful positive-event detection, consistent with non-event labels and signatures that need different feature families or supervised baselines.
-
-\subsection{Score stratification and calibration limits}
-
-Figure~\ref{fig:reliability} and Figure~\ref{fig:split-calibration} are retained as score-stratification diagnostics, not probability calibration evidence. The current model outputs are ranks or anomaly scores. The generated bin tables report mean rank score and observed future-event proportion; the independent positive-event evidence is too limited for a strong calibrated probability claim.
-
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=0.58\linewidth]{../reports/paper/figures/reliability_diagram.png}
-  \caption{Score-stratification diagnostic for ranked horizon scores. Probability interpretation is not claimed.}
-  \label{fig:reliability}
-\end{figure}
-
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=0.62\linewidth]{../reports/paper/figures/split_calibration_intervals.png}
-  \caption{Split-aware score-stratification intervals for ranked horizon scores.}
-  \label{fig:split-calibration}
-\end{figure}
-
-\subsection{Metric provenance, baselines, and audit timeline}
-
-Table~\ref{tab:event-baseline-comparison} reports real held-out event-level baselines and target-region variants under the same alarm policy as the registered diagnostic. Table~\ref{tab:event-variant-comparison} isolates the registered score, target-region variants, and negative control. These tables are descriptive rather than a superiority claim: they use only the available held-out failure in each compressor dataset, so precision and false-alarm burden remain the dominant evidence.
-
 \input{../reports/paper/latex/event_baseline_comparison.tex}
-\input{../reports/paper/latex/event_variant_comparison.tex}
 
-Table~\ref{tab:metric-provenance} records the source artifact, split, metric class, value, and independent unit for the real event-level alarm metrics used in this section. The MetroPT and MetroPT2 values are held-out event-level alarm metrics, not timestamp-level classification scores. This provenance prevents event precision, false-alarm burden, and pointwise validation checks from being compared as if they were the same result.
+\subsection{Target-region heterogeneity across MetroPT and MetroPT2}
 
-\input{../reports/paper/latex/metric_provenance.tex}
-\input{../reports/paper/latex/method_scope_completion.tex}
+The strongest empirical divergence is the failure-prototype target region. It materially reduces alarm burden in MetroPT2 but fails to detect the held-out MetroPT event. Table~\ref{tab:target-region-transferability} reports the within-dataset and cross-dataset target-region comparison for failure-prototype and rare-state regions. This instability means the two compressor datasets cannot be treated as equivalent evidence for one transferable recurrence region.
 
-Figure~\ref{fig:metric-collapse} visualizes the operational scale of the real event-level metrics: event precision is near zero while false-alarm burden remains large after alarm conversion.
+\input{../reports/paper/latex/target_region_transferability.tex}
+
+\subsection{Matched negative controls}
+
+Table~\ref{tab:matched-negative-controls} compares the observed failure-prototype alarm burden with 500 deterministic matched-control draws for each control family and dataset. These controls preserve occupancy, exposure length, temporal shifting, rare-region structure, or block structure while breaking the specific relationship to the held-out failure. The comparison is descriptive because only two independent held-out compressor failures are available.
+
+\input{../reports/paper/latex/matched_negative_controls.tex}
+
+\subsection{Score-threshold-alarm decomposition}
+
+Figure~\ref{fig:metric-collapse} replaces the previous incomparable metric plot. It follows count-valued evidence through the score, threshold, alarm, and target-event layers. The dominant failure layer is not identical across methods: some scores never isolate the event, some thresholds create too many exceedances, and some alarm policies collapse precision after clustering and merging.
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.76\linewidth]{../reports/paper/figures/metric_collapse_decomposition.png}
-  \caption{Real event-level metric diagnostic showing near-zero event precision and large false-alarm burden after alarm conversion.}
+  \caption{Score-threshold-alarm decomposition for real held-out event methods. The panels show count-valued transitions rather than mixing event precision with false alarms per day on one axis.}
   \label{fig:metric-collapse}
 \end{figure}
 
-Synthetic baseline-family outputs remain in the supplement as runner audits. The empirical comparison in Table~\ref{tab:event-baseline-comparison} is the event-level evidence. The event timeline in Figure~\ref{fig:timeline} is now generated from the MetroPT held-out test failure; Table~\ref{tab:timeline-traceability} records the figure source.
+\subsection{Timeline reconciliation}
+
+The event timeline in Figure~\ref{fig:timeline} is generated from the MetroPT held-out test failure. It is a local explanation of one failure window, not a substitute for global false-alarm burden. The global alarm counts remain those in the event-level tables.
 
 \begin{figure}[t]
   \centering
@@ -91,4 +74,9 @@ Synthetic baseline-family outputs remain in the supplement as runner audits. The
   \label{fig:timeline}
 \end{figure}
 
-\input{../reports/paper/latex/timeline_traceability.tex}
+\subsection{Supplementary non-event stress tests}
+
+Hydraulic Systems, SCANIA Component X, and SECOM are reported separately in Table~\ref{tab:non-event-results} because their independent units are cycles, vehicles, and wafers rather than compressor failure episodes. All three have \(F_1=0\) under the conservative high-quantile diagnostic. These are not hidden failures. They are evidence that a simple extreme-score adapter does not transfer across laboratory cycle states, vehicle-level repair risk, and wafer-level yield labels without changing the estimand and evaluation design. Table~\ref{tab:root-cause} summarizes the most plausible explanations under the current evidence.
+
+\input{../reports/paper/latex/industrial_non_event_results.tex}
+\input{../reports/paper/latex/root_cause_summary.tex}

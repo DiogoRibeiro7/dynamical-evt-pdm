@@ -11,6 +11,7 @@ from dyn_evt_pdm.simulation.study import (
     run_simulation_study,
     simulation_decision_records,
     simulation_experiment_id,
+    simulation_study_config_from_mapping,
     write_simulation_study,
 )
 from dyn_evt_pdm.simulation.systems import (
@@ -72,6 +73,9 @@ def test_simulation_study_is_reproducible_and_tidy() -> None:
         "runs",
         "ferro_segers_intervals",
         "k_gaps",
+        "reciprocal_mean_cluster",
+        "block",
+        "no_declustering",
     }
     assert {decision.hypothesis_id for decision in decisions} == {"SIM-EI-RECOVERY"}
 
@@ -98,6 +102,31 @@ def test_write_simulation_study_and_plot(tmp_path: Path) -> None:
     plot_theta_bias_by_quantile(result, figure)
     assert figure.exists()
     assert figure.stat().st_size > 0
+
+
+def test_simulation_config_mapping_honors_explicit_grid() -> None:
+    config = simulation_study_config_from_mapping(
+        {
+            "simulation": {"seed": 123},
+            "experiment": {
+                "systems": ["iid_pareto"],
+                "sample_sizes": [1500],
+                "thresholds": [0.9],
+                "run_lengths": [3],
+                "noise_scales": [0.0, 0.1],
+                "missing_rates": [0.0, 0.05],
+                "repetitions": 500,
+            },
+        }
+    )
+
+    assert config.systems == ("iid_pareto",)
+    assert config.sample_sizes == (1500,)
+    assert config.threshold_quantiles == (0.9,)
+    assert config.run_lengths == (3,)
+    assert config.noise_scales == (0.0, 0.1)
+    assert config.missing_rates == (0.0, 0.05)
+    assert config.repetitions == 500
 
 
 def test_simulation_study_cli_smoke(tmp_path: Path) -> None:

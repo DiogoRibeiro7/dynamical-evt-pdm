@@ -1,4 +1,4 @@
-.PHONY: install metadata package format format-check lint typecheck test check fetch-data prepare-data simulate simulation-study experiment-matrix real-data-matrix industrial-results end-to-end-smoke paper-assets paper-assets-verify paper supplement paper-check submission-package
+.PHONY: install metadata package format format-check lint typecheck test check fetch-data prepare-data simulate simulation-study high-replication-simulation focused-coverage-simulation experiment-matrix real-data-matrix industrial-results end-to-end-smoke paper-assets paper-assets-verify paper supplement paper-check submission-package
 
 install:
 	poetry install --with dev
@@ -42,6 +42,12 @@ simulate:
 
 simulation-study:
 	poetry run dyn-evt run-simulation-study --config configs/simulation/broad_validation.yaml --output artifacts/simulation_study_broad.parquet
+
+high-replication-simulation:
+	poetry run dyn-evt run-simulation-study --config configs/simulation/high_replication.yaml --output artifacts/simulation_study_high_rep.parquet
+
+focused-coverage-simulation:
+	poetry run dyn-evt run-simulation-study --config configs/simulation/focused_coverage.yaml --output artifacts/simulation_study_focused_coverage.parquet
 
 experiment-matrix:
 	poetry run dyn-evt run-experiment-matrix --output-root artifacts/experiment_matrix

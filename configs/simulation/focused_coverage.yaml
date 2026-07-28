@@ -1,0 +1,13 @@
+simulation:
+  name: focused_coverage_validation
+  seed: 20260728
+experiment:
+  systems:
+    - iid_light_tail
+    - logistic_periodic_target
+  sample_sizes: [5000]
+  thresholds: [0.98]
+  run_lengths: [5]
+  noise_scales: [0.08]
+  missing_rates: [0.05]
+  repetitions: 1000

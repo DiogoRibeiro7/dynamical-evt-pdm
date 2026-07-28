@@ -1,0 +1,73 @@
+{
+  "release_candidate": "0.2.0",
+  "date": "2026-07-28",
+  "repository": "https://github.com/DiogoRibeiro7/dynamical-evt-pdm",
+  "doi_status": "not_created",
+  "release_commit_status": "pending_commit",
+  "submission_decision": "not submission ready",
+  "unresolved_blockers": [
+    "DOI-backed software archive is incomplete"
+  ],
+  "artifacts": [
+    {
+      "path": "dist/dyn_evt_pdm-0.2.0.tar.gz",
+      "size_bytes": 127977,
+      "sha256": "edba729e3158691db17d2a90d6ab9ebdee2ea3d3956f9b27eab6bdd1139ca629"
+    },
+    {
+      "path": "dist/dyn_evt_pdm-0.2.0-py3-none-any.whl",
+      "size_bytes": 149812,
+      "sha256": "cf7ea29fd8c020e6ddd94331703bd23c4b03fb7c2cbab4705987599662669fd1"
+    },
+    {
+      "path": "paper/main.pdf",
+      "size_bytes": 556545,
+      "sha256": "27aaf47a61f47775c50c8e3ce46cf936398cfb5fae16b92cc38a8e79229fbed8"
+    },
+    {
+      "path": "artifacts/simulation_study_high_rep.parquet",
+      "size_bytes": 328616,
+      "sha256": "87faab4d20e1946eea5804e5bba1b48ddd2f1ece5286434bbe6cb4e815699d5e"
+    },
+    {
+      "path": "artifacts/simulation_study_high_rep.parquet.manifest.json",
+      "size_bytes": 978,
+      "sha256": "734600a6481e9953cf69dc593b26316e03c0355d8a56394d716d3c0068164f4d"
+    },
+    {
+      "path": "artifacts/real_data_matrix/event_baseline_comparison.csv",
+      "size_bytes": 7833,
+      "sha256": "3ad151de5051af969a7c1b79258ad7e4aa1e92242507b6b70f414f860548c72e"
+    },
+    {
+      "path": "artifacts/real_data_matrix/matched_negative_control_draws.csv",
+      "size_bytes": 1124006,
+      "sha256": "d7065fd8d32a5a122b043469552b8426bf2836eb546e1c7ba9bbd8e497b1d97f"
+    },
+    {
+      "path": "artifacts/real_data_matrix/matched_negative_controls.csv",
+      "size_bytes": 8504,
+      "sha256": "3e9253ff3f258bafe42bac2a8fb4bb4b774ffe3a422f729e8c7a8c451ea52d60"
+    },
+    {
+      "path": "artifacts/real_data_matrix/score_threshold_alarm_decomposition.csv",
+      "size_bytes": 8343,
+      "sha256": "df952656fefd3c58afdc4cc29e7b8bd247376d65627ef203956d00c676831854"
+    },
+    {
+      "path": "artifacts/real_data_matrix/target_region_transferability.csv",
+      "size_bytes": 2251,
+      "sha256": "ffc372f00d8e7507a0ce760b29d5225ab2443fafcef591fc4b501b7450fbb653"
+    },
+    {
+      "path": "artifacts/real_data_matrix/timeline_reconciliation.csv",
+      "size_bytes": 804,
+      "sha256": "62d9f2acd232776a201bd2bf27436fb8dd30ce242db0c4e9c158dec54b81d77b"
+    },
+    {
+      "path": "reports/submission/final_decision.md",
+      "size_bytes": 115,
+      "sha256": "b9679e0c7ec853b7e381eff685276a2bbd85d12ce0ec54a6ed6c502e6ff14fa3"
+    }
+  ]
+}

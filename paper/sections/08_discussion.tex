@@ -1,12 +1,30 @@
 \section{Discussion}
 \label{sec:discussion}
 
-The main scientific lesson is negative. Clustered extremes and low extremal-index diagnostics can be observable in industrial telemetry, but that does not imply useful early warning. The conversion from pointwise exceedances to alarm episodes is a separate modelling decision. In the registered threshold grid, that conversion produced a failed-detection region; in the compressor diagnostics, event recall was possible only with thousands of predicted alarm episodes and very low precision.
+\subsection{Estimator finite-sample validity}
 
-The likely mechanisms differ by dataset role. For MetroPT and MetroPT2, the limiting factors are sparse independent failures, target-region uncertainty, and alarm burden. A single detected held-out event cannot support a stable estimate of event-level performance when the alarm policy generates many episodes. For SCANIA Component X, the issue is not merely performance; it is a different estimand, because vehicle-level repair-risk ranking is not compressor early warning. Hydraulic Systems and SECOM show another boundary: condition-state and yield labels can be processed by the software, but they do not supply event-onset evidence for dynamical-EVT alarm claims.
+The Monte Carlo results support a bounded interpretation of the EVT diagnostics. Runs, Ferro--Segers, K-gaps, reciprocal mean cluster size, block clustering, and no-declustering references are useful for detecting estimator instability across process families, thresholds, missingness, and dynamical structure. They do not by themselves identify maintenance-relevant degradation. The practical implication is that recurrence estimates should be treated as conditional diagnostics tied to the chosen observable, threshold, run length, and sampling process.
 
-The extremal index should therefore be read as a dependence diagnostic. It can identify clustering under a chosen observable, threshold, and run length, but it is not a mechanical degradation variable. Regime mixture, smoothing, missingness, periodic control behavior, and persistent shifts can all create clustered exceedances. Useful deployment would require showing that the target region is identifiable from training data, that failures recur through that region before onset, that enough independent failures or entities exist for uncertainty estimation, and that the alarm policy remains useful after episode conversion.
+\subsection{Target-region transferability}
 
-Calibration is similarly limited. The current outputs are ranks or anomaly scores. Score-stratification plots are useful for detecting orientation mistakes and split drift, but they are not evidence of calibrated failure probabilities unless a separate calibration partition contains enough independent positive units and the score-to-probability map is tested on held-out data.
+The central empirical finding is target-region heterogeneity. The failure-prototype region missed the held-out MetroPT failure, yet detected the held-out MetroPT2 failure with 157 alarm episodes and 9.41 false alarms per operating day. That result is materially better than the registered recurrence score on MetroPT2, but it does not transfer back to MetroPT. The evidence therefore supports target-region instability, not a general target-region solution.
 
-The reproducibility layer remains important because it prevents negative results from being silently edited away. The repository checks generated references, citations, unsupported claim language, compiled PDFs, and artifact manifests. These checks do not make the method scientifically successful. They make the boundary between supported evidence and unsupported interpretation explicit.
+\subsection{Score, Threshold, and Alarm Failure}
+
+The failure mode is layered. Some methods fail at the score layer because failure-proximal states are not separated from normal states. Others produce score information that is lost or made operationally unusable by threshold choice. The registered recurrence score detects both compressor failures, but alarm conversion leaves hundreds or thousands of episodes. That is an alarm-policy failure after thresholding, not a calibrated maintenance signal.
+
+\subsection{Comparison With Baselines}
+
+Simple baselines remain competitive under the held-out event policy. The engineering threshold detected both compressor events and reduced alarm burden relative to the registered score. Classical EVT and anomaly baselines did not remove the basic precision problem. The proposed recurrence score therefore adds diagnostic structure, but it does not add measurable operational value on these held-out events.
+
+\subsection{Matched Negative Controls}
+
+Matched controls prevent over-interpreting one favorable target-region result. For MetroPT2, the failure-prototype region has lower false-alarm burden than rare-region and phase-randomised controls, but occupancy-matched random regions can have lower burden. The result is promising as a diagnostic contrast, not as evidence that the learned region is uniquely failure-proximal.
+
+\subsection{Independent-Event Scarcity}
+
+Only two independent held-out compressor failures are available. This prevents stable estimation of event-level uncertainty, calibration, and failure-type heterogeneity. Timestamp counts cannot substitute for independent failures because alarm episodes are temporally dependent and can cluster around the same operating regime.
+
+\subsection{Operational Implications}
+
+The workflow is useful as an audit of how extreme-score methods fail. It exposes whether apparent score excursions survive thresholding, declustering, alarm merging, and event matching. It does not establish deployable early warning. Deployment would require prospectively validated target regions, enough independent failures or entities, acceptable false-alarm burden, useful lead time, and comparison against simple policies under the same episode-level evaluation.

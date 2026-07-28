@@ -11,4 +11,5 @@
 | 27 | Rebuild calibration and uncertainty | Replaced probability language with score-stratification language | Full calibration requires enough positive independent calibration units |
 | 28 | Restructure dataset scope | Assigned dataset roles and added manuscript checks against dataset-count overclaims | Event datasets and non-event datasets are reported in separate tables |
 | 29 | Rewrite results figures and tables | Results now answer scientific questions; flat zero-recall figure was removed from the main paper | Full threshold grid remains in the supplement |
-| 30 | Rewrite manuscript and review | Rewrote main narrative and refreshed submission/QA artifacts after the expanded experiments | Submission package reports ready with zero unresolved blockers |
+| 30 | Rewrite manuscript and review | Rewrote main narrative and refreshed submission/QA artifacts after the expanded experiments | Earlier package was ready under the Prompt 40/50 scope; Prompt 51-60 adds stricter unresolved gates |
+| 51-60 | Advanced revision contract | Built high-rep Monte Carlo, complete event baselines, transferability, matched controls, failure decomposition and timeline reconciliation artifacts; kept DOI archive as an external gate | Not submission ready until the software archive DOI exists |

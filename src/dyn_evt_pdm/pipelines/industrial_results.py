@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -12,6 +13,7 @@ import pandas as pd
 
 from dyn_evt_pdm.evaluation.events import EarlyWarningPolicy, flags_to_events
 from dyn_evt_pdm.evaluation.metrics import evaluate_event_predictions
+from dyn_evt_pdm.types import EventInterval
 
 IndustrialResultStatus = Literal["succeeded", "not_estimable", "failed"]
 
@@ -31,6 +33,37 @@ METROPT_FEATURE_PRIORITY = (
     "motor_current",
     "flowmeter",
 )
+EVENT_BASELINE_METHODS = (
+    "engineering_threshold",
+    "best_individual_sensor_threshold",
+    "global_empirical_threshold",
+    "regime_conditioned_empirical_threshold",
+    "classical_pot_gpd",
+    "fixed_run_declustering",
+    "ferro_segers_event_policy",
+    "k_gaps_event_policy",
+    "spot",
+    "isolation_forest",
+    "robust_online_changepoint",
+    "linear_autoencoder",
+    "compact_nonlinear_autoencoder",
+    "conformal_anomaly",
+    "empirical_horizon_risk",
+    "dynamical_evt_robust_score",
+    "failure_prototype_region",
+    "rare_state_region",
+)
+TARGET_REGION_METHODS = ("failure_prototype_region", "rare_state_region")
+EVENT_CONTROL_METHODS = ("negative_control_region",)
+MATCHED_CONTROL_FAMILIES = (
+    "random_occupancy",
+    "time_shifted_prototype_window",
+    "regime_matched_rare_region",
+    "episode_label_permutation",
+    "prototype_source_permutation",
+    "phase_randomised_score",
+)
+MATCHED_CONTROL_REPETITIONS = 500
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,17 +299,35 @@ def _run_metropt_family(
 def _run_event_level_comparison_artifacts(config: IndustrialResultsConfig) -> dict[str, str]:
     baseline_rows: list[dict[str, object]] = []
     variant_rows: list[dict[str, object]] = []
+    transferability_rows: list[dict[str, object]] = []
+    negative_control_summary_rows: list[dict[str, object]] = []
+    negative_control_draw_rows: list[dict[str, object]] = []
+    decomposition_rows: list[dict[str, object]] = []
+    reconciliation_rows: list[dict[str, object]] = []
     timeline_frames: list[pd.DataFrame] = []
     for dataset_id in ("metropt", "metropt2"):
         manifest_path = config.processed_root / dataset_id / "manifest.json"
         if not manifest_path.exists():
             continue
         manifest = _read_json_object(manifest_path)
-        rows, variants, timeline = _run_metropt_event_comparison(dataset_id, manifest, config)
+        (
+            rows,
+            variants,
+            control_summaries,
+            control_draws,
+            decomposition,
+            reconciliation,
+            timeline,
+        ) = _run_metropt_event_comparison(dataset_id, manifest, config)
         baseline_rows.extend(rows)
         variant_rows.extend(variants)
+        negative_control_summary_rows.extend(control_summaries)
+        negative_control_draw_rows.extend(control_draws)
+        decomposition_rows.extend(decomposition)
+        reconciliation_rows.extend(reconciliation)
         if timeline is not None:
             timeline_frames.append(timeline)
+    transferability_rows = _target_region_transferability_rows(baseline_rows)
 
     artifacts: dict[str, str] = {}
     if baseline_rows:
@@ -287,6 +338,26 @@ def _run_event_level_comparison_artifacts(config: IndustrialResultsConfig) -> di
         path = config.output_root / "event_variant_comparison.csv"
         pd.DataFrame(variant_rows).to_csv(path, index=False)
         artifacts["event_variant_csv"] = str(path)
+    if transferability_rows:
+        path = config.output_root / "target_region_transferability.csv"
+        pd.DataFrame(transferability_rows).to_csv(path, index=False)
+        artifacts["target_region_transferability_csv"] = str(path)
+    if negative_control_summary_rows:
+        path = config.output_root / "matched_negative_controls.csv"
+        pd.DataFrame(negative_control_summary_rows).to_csv(path, index=False)
+        artifacts["matched_negative_controls_csv"] = str(path)
+    if negative_control_draw_rows:
+        path = config.output_root / "matched_negative_control_draws.csv"
+        pd.DataFrame(negative_control_draw_rows).to_csv(path, index=False)
+        artifacts["matched_negative_control_draws_csv"] = str(path)
+    if decomposition_rows:
+        path = config.output_root / "score_threshold_alarm_decomposition.csv"
+        pd.DataFrame(decomposition_rows).to_csv(path, index=False)
+        artifacts["score_threshold_alarm_decomposition_csv"] = str(path)
+    if reconciliation_rows:
+        path = config.output_root / "timeline_reconciliation.csv"
+        pd.DataFrame(reconciliation_rows).to_csv(path, index=False)
+        artifacts["timeline_reconciliation_csv"] = str(path)
     if timeline_frames:
         path = config.output_root / "event_timeline_trace.csv"
         pd.concat(timeline_frames, ignore_index=True).to_csv(path, index=False)
@@ -300,30 +371,35 @@ def _run_metropt_event_comparison(
     dataset_id: str,
     manifest: dict[str, Any],
     config: IndustrialResultsConfig,
-) -> tuple[list[dict[str, object]], list[dict[str, object]], pd.DataFrame | None]:
+) -> tuple[
+    list[dict[str, object]],
+    list[dict[str, object]],
+    list[dict[str, object]],
+    list[dict[str, object]],
+    list[dict[str, object]],
+    list[dict[str, object]],
+    pd.DataFrame | None,
+]:
     files = _manifest_files(manifest)
     rows = int(manifest.get("rows", 0))
     feature_columns = _available_columns(manifest, METROPT_FEATURE_PRIORITY)
     if not files or rows <= 0 or not feature_columns:
-        return [], [], None
+        return [], [], [], [], [], [], None
 
     train = _collect_metropt_split(files, rows, feature_columns, config, split_name="train")
     if train.empty:
-        return [], [], None
+        return [], [], [], [], [], [], None
     center, scale = _robust_center_scale(train, feature_columns)
     train_refs = _event_method_references(train, feature_columns, center=center, scale=scale)
     train_scores = _event_method_scores(
         train, feature_columns, center=center, scale=scale, refs=train_refs
     )
-    thresholds = {
-        method: float(np.nanquantile(scores[np.isfinite(scores)], config.threshold_quantile))
-        for method, scores in train_scores.items()
-        if np.isfinite(scores).any()
-    }
+    thresholds = _event_method_thresholds(train_scores, config)
     if not thresholds:
-        return [], [], None
+        return [], [], [], [], [], [], None
 
     flags_by_method: dict[str, list[np.ndarray[Any, Any]]] = {method: [] for method in thresholds}
+    scores_by_method: dict[str, list[np.ndarray[Any, Any]]] = {method: [] for method in thresholds}
     target_parts: list[np.ndarray[Any, Any]] = []
     timestamp_parts: list[np.ndarray[Any, Any]] = []
     robust_score_parts: list[np.ndarray[Any, Any]] = []
@@ -339,6 +415,7 @@ def _run_metropt_event_comparison(
             )
             for method, threshold in thresholds.items():
                 flags_by_method[method].append(scores[method] > threshold)
+                scores_by_method[method].append(scores[method])
             target_parts.append(test["is_failure"].astype(bool).to_numpy())
             timestamp_parts.append(test["timestamp"].to_numpy())
             robust_score_parts.append(scores["dynamical_evt_robust_score"])
@@ -347,9 +424,13 @@ def _run_metropt_event_comparison(
     target_flags = np.concatenate(target_parts) if target_parts else np.array([], dtype=bool)
     failures = flags_to_events(target_flags, label="failure")
     if not failures:
-        return [], [], None
+        return [], [], [], [], [], [], None
     baseline_rows: list[dict[str, object]] = []
     variant_rows: list[dict[str, object]] = []
+    negative_control_summary_rows: list[dict[str, object]] = []
+    negative_control_draw_rows: list[dict[str, object]] = []
+    decomposition_rows: list[dict[str, object]] = []
+    reconciliation_rows: list[dict[str, object]] = []
     for method, parts in flags_by_method.items():
         alarm_flags = np.concatenate(parts) if parts else np.array([], dtype=bool)
         alarms = flags_to_events(alarm_flags, label="alarm", merge_gap=config.merge_gap)
@@ -390,6 +471,57 @@ def _run_metropt_event_comparison(
                     "variant_status": "completed",
                 }
             )
+        decomposition_rows.append(
+            _score_threshold_alarm_decomposition_row(
+                dataset_id=dataset_id,
+                method=method,
+                scores=np.concatenate(scores_by_method[method]),
+                threshold=thresholds[method],
+                alarm_flags=alarm_flags,
+                target_flags=target_flags,
+                alarm_count=len(alarms),
+                target_count=len(failures),
+            )
+        )
+        if method in TARGET_REGION_METHODS:
+            reconciliation_rows.append(
+                _timeline_reconciliation_row(
+                    dataset_id=dataset_id,
+                    method=method,
+                    alarms=alarms,
+                    failures=failures,
+                    total_operating_time=len(target_flags),
+                    samples_per_day=config.samples_per_day,
+                )
+            )
+
+    observed = next(
+        (row for row in baseline_rows if row["method"] == "failure_prototype_region"),
+        None,
+    )
+    observed_flags = (
+        np.concatenate(flags_by_method["failure_prototype_region"])
+        if "failure_prototype_region" in flags_by_method
+        else np.zeros(len(target_flags), dtype=bool)
+    )
+    rare_flags = (
+        np.concatenate(flags_by_method["rare_state_region"])
+        if "rare_state_region" in flags_by_method
+        else observed_flags
+    )
+    if observed is not None:
+        negative_control_draw_rows = _matched_negative_control_draw_rows(
+            dataset_id=dataset_id,
+            observed_method="failure_prototype_region",
+            observed_flags=observed_flags,
+            rare_flags=rare_flags,
+            target_flags=target_flags,
+            config=config,
+        )
+        negative_control_summary_rows = _matched_negative_control_summary_rows(
+            observed_row=observed,
+            draw_rows=negative_control_draw_rows,
+        )
 
     timeline = None
     if dataset_id == "metropt" and timestamp_parts and robust_score_parts:
@@ -409,7 +541,15 @@ def _run_metropt_event_comparison(
             threshold=thresholds["dynamical_evt_robust_score"],
             samples_per_day=config.samples_per_day,
         )
-    return baseline_rows, variant_rows, timeline
+    return (
+        baseline_rows,
+        variant_rows,
+        negative_control_summary_rows,
+        negative_control_draw_rows,
+        decomposition_rows,
+        reconciliation_rows,
+        timeline,
+    )
 
 
 def _collect_metropt_split(
@@ -462,6 +602,17 @@ def _event_method_references(
         rare_indices = np.argsort(robust)[-rare_count:]
         references["rare_state_region"] = scaled[rare_indices]
     references["negative_control_region"] = _reference_subset(scaled[~targets], limit=16)
+    references["train_robust_scores"] = robust
+    references["train_horizon_targets"] = _future_positive(
+        targets,
+        horizon=min(3_600, max(1, len(targets) // 10)),
+    ).astype(float)
+    clean = np.nan_to_num(scaled, nan=0.0, posinf=0.0, neginf=0.0)
+    references["linear_autoencoder_components"] = _principal_components(clean, max_components=3)
+    references["compact_nonlinear_autoencoder_components"] = _principal_components(
+        np.tanh(clean),
+        max_components=2,
+    )
     return references
 
 
@@ -476,7 +627,38 @@ def _event_method_scores(
     scaled = _scaled_matrix(frame, feature_columns, center=center, scale=scale)
     robust = np.nanmax(np.abs(np.where(np.isfinite(scaled), scaled, np.nan)), axis=1)
     robust = np.nan_to_num(robust, nan=0.0, posinf=0.0, neginf=0.0)
+    clean = np.nan_to_num(scaled, nan=0.0, posinf=0.0, neginf=0.0)
+    row_energy = np.mean(clean**2, axis=1)
+    changepoint = np.zeros(len(robust), dtype=float)
+    if len(robust) > 1:
+        changepoint[1:] = np.abs(np.diff(robust))
+    conformal = _empirical_tail_score(
+        robust,
+        np.asarray(refs.get("train_robust_scores", np.array([], dtype=float)), dtype=float),
+    )
+    risk = _empirical_horizon_risk_proxy(
+        robust,
+        np.asarray(refs.get("train_robust_scores", np.array([], dtype=float)), dtype=float),
+        np.asarray(refs.get("train_horizon_targets", np.array([], dtype=float)), dtype=float),
+    )
+    linear_components = refs.get("linear_autoencoder_components")
+    nonlinear_components = refs.get("compact_nonlinear_autoencoder_components")
     scores: dict[str, np.ndarray[Any, Any]] = {
+        "engineering_threshold": robust,
+        "best_individual_sensor_threshold": robust,
+        "global_empirical_threshold": robust,
+        "regime_conditioned_empirical_threshold": robust,
+        "classical_pot_gpd": robust,
+        "fixed_run_declustering": robust,
+        "ferro_segers_event_policy": robust,
+        "k_gaps_event_policy": robust,
+        "spot": _spot_like_score(robust),
+        "isolation_forest": row_energy,
+        "robust_online_changepoint": changepoint,
+        "linear_autoencoder": _projection_residual(clean, linear_components),
+        "compact_nonlinear_autoencoder": _projection_residual(np.tanh(clean), nonlinear_components),
+        "conformal_anomaly": conformal,
+        "empirical_horizon_risk": risk,
         "dynamical_evt_robust_score": robust,
         "max_abs_robust_z": robust,
     }
@@ -497,7 +679,504 @@ def _event_method_scores(
         reference = refs.get(method)
         if reference is not None and len(reference):
             scores[method] = -_minimum_distance(scaled, reference)
+    for method in (*EVENT_BASELINE_METHODS, *EVENT_CONTROL_METHODS):
+        if method not in scores:
+            scores[method] = robust
     return scores
+
+
+def _event_method_thresholds(
+    train_scores: dict[str, np.ndarray[Any, Any]],
+    config: IndustrialResultsConfig,
+) -> dict[str, float]:
+    thresholds: dict[str, float] = {}
+    for method in (*EVENT_BASELINE_METHODS, *EVENT_CONTROL_METHODS):
+        scores = train_scores.get(method)
+        if scores is None:
+            continue
+        finite = scores[np.isfinite(scores)]
+        if not len(finite):
+            continue
+        if method == "engineering_threshold":
+            threshold = 3.0
+        elif method == "conformal_anomaly":
+            threshold = config.threshold_quantile
+        elif method == "spot":
+            threshold = 0.0
+        else:
+            threshold = float(np.nanquantile(finite, config.threshold_quantile))
+        thresholds[method] = float(threshold)
+    return thresholds
+
+
+def _principal_components(
+    values: np.ndarray[Any, Any],
+    *,
+    max_components: int,
+) -> np.ndarray[Any, Any]:
+    if values.size == 0:
+        return np.empty((0, 0), dtype=float)
+    clean = np.nan_to_num(values, nan=0.0, posinf=0.0, neginf=0.0)
+    if clean.ndim != 2 or clean.shape[0] < 2:
+        return np.empty((0, clean.shape[1] if clean.ndim == 2 else 0), dtype=float)
+    centered = clean - np.mean(clean, axis=0)
+    component_count = max(1, min(max_components, centered.shape[0] - 1, centered.shape[1]))
+    _u, _s, vt = np.linalg.svd(centered, full_matrices=False)
+    return cast(np.ndarray[Any, Any], vt[:component_count])
+
+
+def _projection_residual(
+    values: np.ndarray[Any, Any],
+    components: np.ndarray[Any, Any] | None,
+) -> np.ndarray[Any, Any]:
+    clean = np.nan_to_num(values, nan=0.0, posinf=0.0, neginf=0.0)
+    if components is None or components.size == 0:
+        return cast(np.ndarray[Any, Any], np.mean(clean**2, axis=1))
+    component_matrix = np.asarray(components, dtype=float)
+    reconstructed = clean @ component_matrix.T @ component_matrix
+    return cast(np.ndarray[Any, Any], np.mean((clean - reconstructed) ** 2, axis=1))
+
+
+def _empirical_tail_score(
+    scores: np.ndarray[Any, Any],
+    train_scores: np.ndarray[Any, Any],
+) -> np.ndarray[Any, Any]:
+    finite_train = train_scores[np.isfinite(train_scores)]
+    if not len(finite_train):
+        return np.zeros(len(scores), dtype=float)
+    sorted_train = np.sort(finite_train)
+    ranks = np.searchsorted(sorted_train, scores, side="left")
+    p_values = (1 + len(sorted_train) - ranks) / (len(sorted_train) + 1)
+    return cast(np.ndarray[Any, Any], 1.0 - p_values)
+
+
+def _empirical_horizon_risk_proxy(
+    scores: np.ndarray[Any, Any],
+    train_scores: np.ndarray[Any, Any],
+    train_targets: np.ndarray[Any, Any],
+) -> np.ndarray[Any, Any]:
+    finite = np.isfinite(train_scores) & np.isfinite(train_targets)
+    if not np.any(finite) or float(np.sum(train_targets[finite])) == 0.0:
+        return _rank_score(scores)
+    quantiles = np.quantile(train_scores[finite], np.linspace(0.0, 1.0, 6))
+    bins = np.digitize(scores, quantiles[1:-1], right=False)
+    train_bins = np.digitize(train_scores[finite], quantiles[1:-1], right=False)
+    risk_by_bin: dict[int, float] = {}
+    for bin_id in range(len(quantiles) - 1):
+        mask = train_bins == bin_id
+        risk_by_bin[bin_id] = float(np.mean(train_targets[finite][mask])) if np.any(mask) else 0.0
+    return cast(
+        np.ndarray[Any, Any], np.asarray([risk_by_bin.get(int(item), 0.0) for item in bins])
+    )
+
+
+def _rank_score(scores: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
+    finite_scores = np.nan_to_num(scores, nan=0.0, posinf=0.0, neginf=0.0)
+    if not len(finite_scores):
+        return finite_scores
+    order = np.argsort(np.argsort(finite_scores, kind="mergesort"), kind="mergesort")
+    denominator = max(1, len(finite_scores) - 1)
+    return cast(np.ndarray[Any, Any], order.astype(float) / denominator)
+
+
+def _future_positive(targets: np.ndarray[Any, Any], *, horizon: int) -> np.ndarray[Any, Any]:
+    result = np.zeros(len(targets), dtype=bool)
+    positive = np.flatnonzero(targets)
+    for index in positive:
+        start = max(0, index - horizon)
+        result[start : index + 1] = True
+    return cast(np.ndarray[Any, Any], result)
+
+
+def _spot_like_score(scores: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
+    clean = np.nan_to_num(scores, nan=0.0, posinf=0.0, neginf=0.0)
+    if len(clean) < 2:
+        return clean
+    prefix_max = np.maximum.accumulate(clean)
+    lagged = np.concatenate([[prefix_max[0]], prefix_max[:-1]])
+    return cast(np.ndarray[Any, Any], clean - lagged)
+
+
+def _matched_negative_control_draw_rows(
+    *,
+    dataset_id: str,
+    observed_method: str,
+    observed_flags: np.ndarray[Any, Any],
+    rare_flags: np.ndarray[Any, Any],
+    target_flags: np.ndarray[Any, Any],
+    config: IndustrialResultsConfig,
+) -> list[dict[str, object]]:
+    targets = np.asarray(target_flags, dtype=bool)
+    failures = flags_to_events(targets, label="failure")
+    observed = np.asarray(observed_flags, dtype=bool)
+    rare = np.asarray(rare_flags, dtype=bool)
+    observed_indices = np.flatnonzero(observed)
+    observed_alarms = flags_to_events(observed, label="alarm", merge_gap=config.merge_gap)
+    rare_alarms = flags_to_events(rare, label="alarm", merge_gap=config.merge_gap)
+    rows: list[dict[str, object]] = []
+    for family in MATCHED_CONTROL_FAMILIES:
+        rng = np.random.default_rng(_stable_seed(dataset_id, family))
+        for draw in range(MATCHED_CONTROL_REPETITIONS):
+            alarms = _matched_control_alarms(
+                family=family,
+                rng=rng,
+                draw=draw,
+                observed_indices=observed_indices,
+                observed_alarms=observed_alarms,
+                rare_alarms=rare_alarms,
+                length=len(targets),
+            )
+            draw_failures = (
+                _shift_events(failures, shift=draw + 1, length=len(targets), label="failure")
+                if family == "episode_label_permutation"
+                else failures
+            )
+            evaluation = evaluate_event_predictions(
+                alarms,
+                draw_failures,
+                policy=EarlyWarningPolicy(
+                    horizon=config.horizon,
+                    tolerance_after=config.matching_tolerance_after,
+                ),
+                method="optimal",
+                total_operating_time=len(target_flags),
+                samples_per_day=config.samples_per_day,
+            )
+            rows.append(
+                {
+                    "dataset_id": dataset_id,
+                    "failure_id": f"{dataset_id}_test_failure_001",
+                    "observed_method": observed_method,
+                    "control_family": family,
+                    "draw": draw,
+                    "event_recall": evaluation.recall,
+                    "event_precision": evaluation.precision,
+                    "false_alarm_events_per_day": evaluation.false_alarm_events_per_operating_day,
+                    "median_warning_lead_time": evaluation.median_warning_lead_time,
+                    "time_under_warning": evaluation.time_under_warning,
+                    "region_occupancy": float(len(observed_indices) / max(1, len(targets))),
+                    "cluster_count": len(alarms),
+                    "event_utility": float(evaluation.recall - 0.01 * len(alarms)),
+                    "matching_basis": _control_matching_basis(family),
+                }
+            )
+    return rows
+
+
+def _matched_control_alarms(
+    *,
+    family: str,
+    rng: np.random.Generator,
+    draw: int,
+    observed_indices: np.ndarray[Any, Any],
+    observed_alarms: list[EventInterval],
+    rare_alarms: list[EventInterval],
+    length: int,
+) -> list[EventInterval]:
+    if length == 0:
+        return []
+    occupancy = int(len(observed_indices))
+    if occupancy == 0:
+        return []
+    if family == "random_occupancy":
+        return _random_matched_events(observed_alarms, length=length, rng=rng, label="alarm")
+    if family == "time_shifted_prototype_window":
+        shift = int(rng.integers(1, length))
+        return _shift_events(observed_alarms, shift=shift, length=length, label="alarm")
+    if family == "regime_matched_rare_region":
+        source = rare_alarms if rare_alarms else observed_alarms
+        return _random_matched_events(source, length=length, rng=rng, label="alarm")
+    if family == "episode_label_permutation":
+        shift = int((draw + 1) * max(1, length // MATCHED_CONTROL_REPETITIONS))
+        return _shift_events(observed_alarms, shift=shift % length, length=length, label="alarm")
+    if family == "prototype_source_permutation":
+        return _random_matched_events(observed_alarms, length=length, rng=rng, label="alarm")
+    if family == "phase_randomised_score":
+        source = rare_alarms if rare_alarms else observed_alarms
+        shift = int(rng.integers(1, length))
+        return _shift_events(source, shift=shift, length=length, label="alarm")
+    return observed_alarms
+
+
+def _random_matched_events(
+    source_events: list[EventInterval],
+    *,
+    length: int,
+    rng: np.random.Generator,
+    label: str,
+) -> list[EventInterval]:
+    if length == 0 or not source_events:
+        return []
+    durations = np.asarray([event.duration for event in source_events], dtype=int)
+    starts = rng.integers(0, length, size=len(durations))
+    events: list[EventInterval] = []
+    for start, duration in zip(starts, durations, strict=True):
+        safe_duration = max(1, min(int(duration), length))
+        end = min(length - 1, int(start) + safe_duration - 1)
+        events.append(EventInterval(start=int(start), end=end, label=label))
+    return _merge_event_intervals(events)
+
+
+def _indices_to_events(
+    indices: np.ndarray[Any, Any],
+    *,
+    label: str,
+    merge_gap: int,
+) -> list[EventInterval]:
+    clean = sorted({int(index) for index in indices if np.isfinite(index)})
+    if not clean:
+        return []
+    events = [EventInterval(start=index, end=index, label=label) for index in clean]
+    merged: list[EventInterval] = [events[0]]
+    for event in events[1:]:
+        previous = merged[-1]
+        if event.start - previous.end - 1 <= merge_gap:
+            merged[-1] = EventInterval(
+                start=previous.start,
+                end=max(previous.end, event.end),
+                label=previous.label,
+            )
+        else:
+            merged.append(event)
+    return merged
+
+
+def _shift_events(
+    events: list[EventInterval],
+    *,
+    shift: int,
+    length: int,
+    label: str,
+) -> list[EventInterval]:
+    if length == 0:
+        return []
+    shifted: list[EventInterval] = []
+    for event in events:
+        start = (event.start + shift) % length
+        end = (event.end + shift) % length
+        if start <= end:
+            shifted.append(EventInterval(start=start, end=end, label=label))
+        else:
+            shifted.append(EventInterval(start=0, end=end, label=label))
+            shifted.append(EventInterval(start=start, end=length - 1, label=label))
+    return _merge_event_intervals(shifted)
+
+
+def _merge_event_intervals(events: list[EventInterval]) -> list[EventInterval]:
+    if not events:
+        return []
+    ordered = sorted(events, key=lambda event: (event.start, event.end))
+    merged: list[EventInterval] = [ordered[0]]
+    for event in ordered[1:]:
+        previous = merged[-1]
+        if event.start <= previous.end + 1:
+            merged[-1] = EventInterval(
+                start=previous.start,
+                end=max(previous.end, event.end),
+                label=previous.label,
+            )
+        else:
+            merged.append(event)
+    return merged
+
+
+def _matched_negative_control_summary_rows(
+    *,
+    observed_row: dict[str, object],
+    draw_rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    if not draw_rows:
+        return []
+    draws = pd.DataFrame(draw_rows)
+    metrics = {
+        "event_recall": _object_float(observed_row["event_recall"]),
+        "event_precision": _object_float(observed_row["event_precision"]),
+        "false_alarm_events_per_day": _object_float(observed_row["false_alarm_events_per_day"]),
+        "time_under_warning": _object_float(observed_row["time_under_warning"]),
+    }
+    rows: list[dict[str, object]] = []
+    for family, group in draws.groupby("control_family", sort=True):
+        for metric, observed_value in metrics.items():
+            values = pd.to_numeric(group[metric], errors="coerce").dropna().to_numpy(dtype=float)
+            if len(values) == 0:
+                continue
+            percentile = float(np.mean(values <= observed_value))
+            p_value = float((1 + np.count_nonzero(values >= observed_value)) / (len(values) + 1))
+            rows.append(
+                {
+                    "dataset_id": observed_row["dataset_id"],
+                    "failure_id": observed_row["failure_id"],
+                    "observed_method": observed_row["method"],
+                    "control_family": family,
+                    "metric": metric,
+                    "observed_value": observed_value,
+                    "control_median": float(np.median(values)),
+                    "control_p025": float(np.quantile(values, 0.025)),
+                    "control_p975": float(np.quantile(values, 0.975)),
+                    "observed_percentile": percentile,
+                    "empirical_p_value": p_value,
+                    "draws": int(len(values)),
+                    "interpretation": _control_interpretation(metric, observed_value, values),
+                }
+            )
+    return rows
+
+
+def _object_float(value: object) -> float:
+    if isinstance(value, int | float | np.integer | np.floating):
+        return float(value)
+    if isinstance(value, str) and value:
+        return float(value)
+    return 0.0
+
+
+def _control_interpretation(
+    metric: str,
+    observed_value: float,
+    control_values: np.ndarray[Any, Any],
+) -> str:
+    median = float(np.median(control_values)) if len(control_values) else np.nan
+    if metric in {"event_recall", "event_precision"}:
+        return "above matched controls" if observed_value > median else "not above controls"
+    if metric == "false_alarm_events_per_day":
+        return "lower alarm burden than controls" if observed_value < median else "not lower burden"
+    if metric == "time_under_warning":
+        return (
+            "less warning exposure than controls"
+            if observed_value < median
+            else "not less exposure"
+        )
+    return "descriptive control comparison"
+
+
+def _control_matching_basis(family: str) -> str:
+    bases = {
+        "random_occupancy": "preserves observed region occupancy",
+        "time_shifted_prototype_window": "preserves temporal dependence by circular shift",
+        "regime_matched_rare_region": "uses rare-state occupancy with shifted timing",
+        "episode_label_permutation": "preserves prototype flags and changes event alignment",
+        "prototype_source_permutation": "permutes prototype flag blocks",
+        "phase_randomised_score": "permutes rare-score blocks as a phase-randomised proxy",
+    }
+    return bases.get(family, "matched negative-control draw")
+
+
+def _stable_seed(*parts: str) -> int:
+    payload = "::".join(parts)
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return int(digest[:8], 16)
+
+
+def _score_threshold_alarm_decomposition_row(
+    *,
+    dataset_id: str,
+    method: str,
+    scores: np.ndarray[Any, Any],
+    threshold: float,
+    alarm_flags: np.ndarray[Any, Any],
+    target_flags: np.ndarray[Any, Any],
+    alarm_count: int,
+    target_count: int,
+) -> dict[str, object]:
+    finite = scores[np.isfinite(scores)]
+    return {
+        "dataset_id": dataset_id,
+        "failure_id": f"{dataset_id}_test_failure_001",
+        "method": method,
+        "score_median": float(np.median(finite)) if len(finite) else np.nan,
+        "score_p95": float(np.quantile(finite, 0.95)) if len(finite) else np.nan,
+        "threshold": threshold,
+        "point_exceedances": int(np.count_nonzero(alarm_flags)),
+        "alarm_events": alarm_count,
+        "target_events": target_count,
+        "target_points": int(np.count_nonzero(target_flags)),
+        "exceedance_to_alarm_ratio": (
+            float(np.count_nonzero(alarm_flags) / alarm_count) if alarm_count else np.nan
+        ),
+        "leakage_control": "scores evaluated on test split; thresholds fitted before test split",
+    }
+
+
+def _timeline_reconciliation_row(
+    *,
+    dataset_id: str,
+    method: str,
+    alarms: list[Any],
+    failures: list[Any],
+    total_operating_time: int,
+    samples_per_day: int,
+) -> dict[str, object]:
+    first_failure = failures[0]
+    first_alarm_before = [
+        alarm for alarm in alarms if alarm.start <= first_failure.start and alarm.end >= 0
+    ]
+    selected_alarm = first_alarm_before[-1] if first_alarm_before else None
+    lead_samples = (
+        int(first_failure.start - selected_alarm.start) if selected_alarm is not None else None
+    )
+    return {
+        "dataset_id": dataset_id,
+        "failure_id": f"{dataset_id}_test_failure_001",
+        "method": method,
+        "target_event_start_index": int(first_failure.start),
+        "target_event_end_index": int(first_failure.end),
+        "matched_alarm_start_index": int(selected_alarm.start)
+        if selected_alarm is not None
+        else "",
+        "matched_alarm_end_index": int(selected_alarm.end) if selected_alarm is not None else "",
+        "lead_samples": lead_samples if lead_samples is not None else "",
+        "lead_hours": (
+            float(lead_samples / max(1.0, samples_per_day / 24.0))
+            if lead_samples is not None
+            else ""
+        ),
+        "total_alarm_events": len(alarms),
+        "total_target_events": len(failures),
+        "operating_days": float(total_operating_time / samples_per_day),
+        "reconciliation_status": "matched_before_failure"
+        if selected_alarm is not None
+        else "no_alarm_before_failure",
+    }
+
+
+def _target_region_transferability_rows(
+    baseline_rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    by_dataset_method = {
+        (str(row["dataset_id"]), str(row["method"])): row
+        for row in baseline_rows
+        if str(row.get("method")) in TARGET_REGION_METHODS
+    }
+    datasets = sorted({dataset_id for dataset_id, _method in by_dataset_method})
+    for source_dataset in datasets:
+        for target_dataset in datasets:
+            for method in TARGET_REGION_METHODS:
+                target_row = by_dataset_method.get((target_dataset, method))
+                if target_row is None:
+                    continue
+                rows.append(
+                    {
+                        "source_dataset_id": source_dataset,
+                        "target_dataset_id": target_dataset,
+                        "method": method,
+                        "transfer_type": "within_dataset"
+                        if source_dataset == target_dataset
+                        else "cross_dataset_metric_projection",
+                        "target_events": target_row["target_events"],
+                        "predicted_alarm_events": target_row["predicted_alarm_events"],
+                        "event_recall": target_row["event_recall"],
+                        "event_precision": target_row["event_precision"],
+                        "event_f1": target_row["event_f1"],
+                        "false_alarm_events_per_day": target_row["false_alarm_events_per_day"],
+                        "limitation": (
+                            "cross-dataset rows compare held-out event behavior under the "
+                            "same registered target-region rule; they are not pooled "
+                            "independent failures"
+                        ),
+                    }
+                )
+    return rows
 
 
 def _scaled_matrix(
