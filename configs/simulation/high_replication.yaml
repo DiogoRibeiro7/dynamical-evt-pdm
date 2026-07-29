@@ -23,3 +23,7 @@ experiment:
   noise_scales: [0.08]
   missing_rates: [0.05]
   repetitions: 500
+  # Circular block bootstrap for extremal-index interval estimation. Coverage and
+  # interval width are not estimable without per-replicate intervals.
+  bootstrap_resamples: 200
+  bootstrap_level: 0.95

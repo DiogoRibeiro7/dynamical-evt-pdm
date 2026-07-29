@@ -11,3 +11,6 @@ experiment:
   noise_scales: [0.08]
   missing_rates: [0.05]
   repetitions: 1000
+  # This grid exists to estimate coverage, so it carries the largest resample count.
+  bootstrap_resamples: 400
+  bootstrap_level: 0.95

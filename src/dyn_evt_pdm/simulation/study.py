@@ -15,12 +15,24 @@ from joblib import Parallel, delayed
 
 from dyn_evt_pdm.evt.clusters import extract_clusters
 from dyn_evt_pdm.evt.extremal_index import (
-    intervals_extremal_index,
-    k_gaps_extremal_index,
-    runs_extremal_index,
+    BLOCK_SIZE_ESTIMATORS,
+    ESTIMATOR_NAMES,
+    RUN_LENGTH_ESTIMATORS,
+    IntervalEstimate,
+    bootstrap_extremal_index_interval,
+    default_block_size,
+    default_bootstrap_block_length,
+    extremal_index_point_estimate,
 )
 from dyn_evt_pdm.evt.hitting_times import empirical_hit_probability
 from dyn_evt_pdm.evt.thresholds import fit_quantile_threshold
+from dyn_evt_pdm.simulation.reference_theta import (
+    REFERENCE_N_STEPS,
+    THEORETICAL,
+    ReferenceTheta,
+    numerical_reference_theta,
+    theoretical_reference_theta,
+)
 from dyn_evt_pdm.simulation.systems import (
     SimulatedSeries,
     simulate_cyclic_degradation_series,
@@ -32,6 +44,17 @@ from dyn_evt_pdm.simulation.systems import (
     simulate_logistic_target_observable,
     simulate_regime_mixture_series,
 )
+from dyn_evt_pdm.types import BoolArray
+
+#: Stable artifact column stem for each estimator name.
+ESTIMATOR_COLUMN_STEMS: dict[str, str] = {
+    "runs": "runs",
+    "ferro_segers_intervals": "intervals",
+    "k_gaps": "k_gaps",
+    "reciprocal_mean_cluster": "reciprocal_mean_cluster",
+    "block": "block",
+    "no_declustering": "no_declustering",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +80,8 @@ class SimulationStudyConfig:
     seed: int = 42
     hit_horizon: int = 20
     n_jobs: int = 1
+    bootstrap_resamples: int = 0
+    bootstrap_level: float = 0.95
 
     def __post_init__(self) -> None:
         if self.repetitions < 1:
@@ -65,6 +90,12 @@ class SimulationStudyConfig:
             raise ValueError("hit_horizon must be positive")
         if self.n_jobs == 0:
             raise ValueError("n_jobs must be non-zero")
+        if self.bootstrap_resamples < 0:
+            raise ValueError("bootstrap_resamples must be non-negative")
+        if self.bootstrap_resamples == 1:
+            raise ValueError("bootstrap_resamples must be zero or at least two")
+        if not 0.0 < self.bootstrap_level < 1.0:
+            raise ValueError("bootstrap_level must lie in (0, 1)")
         for sample_size in self.sample_sizes:
             if sample_size < 100:
                 raise ValueError("sample sizes must be at least 100")
@@ -132,7 +163,91 @@ def run_simulation_study(config: SimulationStudyConfig) -> pd.DataFrame:
         delayed(_evaluate_task)(task, child_seed=seed, experiment_id=experiment_id, config=config)
         for task, seed in zip(tasks, child_seeds, strict=True)
     )
-    return pd.DataFrame.from_records(records)
+    frame = pd.DataFrame.from_records(records)
+    return attach_reference_theta(frame, config=config)
+
+
+def attach_reference_theta(
+    frame: pd.DataFrame,
+    *,
+    config: SimulationStudyConfig,
+    reference_n_steps: int = REFERENCE_N_STEPS,
+) -> pd.DataFrame:
+    """Attach reference extremal indices and recompute bias and coverage against them.
+
+    ``true_theta`` carries only the closed-form value emitted by the simulator, which is
+    absent for every noisy configuration. Bias and coverage are therefore recomputed
+    here against the resolved reference so that numerically referenced systems
+    contribute to the study instead of silently dropping out.
+    """
+
+    if frame.empty:
+        return frame
+
+    keys_per_row: list[tuple[str, float, float, float]] = list(
+        zip(
+            [str(value) for value in frame["system"].tolist()],
+            [float(value) for value in frame["noise_scale"].tolist()],
+            [float(value) for value in frame["missing_rate"].tolist()],
+            [float(value) for value in frame["threshold_quantile"].tolist()],
+            strict=True,
+        )
+    )
+    resolved: dict[tuple[str, float, float, float], ReferenceTheta] = {}
+    for key in dict.fromkeys(keys_per_row):
+        system, noise_scale, missing_rate, threshold_quantile = key
+        resolved[key] = resolve_reference_theta(
+            system,
+            noise_scale=noise_scale,
+            missing_rate=missing_rate,
+            threshold_quantile=threshold_quantile,
+            seed=config.seed,
+            n_steps=reference_n_steps,
+        )
+    references = [resolved[key] for key in keys_per_row]
+
+    updated = frame.copy()
+    updated["reference_theta"] = [
+        reference.value if reference.value is not None else np.nan for reference in references
+    ]
+    updated["reference_kind"] = [reference.kind for reference in references]
+    updated["reference_runs"] = [
+        reference.runs_reference if reference.runs_reference is not None else np.nan
+        for reference in references
+    ]
+    updated["reference_blocks"] = [
+        reference.blocks_reference if reference.blocks_reference is not None else np.nan
+        for reference in references
+    ]
+    updated["reference_disagreement"] = [
+        reference.disagreement if reference.disagreement is not None else np.nan
+        for reference in references
+    ]
+    updated["reference_reason"] = [reference.reason for reference in references]
+
+    reference_values = updated["reference_theta"].to_numpy(dtype=np.float64)
+    for name in ESTIMATOR_NAMES:
+        stem = ESTIMATOR_COLUMN_STEMS[name]
+        estimates = updated[f"{stem}_theta"].to_numpy(dtype=np.float64)
+        updated[f"{stem}_bias"] = estimates - reference_values
+        lower = updated[f"{stem}_lower"].to_numpy(dtype=np.float64)
+        upper = updated[f"{stem}_upper"].to_numpy(dtype=np.float64)
+        covered = (
+            np.isfinite(lower)
+            & np.isfinite(upper)
+            & np.isfinite(reference_values)
+            & (lower <= reference_values)
+            & (reference_values <= upper)
+        )
+        estimable = np.isfinite(lower) & np.isfinite(upper) & np.isfinite(reference_values)
+        updated[f"{stem}_covered"] = pd.array(
+            [
+                bool(value) if known else None
+                for value, known in zip(covered, estimable, strict=True)
+            ],
+            dtype="boolean",
+        )
+    return updated
 
 
 def write_simulation_study(
@@ -250,6 +365,8 @@ def simulation_study_config_from_mapping(
     if not noise_scales:
         noise_scales = (0.0, float(simulation.get("noise_scale", 0.08)))
     missing_rates = tuple(float(value) for value in experiment.get("missing_rates", (0.0,)))
+    bootstrap_resamples = int(experiment.get("bootstrap_resamples", 0))
+    bootstrap_level = float(experiment.get("bootstrap_level", 0.95))
     config = SimulationStudyConfig(
         systems=systems or SimulationStudyConfig().systems,
         sample_sizes=sample_sizes,
@@ -260,6 +377,8 @@ def simulation_study_config_from_mapping(
         repetitions=repetitions,
         seed=int(simulation.get("seed", 42)),
         n_jobs=1 if n_jobs is None else n_jobs,
+        bootstrap_resamples=bootstrap_resamples,
+        bootstrap_level=bootstrap_level,
     )
     if not smoke:
         return config
@@ -274,6 +393,8 @@ def simulation_study_config_from_mapping(
         seed=config.seed,
         hit_horizon=config.hit_horizon,
         n_jobs=config.n_jobs,
+        bootstrap_resamples=min(bootstrap_resamples, 20),
+        bootstrap_level=bootstrap_level,
     )
 
 
@@ -300,14 +421,11 @@ def _evaluate_task(
     threshold = np.nan
     n_exceedances = 0
     n_clusters = 0
-    runs_theta = np.nan
-    intervals_theta = np.nan
-    k_gaps_theta = np.nan
-    reciprocal_mean_cluster_theta = np.nan
-    block_theta = np.nan
-    no_declustering_theta = np.nan
     mean_cluster_size = np.nan
     hit_probability = np.nan
+    exceedances: BoolArray | None = None
+    block_size = default_block_size(n_steps)
+    bootstrap_block_length = default_bootstrap_block_length(n_steps)
 
     try:
         threshold = fit_quantile_threshold(finite, quantile=quantile)
@@ -316,19 +434,8 @@ def _evaluate_task(
         clusters = extract_clusters(exceedances, run_length=run_length)
         n_exceedances = int(len(exceedance_indices))
         n_clusters = int(len(clusters))
-        if n_exceedances:
-            runs_theta = runs_extremal_index(exceedances, run_length=run_length)
-        if n_exceedances >= 2:
-            intervals_theta = intervals_extremal_index(exceedance_indices)
-            k_gaps_theta = k_gaps_extremal_index(
-                exceedance_indices, run_length=run_length, n_samples=len(values)
-            )
         if n_clusters:
             mean_cluster_size = float(np.mean([cluster.size for cluster in clusters]))
-            reciprocal_mean_cluster_theta = 1.0 / mean_cluster_size if mean_cluster_size else np.nan
-            block_theta = float(n_clusters / max(1, n_exceedances))
-        if n_exceedances:
-            no_declustering_theta = 1.0
         if len(values) > config.hit_horizon:
             hit_probability = empirical_hit_probability(exceedances, horizon=config.hit_horizon)
     except ValueError as exc:
@@ -336,6 +443,63 @@ def _evaluate_task(
         failure_reason = str(exc)
 
     true_theta = simulated.true_theta
+    estimates: dict[str, float] = dict.fromkeys(ESTIMATOR_NAMES, np.nan)
+    intervals: dict[str, IntervalEstimate | None] = dict.fromkeys(ESTIMATOR_NAMES)
+    estimator_failures: dict[str, str] = {}
+    if exceedances is not None:
+        bootstrap_rng = np.random.default_rng(child_seed ^ 0x9E3779B9)
+        for name in ESTIMATOR_NAMES:
+            try:
+                estimates[name] = extremal_index_point_estimate(
+                    name, exceedances, run_length=run_length, block_size=block_size
+                )
+            except ValueError as exc:
+                estimator_failures[name] = str(exc)
+                continue
+            if config.bootstrap_resamples >= 2:
+                try:
+                    intervals[name] = bootstrap_extremal_index_interval(
+                        name,
+                        exceedances,
+                        run_length=run_length,
+                        block_size=block_size,
+                        n_resamples=config.bootstrap_resamples,
+                        block_length=bootstrap_block_length,
+                        level=config.bootstrap_level,
+                        rng=bootstrap_rng,
+                    )
+                except ValueError as exc:
+                    estimator_failures.setdefault(name, str(exc))
+
+    estimator_columns: dict[str, object] = {}
+    for name in ESTIMATOR_NAMES:
+        stem = ESTIMATOR_COLUMN_STEMS[name]
+        estimate = estimates[name]
+        interval = intervals[name]
+        estimator_columns[f"{stem}_theta"] = estimate
+        estimator_columns[f"{stem}_bias"] = (
+            estimate - true_theta if true_theta is not None else np.nan
+        )
+        estimator_columns[f"{stem}_tuning_parameter"] = (
+            float(run_length)
+            if name in RUN_LENGTH_ESTIMATORS
+            else float(block_size)
+            if name in BLOCK_SIZE_ESTIMATORS
+            else np.nan
+        )
+        estimator_columns[f"{stem}_lower"] = interval.lower if interval else np.nan
+        estimator_columns[f"{stem}_upper"] = interval.upper if interval else np.nan
+        estimator_columns[f"{stem}_interval_width"] = interval.width if interval else np.nan
+        estimator_columns[f"{stem}_covered"] = (
+            bool(interval.covers(true_theta))
+            if interval is not None and true_theta is not None
+            else None
+        )
+        estimator_columns[f"{stem}_bootstrap_valid"] = interval.n_valid if interval else 0
+        estimator_columns[f"{stem}_bootstrap_clipped"] = interval.n_clipped if interval else 0
+        estimator_columns[f"{stem}_failed"] = name in estimator_failures
+        estimator_columns[f"{stem}_failure_reason"] = estimator_failures.get(name, "")
+
     return {
         "experiment_id": experiment_id,
         "system": simulated.system,
@@ -351,23 +515,12 @@ def _evaluate_task(
         "n_missing": int(len(values) - len(finite)),
         "n_exceedances": n_exceedances,
         "n_clusters": n_clusters,
-        "runs_theta": runs_theta,
-        "intervals_theta": intervals_theta,
-        "k_gaps_theta": k_gaps_theta,
-        "reciprocal_mean_cluster_theta": reciprocal_mean_cluster_theta,
-        "block_theta": block_theta,
-        "no_declustering_theta": no_declustering_theta,
+        "block_size": block_size,
+        "bootstrap_block_length": bootstrap_block_length,
+        "bootstrap_resamples": config.bootstrap_resamples,
+        "bootstrap_level": config.bootstrap_level,
         "true_theta": true_theta if true_theta is not None else np.nan,
-        "runs_bias": runs_theta - true_theta if true_theta is not None else np.nan,
-        "intervals_bias": intervals_theta - true_theta if true_theta is not None else np.nan,
-        "k_gaps_bias": k_gaps_theta - true_theta if true_theta is not None else np.nan,
-        "reciprocal_mean_cluster_bias": reciprocal_mean_cluster_theta - true_theta
-        if true_theta is not None
-        else np.nan,
-        "block_bias": block_theta - true_theta if true_theta is not None else np.nan,
-        "no_declustering_bias": no_declustering_theta - true_theta
-        if true_theta is not None
-        else np.nan,
+        **estimator_columns,
         "mean_cluster_size": mean_cluster_size,
         "hit_probability": hit_probability,
         "failed": failed,
@@ -509,6 +662,58 @@ def _object_to_float(value: object) -> float:
     if isinstance(value, str):
         return float(value)
     raise TypeError(f"cannot convert {type(value).__name__} to float")
+
+
+def resolve_reference_theta(
+    system: str,
+    *,
+    noise_scale: float,
+    missing_rate: float,
+    threshold_quantile: float,
+    seed: int,
+    n_steps: int = REFERENCE_N_STEPS,
+) -> ReferenceTheta:
+    """Return the theoretical reference when one exists, otherwise a numerical one.
+
+    Theoretical values are never overwritten by simulation, and numerical values are
+    never relabelled as theoretical, so the two provenances stay separable downstream.
+    """
+
+    theoretical = theoretical_reference_theta(
+        system, noise_scale=noise_scale, missing_rate=missing_rate
+    )
+    if theoretical is not None:
+        return ReferenceTheta(
+            system=system,
+            noise_scale=noise_scale,
+            missing_rate=missing_rate,
+            threshold_quantile=threshold_quantile,
+            kind=THEORETICAL,
+            value=theoretical,
+            runs_reference=None,
+            blocks_reference=None,
+            disagreement=None,
+            n_steps=0,
+            seed=seed,
+            reason="closed-form extremal index for this system",
+        )
+
+    rng = np.random.default_rng(seed)
+    simulated = _simulate_system(
+        system,
+        n_steps=n_steps,
+        rng=rng,
+        noise_scale=noise_scale,
+        missing_rate=missing_rate,
+    )
+    return numerical_reference_theta(
+        np.asarray(simulated.values, dtype=np.float64),
+        system=system,
+        noise_scale=noise_scale,
+        missing_rate=missing_rate,
+        threshold_quantile=threshold_quantile,
+        seed=seed,
+    )
 
 
 def _simulate_system(
