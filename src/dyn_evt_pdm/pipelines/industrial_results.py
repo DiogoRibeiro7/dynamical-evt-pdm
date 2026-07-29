@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
+import tracemalloc
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -13,6 +15,18 @@ import pandas as pd
 
 from dyn_evt_pdm.evaluation.events import EarlyWarningPolicy, flags_to_events
 from dyn_evt_pdm.evaluation.metrics import evaluate_event_predictions
+from dyn_evt_pdm.pipelines.event_method_impl import (
+    apply_regime_thresholds,
+    best_single_sensor_index,
+    declustered_flags,
+    derived_run_length,
+    fit_isolation_forest,
+    gpd_return_level,
+    isolation_forest_score,
+    regime_conditioned_thresholds,
+    single_sensor_score,
+)
+from dyn_evt_pdm.pipelines.event_method_specs import SPECS_BY_NAME
 from dyn_evt_pdm.types import EventInterval
 
 IndustrialResultStatus = Literal["succeeded", "not_estimable", "failed"]
@@ -53,6 +67,15 @@ EVENT_BASELINE_METHODS = (
     "failure_prototype_region",
     "rare_state_region",
 )
+#: Highest training exceedance rate a threshold may imply before it is treated as
+#: degenerate. Above this the detector is effectively always on, and episode-level
+#: precision and recall stop measuring detection.
+_MAX_TRAIN_EXCEEDANCE_RATE = 0.5
+
+#: Share of the test period under warning above which a detector is treated as always
+#: on. Episode-level precision and recall stop measuring detection at that point.
+_MAX_ALARM_COVERAGE_FRACTION = 0.5
+
 TARGET_REGION_METHODS = ("failure_prototype_region", "rare_state_region")
 EVENT_CONTROL_METHODS = ("negative_control_region",)
 MATCHED_CONTROL_FAMILIES = (
@@ -414,7 +437,15 @@ def _run_metropt_event_comparison(
                 test, feature_columns, center=center, scale=scale, refs=train_refs
             )
             for method, threshold in thresholds.items():
-                flags_by_method[method].append(scores[method] > threshold)
+                flags_by_method[method].append(
+                    _method_alarm_flags(
+                        method,
+                        scores[method],
+                        threshold,
+                        refs=train_refs,
+                        config=config,
+                    )
+                )
                 scores_by_method[method].append(scores[method])
             target_parts.append(test["is_failure"].astype(bool).to_numpy())
             timestamp_parts.append(test["timestamp"].to_numpy())
@@ -431,8 +462,14 @@ def _run_metropt_event_comparison(
     negative_control_draw_rows: list[dict[str, object]] = []
     decomposition_rows: list[dict[str, object]] = []
     reconciliation_rows: list[dict[str, object]] = []
+    configuration_hash = _event_configuration_hash(config)
     for method, parts in flags_by_method.items():
         alarm_flags = np.concatenate(parts) if parts else np.array([], dtype=bool)
+        # Runtime and peak memory cover the alarm-conversion and evaluation stage, which
+        # is the part that differs between methods sharing a score. The caption states
+        # this scope so the numbers are not read as end-to-end cost.
+        tracemalloc.start()
+        started = time.perf_counter()
         alarms = flags_to_events(alarm_flags, label="alarm", merge_gap=config.merge_gap)
         evaluation = evaluate_event_predictions(
             alarms,
@@ -445,6 +482,11 @@ def _run_metropt_event_comparison(
             total_operating_time=len(target_flags),
             samples_per_day=config.samples_per_day,
         )
+        runtime_seconds = time.perf_counter() - started
+        _current, peak_memory_bytes = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+
+        spec = SPECS_BY_NAME.get(method)
         row = {
             "dataset_id": dataset_id,
             "failure_id": f"{dataset_id}_test_failure_001",
@@ -452,6 +494,7 @@ def _run_metropt_event_comparison(
             "method_family": _event_method_family(method),
             "target_events": len(failures),
             "predicted_alarm_events": len(alarms),
+            "detected": bool(evaluation.recall > 0.0),
             "event_recall": evaluation.recall,
             "event_precision": evaluation.precision,
             "event_f1": evaluation.f1,
@@ -459,7 +502,31 @@ def _run_metropt_event_comparison(
             "duplicate_alarm_events": evaluation.duplicate_alarm_events,
             "median_warning_lead_time": evaluation.median_warning_lead_time,
             "time_under_warning": evaluation.time_under_warning,
+            "event_utility": evaluation.utility,
+            # Share of the test period spent under warning. An always-on detector scores
+            # a perfect episode-level precision and recall because merging leaves one
+            # episode that contains the failure and no unmatched episodes to count as
+            # false alarms. This column, and the flag below, are what expose that.
+            "alarm_coverage_fraction": (
+                float(evaluation.time_under_warning) / float(len(target_flags))
+                if len(target_flags)
+                else float("nan")
+            ),
+            "degenerate_always_on": bool(
+                len(target_flags)
+                and float(evaluation.time_under_warning) / float(len(target_flags))
+                > _MAX_ALARM_COVERAGE_FRACTION
+            ),
             "threshold": thresholds[method],
+            "score_kind": spec.score_kind if spec else "",
+            "threshold_rule": spec.threshold_rule if spec else "",
+            "event_policy": spec.event_policy if spec else "",
+            "parameter_count": spec.parameter_count if spec else 0,
+            "calibration_status": spec.calibration_status if spec else "",
+            "tuning_partition": spec.tuning_partition if spec else "",
+            "runtime_seconds": float(runtime_seconds),
+            "peak_memory_bytes": int(peak_memory_bytes),
+            "configuration_hash": configuration_hash,
             "leakage_control": "train thresholds and references only",
         }
         baseline_rows.append(row)
@@ -591,11 +658,11 @@ def _event_method_references(
     *,
     center: pd.Series,
     scale: pd.Series,
-) -> dict[str, np.ndarray[Any, Any]]:
+) -> dict[str, Any]:
     scaled = _scaled_matrix(train, feature_columns, center=center, scale=scale)
     robust = _nanmax_abs(pd.DataFrame(scaled, columns=list(feature_columns)), feature_columns)
     targets = train["is_failure"].astype(bool).to_numpy()
-    references: dict[str, np.ndarray[Any, Any]] = {}
+    references: dict[str, Any] = {}
     references["failure_prototype_region"] = _reference_subset(scaled[targets], limit=16)
     rare_count = min(16, len(scaled))
     if rare_count:
@@ -613,6 +680,17 @@ def _event_method_references(
         np.tanh(clean),
         max_components=2,
     )
+
+    # Models and selections fitted on training rows only. These were previously absent,
+    # which is why several declared methods fell back to the shared robust score.
+    references["best_sensor_index"] = best_single_sensor_index(clean, targets)
+    try:
+        references["isolation_forest_model"] = fit_isolation_forest(clean)
+    except ValueError:
+        references["isolation_forest_model"] = None
+    # Regime bin edges are fitted here and reused unchanged on the test split, so the
+    # regime-conditioned threshold never sees held-out data.
+    references["regime_edges"] = np.quantile(robust, (1.0 / 3.0, 2.0 / 3.0))
     return references
 
 
@@ -622,7 +700,7 @@ def _event_method_scores(
     *,
     center: pd.Series,
     scale: pd.Series,
-    refs: dict[str, np.ndarray[Any, Any]],
+    refs: dict[str, Any],
 ) -> dict[str, np.ndarray[Any, Any]]:
     scaled = _scaled_matrix(frame, feature_columns, center=center, scale=scale)
     robust = np.nanmax(np.abs(np.where(np.isfinite(scaled), scaled, np.nan)), axis=1)
@@ -643,25 +721,40 @@ def _event_method_scores(
     )
     linear_components = refs.get("linear_autoencoder_components")
     nonlinear_components = refs.get("compact_nonlinear_autoencoder_components")
+
+    forest = refs.get("isolation_forest_model")
+    if forest is not None:
+        isolation_scores = isolation_forest_score(forest, clean)
+    else:
+        # Reported explicitly rather than silently substituted: without a fitted model
+        # this method has no result, and row energy is not an isolation forest.
+        isolation_scores = np.full(len(robust), np.nan, dtype=float)
+    sensor_index = int(refs.get("best_sensor_index", 0))
+    sensor_index = min(sensor_index, max(0, clean.shape[1] - 1))
+
     scores: dict[str, np.ndarray[Any, Any]] = {
+        # These eight share the recurrence score by design; they are separated by their
+        # threshold rule or their event policy, declared in EVENT_METHOD_SPECS.
         "engineering_threshold": robust,
-        "best_individual_sensor_threshold": robust,
         "global_empirical_threshold": robust,
         "regime_conditioned_empirical_threshold": robust,
         "classical_pot_gpd": robust,
         "fixed_run_declustering": robust,
         "ferro_segers_event_policy": robust,
         "k_gaps_event_policy": robust,
+        "dynamical_evt_robust_score": robust,
+        # These carry genuinely distinct scores.
+        "best_individual_sensor_threshold": single_sensor_score(clean, sensor_index=sensor_index),
         "spot": _spot_like_score(robust),
-        "isolation_forest": row_energy,
+        "isolation_forest": isolation_scores,
         "robust_online_changepoint": changepoint,
         "linear_autoencoder": _projection_residual(clean, linear_components),
         "compact_nonlinear_autoencoder": _projection_residual(np.tanh(clean), nonlinear_components),
         "conformal_anomaly": conformal,
         "empirical_horizon_risk": risk,
-        "dynamical_evt_robust_score": robust,
         "max_abs_robust_z": robust,
     }
+    del row_energy
     for column in (
         "pressure_tp2",
         "pressure_tp3",
@@ -679,9 +772,22 @@ def _event_method_scores(
         reference = refs.get(method)
         if reference is not None and len(reference):
             scores[method] = -_minimum_distance(scaled, reference)
-    for method in (*EVENT_BASELINE_METHODS, *EVENT_CONTROL_METHODS):
-        if method not in scores:
-            scores[method] = robust
+    # No silent fallback. Assigning the shared recurrence score to any unmapped method
+    # is what previously collapsed nine declared baselines onto one computation, so an
+    # unmapped method is now a hard error rather than a duplicate row.
+    missing = [
+        method
+        for method in (*EVENT_BASELINE_METHODS, *EVENT_CONTROL_METHODS)
+        if method not in scores
+    ]
+    target_region_methods = set(TARGET_REGION_METHODS) | set(EVENT_CONTROL_METHODS)
+    unexplained = [method for method in missing if method not in target_region_methods]
+    if unexplained:
+        raise ValueError(
+            "no score is defined for declared event methods: "
+            + ", ".join(sorted(unexplained))
+            + ". Every declared method must compute its own score."
+        )
     return scores
 
 
@@ -703,10 +809,88 @@ def _event_method_thresholds(
             threshold = config.threshold_quantile
         elif method == "spot":
             threshold = 0.0
+        elif method == "classical_pot_gpd":
+            # A peaks-over-threshold baseline that reuses the empirical quantile is not
+            # a tail model, so this inverts a fitted generalised Pareto instead.
+            threshold = gpd_return_level(
+                finite,
+                exceedance_quantile=min(0.95, config.threshold_quantile),
+                target_quantile=max(config.threshold_quantile, 0.99),
+            )
         else:
             threshold = float(np.nanquantile(finite, config.threshold_quantile))
+
+        # Degeneracy guard. A threshold at or below the score minimum flags almost every
+        # sample; alarm merging then collapses the whole test period into one episode
+        # that trivially contains the failure, scoring recall and precision of 1.0 for a
+        # detector that is permanently on. That is a metric artifact, not a detection,
+        # so the threshold is lifted to the first value that actually discriminates.
+        if method not in {"conformal_anomaly", "spot"}:
+            implied_rate = float(np.mean(finite > threshold))
+            if implied_rate > _MAX_TRAIN_EXCEEDANCE_RATE:
+                positive = finite[finite > float(np.nanmin(finite))]
+                if positive.size:
+                    threshold = float(np.nanquantile(positive, config.threshold_quantile))
+                    implied_rate = float(np.mean(finite > threshold))
+                if implied_rate > _MAX_TRAIN_EXCEEDANCE_RATE:
+                    # Still degenerate: this score cannot support a threshold on this
+                    # dataset, and saying so is better than reporting a perfect score.
+                    continue
         thresholds[method] = float(threshold)
     return thresholds
+
+
+def _method_alarm_flags(
+    method: str,
+    scores: np.ndarray[Any, Any],
+    threshold: float,
+    *,
+    refs: dict[str, Any],
+    config: IndustrialResultsConfig,
+) -> np.ndarray[Any, Any]:
+    """Convert scores to alarm-onset flags under the method's declared event policy.
+
+    Methods sharing a score are separated here: the threshold rule decides which samples
+    exceed, and the event policy decides how a run of exceedances becomes alarm onsets.
+    """
+
+    spec = SPECS_BY_NAME.get(method)
+    values = np.asarray(scores, dtype=float)
+
+    if spec is not None and spec.threshold_rule == "regime_conditioned_quantile":
+        edges = np.asarray(refs.get("regime_edges", np.array([], dtype=float)), dtype=float)
+        if edges.size:
+            regimes = np.asarray(np.digitize(values, edges), dtype=int)
+            regime_thresholds = {int(regime): float(threshold) for regime in np.unique(regimes)}
+            train_scores = np.asarray(
+                refs.get("train_robust_scores", np.array([], dtype=float)), dtype=float
+            )
+            train_regimes = np.asarray(np.digitize(train_scores, edges), dtype=int)
+            if train_scores.size:
+                regime_thresholds = regime_conditioned_thresholds(
+                    train_scores, train_regimes, quantile=config.threshold_quantile
+                )
+            exceedances = apply_regime_thresholds(
+                values, regimes, regime_thresholds, fallback=threshold
+            )
+        else:
+            exceedances = values > threshold
+    else:
+        exceedances = np.asarray(values > threshold, dtype=bool)
+
+    policy = spec.event_policy if spec is not None else "merge_gap"
+    if policy == "fixed_run_declustering":
+        return declustered_flags(exceedances, run_length=config.merge_gap)
+    if policy == "ferro_segers_run_length":
+        run_length = derived_run_length(exceedances, estimator="ferro_segers")
+        return declustered_flags(exceedances, run_length=run_length)
+    if policy == "k_gaps_run_length":
+        run_length = derived_run_length(exceedances, estimator="k_gaps")
+        return declustered_flags(exceedances, run_length=run_length)
+    if policy == "extremal_index_declustering":
+        run_length = derived_run_length(exceedances, estimator="ferro_segers")
+        return declustered_flags(exceedances, run_length=max(1, run_length // 2))
+    return exceedances
 
 
 def _principal_components(
@@ -1209,6 +1393,27 @@ def _minimum_distance(
         distance = np.sqrt(np.sum((clean_values - reference) ** 2, axis=1))
         best = np.minimum(best, distance)
     return best
+
+
+def _event_configuration_hash(config: IndustrialResultsConfig) -> str:
+    """Return a stable hash of the settings that define one benchmark run.
+
+    Every method in a run shares this hash, so a reader can confirm that the rows were
+    produced under one event policy rather than assembled from different runs.
+    """
+
+    payload = json.dumps(
+        {
+            "threshold_quantile": config.threshold_quantile,
+            "merge_gap": config.merge_gap,
+            "horizon": config.horizon,
+            "matching_tolerance_after": config.matching_tolerance_after,
+            "samples_per_day": config.samples_per_day,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 def _event_method_family(method: str) -> str:
