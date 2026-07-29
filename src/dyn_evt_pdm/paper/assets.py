@@ -53,6 +53,13 @@ class PaperAssetConfig:
     )
     simulation_config_path: Path = Path("configs/simulation/cyclic_degradation.yaml")
     simulation_study_path: Path = Path("artifacts/simulation_study_broad.parquet")
+    #: Grids pooled for the estimator study. Missing grids are skipped, so a smoke run
+    #: still produces assets from whatever evidence is present locally.
+    simulation_grid_paths: tuple[Path, ...] = (
+        Path("artifacts/simulation_study_broad.parquet"),
+        Path("artifacts/simulation_study_high_rep.parquet"),
+        Path("artifacts/simulation_study_focused_coverage.parquet"),
+    )
     protocol_config_path: Path = Path("configs/evaluation/base.yaml")
     experiment_manifest_path: Path = Path("artifacts/experiment_matrix/experiment_manifest.json")
     real_data_matrix_root: Path = Path("artifacts/real_data_matrix")
@@ -165,6 +172,11 @@ def build_paper_assets(config: PaperAssetConfig) -> PaperAssetManifest:
     generated += _timed_asset(
         "simulation_bias_rmse",
         lambda: _simulation_bias_assets(config, figures, tables),
+        benchmark_rows,
+    )
+    generated += _timed_asset(
+        "estimator_study",
+        lambda: _estimator_study_assets(config, output_root),
         benchmark_rows,
     )
     generated += _timed_asset(
@@ -904,6 +916,33 @@ def _ablation_assets(
         table.head(30), tex_path, caption="Ablation matrix summary.", label="tab:ablations"
     )
     return [csv_path, tex_path]
+
+
+def _estimator_study_assets(config: PaperAssetConfig, output_root: Path) -> list[Path]:
+    """Build the extremal-index estimator figures and tables from the available grids.
+
+    All present grids are pooled so the estimator comparison rests on every replicate
+    that exists locally, rather than on whichever grid happens to be regenerated last.
+    """
+
+    from dyn_evt_pdm.simulation.estimator_figures import build_estimator_figures
+    from dyn_evt_pdm.simulation.estimator_summary import summarise_estimator_performance
+    from dyn_evt_pdm.simulation.estimator_tables import build_estimator_tables
+
+    frames = [pd.read_parquet(path) for path in config.simulation_grid_paths if path.exists()]
+    if not frames:
+        return []
+    combined = pd.concat(frames, ignore_index=True)
+    if "reference_theta" not in combined.columns:
+        # Grids written before reference resolution existed carry no reference column;
+        # regenerating them is required before the estimator study can be reported.
+        return []
+
+    summary = summarise_estimator_performance(combined)
+    generated: list[Path] = []
+    generated.extend(build_estimator_figures(summary, output_root).as_tuple())
+    generated.extend(build_estimator_tables(summary, output_root).as_tuple())
+    return generated
 
 
 def _simulation_bias_assets(

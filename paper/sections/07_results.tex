@@ -3,14 +3,36 @@
 
 \subsection{Simulation validity and estimator stability}
 
-The first research question asks whether the extremal-index diagnostics are stable enough to interpret. The high-replication simulation artifact now covers fourteen process families with 500 replications per configured cell, and a focused coverage artifact uses 1000 replications on a preregistered subset. The retained estimators are runs, Ferro--Segers intervals, K-gaps, reciprocal mean cluster size, block-based clustering, and a no-declustering reference. Figure~\ref{fig:simulation-rmse} reports finite-sample RMSE by threshold quantile and simulation family. The result is useful for finding unstable threshold regions, but it is still interpreted as bounded finite-sample validation rather than a universal theorem about industrial fault mechanisms.
+The first research question asks whether the extremal-index diagnostics are stable enough to interpret. The high-replication simulation artifact covers fourteen process families with 500 replications per configured cell, and a focused coverage artifact uses 1000 replications on a preregistered subset. The six estimators of Section~\ref{sec:simulation} are compared against theoretical references where a closed form exists and numerical references otherwise, with unestablished configurations excluded from every performance quantity. Table~\ref{tab:estimator-main-summary} reports one representative process per clustering regime; the full grid and the reference-availability audit are in the supplement.
+
+The central result is that the estimator ranking \emph{inverts} between regimes. For the independent process, where \(\theta = 1\), runs and K-gaps record interval coverage of \(0.40\) and \(0.39\) against a nominal \(0.95\), with biases of \(-0.133\) and \(-0.117\). For the periodic target, where \(\theta = 1/2\), the same two estimators are the least biased of the six, at \(-0.010\) and \(+0.003\), with coverage of \(0.844\) and \(0.850\). A reader who saw only the near-independent rows would conclude against precisely the estimators that work once extremes actually cluster.
+
+The apparent superiority of Ferro--Segers and disjoint blocks at \(\theta = 1\) requires care. Both attain coverage of \(1.000\) there, but with boundary-clipping probabilities between \(0.50\) and \(0.70\): their intervals contain the truth largely because the estimate saturates at the admissible boundary \(\theta = 1\), not because they are calibrated. Figure~\ref{fig:estimator-failure} reports the clipping share beside the non-estimability share for this reason, and coverage at \(\theta = 1\) should not be read without it. The undercoverage of runs and K-gaps has the same origin: at the boundary the estimate can only err downwards, so a symmetric percentile interval misses systematically. Coverage comparisons at \(\theta = 1\) are structurally distorted for every estimator, which is a further reason to treat the near-independent grid as bounded evidence.
+
+The no-declustering control behaves exactly as intended, with zero bias at \(\theta = 1\) and bias \(+0.500\) and \(+0.728\) in the two clustered rows, confirming that the comparison is measuring extremal clustering rather than an artifact of the harness.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.78\linewidth]{../reports/paper/figures/simulation_bias_rmse.png}
-  \caption{Broad finite-sample simulation recovery summary. The plotted quantity is runs-estimator RMSE by threshold quantile and simulation family across the generated Monte Carlo grid.}
+  \includegraphics[width=\linewidth]{../reports/paper/figures/estimator_rmse_by_sample_size.png}
+  \caption{Finite-sample RMSE of the extremal-index estimate by series length, faceted by clustering regime. Error bars are \(1.96\) bootstrap standard errors. Panels use independent vertical scales because the no-declustering control has RMSE \(|1 - \theta|\) by construction. Reference values are \(\theta = 1\) (theoretical) for the near-independent panel, \(\theta = 1/2\) (theoretical) for the moderately clustered panel, and numerically established values below \(0.3\) for the strongly clustered panel.}
   \label{fig:simulation-rmse}
 \end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{../reports/paper/figures/estimator_coverage_by_family.png}
+  \caption{Empirical coverage of the bootstrap interval by process family against the nominal \(0.95\) level, with \(1.96\) binomial standard errors. Families whose reference extremal index could not be established are omitted, since coverage is undefined without a reference.}
+  \label{fig:estimator-coverage}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{../reports/paper/figures/estimator_failure_by_threshold.png}
+  \caption{Non-estimability and boundary clipping against threshold quantile. No estimator failed to return a value at any threshold; the informative panel is the clipped share, which explains the coverage of the block-based estimators near \(\theta = 1\).}
+  \label{fig:estimator-failure}
+\end{figure}
+
+\input{../reports/paper/latex/estimator_main_summary.tex}
 
 Threshold and run-length sensitivity in Figure~\ref{fig:threshold-stability} and Table~\ref{tab:threshold-stability-summary} show that clustering conclusions depend on \(q\) and \(m\). That supports a negative-result interpretation: regime-conditioned dynamical-EVT diagnostics are sensitive design objects, not model-free evidence of impending failure.
 
