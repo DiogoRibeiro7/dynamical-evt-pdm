@@ -16,6 +16,11 @@
 \author{Diogo Ribeiro}
 \date{July 27, 2026}
 
+% Supplementary floats are numbered with an S prefix so the main paper can cite them
+% unambiguously without a cross-document reference.
+\renewcommand{\thetable}{S\arabic{table}}
+\renewcommand{\thefigure}{S\arabic{figure}}
+
 \begin{document}
 \maketitle
 \tableofcontents

@@ -1,3 +1,22 @@
+\section{Complete Event-Level Benchmark}
+\label{supp:event-benchmark}
+
+Table~\ref{tab:supp-event-benchmark} reports the complete held-out event-level benchmark under the shared alarm policy: every declared method on every compressor dataset, with detection status, event recall and precision, both alarm-burden axes, duplicate alarms and event utility. Table~\ref{tab:supp-event-provenance} records what each method actually computes, and Table~\ref{tab:supp-event-fairness} is the fairness audit.
+
+Two properties of this benchmark are worth stating explicitly, because both were previously invisible.
+
+First, method identity is enforced rather than assumed. Each method is declared by its score, its threshold rule and its event policy, and no two methods share all three. An earlier version of this benchmark reported nineteen methods of which nine produced bit-identical results, because a fallback assigned one shared score to any method lacking an explicit implementation; the classical peaks-over-threshold entry fitted no tail model and the declustering entries declustered nothing differently. The audit now reports any methods whose results coincide, so numerical agreement is visible as agreement rather than presented as independent evidence.
+
+Second, alarm merging belongs to the detector. Four methods exist to vary declustering, so requiring one event conversion across the benchmark would make them indistinguishable by construction. The shared elements are the warning horizon, the matching tolerance, the matching rule, the operating exposure and the independent unit; the merge gap each method used is reported per row.
+
+\input{../../reports/paper/latex/event_benchmark_detection.tex}
+
+\input{../../reports/paper/latex/event_benchmark_provenance.tex}
+
+\input{../../reports/paper/latex/event_benchmark_fairness_audit.tex}
+
+The complete benchmark including runtime, peak memory and configuration hashes is distributed as \texttt{event\_benchmark\_full.csv} in the reproducibility package; every value in the compact main-paper table is recomputable from it.
+
 \section{Additional Real-Data Results}
 \label{supp:realdata}
 

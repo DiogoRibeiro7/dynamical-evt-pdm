@@ -180,6 +180,11 @@ def build_paper_assets(config: PaperAssetConfig) -> PaperAssetManifest:
         benchmark_rows,
     )
     generated += _timed_asset(
+        "event_benchmark",
+        lambda: _event_benchmark_assets(config, output_root),
+        benchmark_rows,
+    )
+    generated += _timed_asset(
         "revision_summaries",
         lambda: _revision_summary_assets(config, figures, tables, latex),
         benchmark_rows,
@@ -920,6 +925,20 @@ def _ablation_assets(
 
 #: Method whose rows the main event-level table reports.
 _REGISTERED_EVENT_METHOD = "dynamical_evt_robust_score"
+
+
+def _event_benchmark_assets(config: PaperAssetConfig, output_root: Path) -> list[Path]:
+    """Build the compact benchmark, both supplementary tables and the fairness audit."""
+
+    from dyn_evt_pdm.pipelines.event_benchmark_tables import write_benchmark_tables
+
+    path = config.real_data_matrix_root / "event_baseline_comparison.csv"
+    if not path.exists():
+        return []
+    frame = pd.read_csv(path)
+    if frame.empty:
+        return []
+    return write_benchmark_tables(frame, output_root)
 
 
 def _merge_registered_event_metrics(

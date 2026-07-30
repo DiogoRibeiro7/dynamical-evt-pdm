@@ -13,6 +13,8 @@ from dyn_evt_pdm.pipelines.event_benchmark_tables import (
     build_compact_benchmark,
     build_fairness_audit,
     build_full_benchmark,
+    build_supplementary_detection_table,
+    build_supplementary_provenance_table,
     fairness_audit_frame,
     write_benchmark_tables,
 )
@@ -181,11 +183,53 @@ def test_full_benchmark_exposes_every_required_column() -> None:
         assert column in full.columns
 
 
-def test_write_benchmark_tables_emits_all_three(tmp_path: Path) -> None:
+def test_write_benchmark_tables_emits_every_artifact(tmp_path: Path) -> None:
+    """Three CSVs plus the compact, detection, provenance and fairness LaTeX tables."""
+
     written = write_benchmark_tables(_frame([_row("engineering_threshold")]), tmp_path)
-    assert len(written) == 3
+    names = {path.name for path in written}
+    assert names == {
+        "event_benchmark_compact.csv",
+        "event_benchmark_compact.tex",
+        "event_benchmark_full.csv",
+        "event_benchmark_fairness_audit.csv",
+        "event_benchmark_fairness_audit.tex",
+        "event_benchmark_detection.tex",
+        "event_benchmark_provenance.tex",
+    }
     for path in written:
         assert path.exists()
+        assert path.stat().st_size > 0
+
+
+def test_supplementary_detection_table_has_a_row_per_method_and_dataset() -> None:
+    """The phase requires every declared method to carry a supplementary row."""
+
+    rows = [
+        _row(method, dataset_id=dataset)
+        for dataset in ("metropt", "metropt2")
+        for method in ("engineering_threshold", "global_empirical_threshold", "spot")
+    ]
+    detection = build_supplementary_detection_table(_frame(rows))
+    assert len(detection) == 6
+    assert set(detection["Data"]) == {"MetroPT", "MetroPT2"}
+
+
+def test_provenance_table_is_one_row_per_method() -> None:
+    rows = [
+        _row(method, dataset_id=dataset)
+        for dataset in ("metropt", "metropt2")
+        for method in ("engineering_threshold", "spot")
+    ]
+    provenance = build_supplementary_provenance_table(_frame(rows))
+    assert len(provenance) == 2
+
+
+def test_method_display_names_avoid_raw_identifiers() -> None:
+    """Stripping underscores yields captions like "classical pot gpd"."""
+
+    detection = build_supplementary_detection_table(_frame([_row("classical_pot_gpd")]))
+    assert detection["Method"].iloc[0] == "Classical POT/GPD"
 
 
 def test_audit_frame_is_tabular() -> None:
