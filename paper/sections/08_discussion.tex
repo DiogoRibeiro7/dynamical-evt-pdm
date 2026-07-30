@@ -7,7 +7,9 @@ The Monte Carlo results support a bounded interpretation of the EVT diagnostics.
 
 \subsection{Target-region transferability}
 
-The central empirical finding is target-region heterogeneity. The failure-prototype region missed the held-out MetroPT failure, yet detected the held-out MetroPT2 failure with 157 alarm episodes and 9.41 false alarms per operating day. That result is materially better than the registered recurrence score on MetroPT2, but it does not transfer back to MetroPT. The evidence therefore supports target-region instability, not a general target-region solution.
+The central empirical finding is directional. Under the seven-feature construction the failure-prototype region missed the held-out MetroPT failure while detecting the MetroPT2 failure with 157 alarm episodes and 9.41 false alarms per operating day, materially better than the registered recurrence score on MetroPT2. A genuine transfer experiment changes how that should be read. On the five schema-compatible features the region fitted on MetroPT transfers to MetroPT2 and outperforms a region fitted on MetroPT2 itself, while the reverse direction fails outright, and the original MetroPT non-detection turns out to be a property of including two channels whose distributions do not overlap between the datasets.
+
+Two cautions follow. The first is that a recalibration step cannot be assumed benign: recalibrating the threshold or the scaling on the destination rescued the failing direction and degraded the working one, so recalibration should be reported as a separate experiment rather than folded into a single transfer number. The second is that a feature set chosen for within-dataset performance is not automatically a feature set that supports transfer, and here it actively prevented detection. The evidence supports directional and feature-dependent transfer, not a general target-region solution, and two held-out failures cannot settle the question either way.
 
 \subsection{Score, Threshold, and Alarm Failure}
 

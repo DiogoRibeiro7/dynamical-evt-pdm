@@ -590,6 +590,67 @@ def run_transfer_protocols(
     return results
 
 
+def transfer_distance_samples(
+    region: TargetRegion,
+    source_train: pd.DataFrame,
+    destination_test: pd.DataFrame,
+    *,
+    source: str,
+    destination: str,
+    center: pd.Series,
+    scale: pd.Series,
+    threshold: float,
+    failure_column: str = "is_failure",
+    max_samples: int = 4_000,
+    seed: int = 42,
+) -> pd.DataFrame:
+    """Sample the distance distributions a transfer figure needs.
+
+    Three populations are separated because a transfer can fail in two different ways:
+    the destination's normal operation may sit closer to the source's failure
+    prototypes than the destination's own failure does, or the whole destination may
+    drift away so that nothing crosses the threshold.
+    """
+
+    rng = np.random.default_rng(seed)
+    prototypes = region.scaled_prototypes(region.center, region.scale)
+    source_distances = _minimum_distance(
+        _standardise(source_train, region.features, center=region.center, scale=region.scale),
+        prototypes,
+    )
+
+    destination_scaled = _standardise(destination_test, region.features, center=center, scale=scale)
+    destination_distances = _minimum_distance(
+        destination_scaled, region.scaled_prototypes(center, scale)
+    )
+    labels = destination_test[failure_column].astype(bool).to_numpy()
+
+    def _sample(values: FloatArray) -> FloatArray:
+        finite = np.asarray(values[np.isfinite(values)], dtype=np.float64)
+        if finite.size <= max_samples:
+            return finite
+        return np.asarray(rng.choice(finite, size=max_samples, replace=False), dtype=float)
+
+    populations = {
+        "source_train": _sample(source_distances),
+        "destination_normal": _sample(destination_distances[~labels]),
+        "destination_failure": _sample(destination_distances[labels]),
+    }
+    records: list[dict[str, object]] = []
+    for population, values in populations.items():
+        for value in values:
+            records.append(
+                {
+                    "source": source,
+                    "destination": destination,
+                    "population": population,
+                    "distance": float(value),
+                    "threshold": float(threshold),
+                }
+            )
+    return pd.DataFrame.from_records(records)
+
+
 def transfer_results_frame(results: list[TransferResult]) -> pd.DataFrame:
     """Return transfer results as a table, with degradation against the refit."""
 

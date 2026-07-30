@@ -19,7 +19,9 @@ from dyn_evt_pdm.pipelines.cross_dataset_transfer import (
     TransferResult,
     TransferSplits,
     assess_schema_compatibility,
+    fit_target_region,
     run_transfer_protocols,
+    transfer_distance_samples,
     transfer_results_frame,
 )
 from dyn_evt_pdm.pipelines.event_method_impl import (
@@ -357,7 +359,9 @@ def _run_event_level_comparison_artifacts(config: IndustrialResultsConfig) -> di
         reconciliation_rows.extend(reconciliation)
         if timeline is not None:
             timeline_frames.append(timeline)
-    transferability_rows, compatibility_rows = _cross_dataset_transfer_rows(config)
+    transferability_rows, compatibility_rows, transfer_distances = _cross_dataset_transfer_rows(
+        config
+    )
 
     artifacts: dict[str, str] = {}
     if baseline_rows:
@@ -376,6 +380,10 @@ def _run_event_level_comparison_artifacts(config: IndustrialResultsConfig) -> di
         path = config.output_root / "transfer_schema_compatibility.csv"
         pd.DataFrame(compatibility_rows).to_csv(path, index=False)
         artifacts["transfer_schema_compatibility_csv"] = str(path)
+    if transfer_distances is not None and not transfer_distances.empty:
+        path = config.output_root / "transfer_distance_samples.csv"
+        transfer_distances.to_csv(path, index=False)
+        artifacts["transfer_distance_samples_csv"] = str(path)
     if negative_control_summary_rows:
         path = config.output_root / "matched_negative_controls.csv"
         pd.DataFrame(negative_control_summary_rows).to_csv(path, index=False)
@@ -1386,7 +1394,7 @@ def _transfer_splits(
 
 def _cross_dataset_transfer_rows(
     config: IndustrialResultsConfig,
-) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+) -> tuple[list[dict[str, object]], list[dict[str, object]], pd.DataFrame | None]:
     """Run genuine transfer between the compressor datasets, in both directions.
 
     This replaces a table whose cross-dataset rows were byte-for-byte copies of the
@@ -1402,7 +1410,7 @@ def _cross_dataset_transfer_rows(
         if loaded is not None:
             splits[dataset_id] = loaded
     if len(splits) < 2:
-        return [], []
+        return [], [], None
 
     source_id, destination_id = "metropt", "metropt2"
     report = assess_schema_compatibility(
@@ -1421,7 +1429,7 @@ def _cross_dataset_transfer_rows(
     ]
 
     if not report.transferable:
-        return [], compatibility_rows
+        return [], compatibility_rows, None
 
     features = report.compatible_features
     results: list[TransferResult] = []
@@ -1440,7 +1448,7 @@ def _cross_dataset_transfer_rows(
         )
     frame = transfer_results_frame(results)
     if frame.empty:
-        return [], compatibility_rows
+        return [], compatibility_rows, None
     frame["excluded_features"] = ", ".join(
         item.feature for item in report.features if not item.compatible
     )
@@ -1449,10 +1457,34 @@ def _cross_dataset_transfer_rows(
     # event-level benchmark. Labelling the feature set prevents the two within-dataset
     # numbers from being read as a contradiction.
     frame["feature_set"] = f"transferable subset ({len(features)} of {len(candidates)})"
+    distance_frames: list[pd.DataFrame] = []
+    for source_name, destination_name in ((source_id, destination_id), (destination_id, source_id)):
+        region = fit_target_region(
+            splits[source_name].train,
+            features,
+            dataset=source_name,
+            threshold_quantile=config.threshold_quantile,
+        )
+        if region is None:
+            continue
+        distance_frames.append(
+            transfer_distance_samples(
+                region,
+                splits[source_name].train,
+                splits[destination_name].test,
+                source=source_name,
+                destination=destination_name,
+                center=region.center,
+                scale=region.scale,
+                threshold=region.threshold,
+            )
+        )
+    distances = pd.concat(distance_frames, ignore_index=True) if distance_frames else None
+
     transfer_rows: list[dict[str, object]] = [
         {str(key): value for key, value in record.items()} for record in frame.to_dict("records")
     ]
-    return transfer_rows, compatibility_rows
+    return transfer_rows, compatibility_rows, distances
 
 
 def _scaled_matrix(

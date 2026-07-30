@@ -1120,6 +1120,7 @@ def _revision_summary_assets(
     generated += _event_baseline_comparison_assets(config, tables, latex)
     generated += _event_variant_comparison_assets(config, tables, latex)
     generated += _target_region_transferability_assets(config, tables, latex)
+    generated += _transfer_distance_figure(config, figures)
     generated += _matched_negative_control_assets(config, tables, latex)
     generated += _metric_provenance_assets(config, figures, tables, latex)
     generated += _method_scope_assets(config, tables, latex)
@@ -1508,6 +1509,116 @@ def _target_region_transferability_assets(
         label="tab:target-region-transferability",
     )
     return [csv_path, tex_path]
+
+
+def _transfer_distance_figure(config: PaperAssetConfig, figures: Path) -> list[Path]:
+    """Plot the distance distributions that decide whether a transferred region fires.
+
+    Three populations are shown against the frozen threshold: the source's own training
+    distances, the destination's normal operation, and the destination's failure states.
+    A transfer succeeds only when the destination's failure sits inside the threshold
+    while its normal operation sits outside; the figure shows directly which of those
+    two conditions fails.
+    """
+
+    path = config.real_data_matrix_root / "transfer_distance_samples.csv"
+    if not path.exists():
+        return []
+    samples = pd.read_csv(path)
+    if samples.empty:
+        return []
+
+    pairs = samples[["source", "destination"]].drop_duplicates().to_dict("records")
+    if not pairs:
+        return []
+
+    colours = {
+        "source_train": "#0072B2",
+        "destination_normal": "#E69F00",
+        "destination_failure": "#D55E00",
+    }
+    labels = {
+        "source_train": "Source training",
+        "destination_normal": "Destination normal",
+        "destination_failure": "Destination failure",
+    }
+
+    figure, axes = plt.subplots(1, len(pairs), figsize=(6.0 * len(pairs), 4.0), squeeze=False)
+    for column, pair in enumerate(pairs):
+        axis = axes[0][column]
+        subset = samples[
+            (samples["source"] == pair["source"]) & (samples["destination"] == pair["destination"])
+        ]
+        finite = subset["distance"].to_numpy(dtype=float)
+        finite = finite[np.isfinite(finite)]
+        if finite.size == 0:
+            continue
+        threshold_value = float(subset["threshold"].iloc[0])
+        # The distance distribution is extremely heavy-tailed: almost all mass sits near
+        # zero while the top percentile reaches two orders of magnitude further, so a
+        # percentile-based range renders every population as one spike. The figure exists
+        # to show where the frozen threshold falls between the populations, so the range
+        # is set by the threshold and the tail is reported as an overflow share instead.
+        upper = max(threshold_value * 6.0, float(np.quantile(finite, 0.50)) * 2.0, 1e-6)
+        bins = np.linspace(0.0, upper, 60)
+        overflow: list[str] = []
+        for population, colour in colours.items():
+            values = subset.loc[subset["population"] == population, "distance"].to_numpy(
+                dtype=float
+            )
+            values = values[np.isfinite(values)]
+            if values.size == 0:
+                continue
+            beyond = float(np.mean(values > upper))
+            if beyond > 0.005:
+                overflow.append(f"{labels[population]}: {beyond * 100:.0f}% beyond axis")
+            axis.hist(
+                values,
+                bins=bins,
+                density=True,
+                histtype="step",
+                linewidth=2.0,
+                color=colour,
+                label=labels[population],
+            )
+        axis.axvline(threshold_value, color="#444444", linestyle="--", linewidth=1.4)
+        axis.set_xlim(0.0, upper)
+        axis.annotate(
+            "frozen threshold",
+            xy=(threshold_value, axis.get_ylim()[1]),
+            xytext=(5, -12),
+            textcoords="offset points",
+            fontsize=8,
+            color="#444444",
+        )
+        # The axis is truncated, so the share falling outside it is stated rather than
+        # left to look like absent mass.
+        if overflow:
+            axis.annotate(
+                "\n".join(overflow),
+                xy=(0.97, 0.55),
+                xycoords="axes fraction",
+                ha="right",
+                fontsize=7,
+                color="#666666",
+            )
+        axis.set_title(
+            f"{_dataset_label(pair['source'])} region applied to "
+            f"{_dataset_label(pair['destination'])}",
+            fontsize=9,
+        )
+        axis.set_xlabel("Distance to nearest failure prototype (standardised)")
+        axis.set_ylabel("Density" if column == 0 else "")
+        axis.grid(True, alpha=0.25, linewidth=0.6)
+        axis.set_axisbelow(True)
+        for spine in ("top", "right"):
+            axis.spines[spine].set_visible(False)
+        if column == 0:
+            axis.legend(frameon=False, fontsize=8, loc="upper right")
+
+    figure_path = figures / "transfer_distance_distributions.png"
+    _save_figure(figure, figure_path)
+    return [figure_path]
 
 
 def _matched_negative_control_assets(
