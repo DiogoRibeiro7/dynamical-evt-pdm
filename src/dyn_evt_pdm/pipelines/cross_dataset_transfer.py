@@ -22,7 +22,7 @@ is visible as a number rather than as an absence.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 import numpy as np
 import pandas as pd
@@ -109,6 +109,139 @@ class SchemaCompatibilityReport:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class TargetRegion:
+    """A target region fitted on one dataset, expressed so it can cross to another.
+
+    Prototypes are stored in raw feature units rather than standardised units. If they
+    were stored standardised, recalibrating the scaling on the destination would leave
+    the prototypes silently anchored to the source's spread, and the recalibrated
+    protocol would not be a recalibration at all.
+    """
+
+    features: tuple[str, ...]
+    prototypes_raw: FloatArray
+    center: pd.Series
+    scale: pd.Series
+    threshold: float
+    fitted_on: str
+
+    def scaled_prototypes(self, center: pd.Series, scale: pd.Series) -> FloatArray:
+        """Express the prototypes in the standardised space defined by ``center``."""
+
+        columns = list(self.features)
+        centered = self.prototypes_raw - center.loc[columns].to_numpy(dtype=float)
+        return np.asarray(centered / scale.loc[columns].to_numpy(dtype=float), dtype=float)
+
+
+@dataclass(frozen=True, slots=True)
+class TransferResult:
+    """Event-level outcome of applying one region to one destination dataset."""
+
+    source: str
+    destination: str
+    protocol: str
+    features: tuple[str, ...]
+    scaling_fitted_on: str
+    prototypes_fitted_on: str
+    threshold_fitted_on: str
+    threshold: float
+    region_occupancy: float
+    failure_state_coverage: float
+    event_recall: float
+    event_precision: float
+    false_alarm_events_per_day: float
+    median_warning_lead_time: float | None
+    time_under_warning: int
+    alarm_coverage_fraction: float
+    predicted_alarm_events: int
+    distance_shift: float
+    score_distribution_shift: float
+    status: str
+    note: str = ""
+
+
+def _robust_center_scale(
+    frame: pd.DataFrame, features: tuple[str, ...]
+) -> tuple[pd.Series, pd.Series]:
+    """Return a median centre and interquartile scale over the given features."""
+
+    numeric = frame.loc[:, list(features)].apply(pd.to_numeric, errors="coerce")
+    center = numeric.median()
+    spread = (numeric.quantile(0.75) - numeric.quantile(0.25)).replace(0.0, np.nan).fillna(1.0)
+    return center, spread
+
+
+def _standardise(
+    frame: pd.DataFrame, features: tuple[str, ...], *, center: pd.Series, scale: pd.Series
+) -> FloatArray:
+    numeric = frame.loc[:, list(features)].apply(pd.to_numeric, errors="coerce")
+    standardised = (numeric - center.loc[list(features)]) / scale.loc[list(features)]
+    cleaned = np.nan_to_num(standardised.to_numpy(dtype=float), nan=0.0, posinf=0.0, neginf=0.0)
+    return np.asarray(cleaned, dtype=np.float64)
+
+
+def _minimum_distance(values: FloatArray, references: FloatArray) -> FloatArray:
+    """Return each row's distance to the nearest reference point."""
+
+    if references.size == 0:
+        return np.full(len(values), np.inf, dtype=float)
+    best = np.full(len(values), np.inf, dtype=float)
+    for reference in references:
+        distance = np.sqrt(np.sum((values - reference) ** 2, axis=1))
+        best = np.minimum(best, distance)
+    return best
+
+
+def fit_target_region(
+    train_frame: pd.DataFrame,
+    features: tuple[str, ...],
+    *,
+    dataset: str,
+    failure_column: str = "is_failure",
+    max_prototypes: int = 16,
+    threshold_quantile: float = 0.98,
+) -> TargetRegion | None:
+    """Fit a failure-prototype region on training rows only.
+
+    Returns ``None`` when the training split contains no failure, since a prototype
+    region has nothing to be built from and reporting a fitted region would be false.
+    """
+
+    center, scale = _robust_center_scale(train_frame, features)
+    labels = train_frame[failure_column].astype(bool).to_numpy()
+    if not labels.any():
+        return None
+
+    raw = train_frame.loc[:, list(features)].apply(pd.to_numeric, errors="coerce")
+    failure_raw = raw.to_numpy(dtype=float)[labels]
+    failure_raw = failure_raw[np.isfinite(failure_raw).all(axis=1)]
+    if failure_raw.size == 0:
+        return None
+    if len(failure_raw) > max_prototypes:
+        picks = np.linspace(0, len(failure_raw) - 1, max_prototypes, dtype=int)
+        failure_raw = failure_raw[picks]
+
+    standardised = _standardise(train_frame, features, center=center, scale=scale)
+    prototypes_scaled = (
+        failure_raw - center.loc[list(features)].to_numpy(dtype=float)
+    ) / scale.loc[list(features)].to_numpy(dtype=float)
+    distances = _minimum_distance(standardised, np.asarray(prototypes_scaled, dtype=float))
+    finite = distances[np.isfinite(distances)]
+    threshold = (
+        float(np.quantile(finite, 1.0 - threshold_quantile)) if finite.size else float("nan")
+    )
+
+    return TargetRegion(
+        features=features,
+        prototypes_raw=np.asarray(failure_raw, dtype=float),
+        center=center,
+        scale=scale,
+        threshold=threshold,
+        fitted_on=dataset,
+    )
+
+
 def _histogram_overlap(source: FloatArray, destination: FloatArray, *, bins: int = 50) -> float:
     """Return the overlapping area of two empirical distributions, in ``[0, 1]``.
 
@@ -146,6 +279,340 @@ def _cadence_seconds(frame: pd.DataFrame, timestamp_column: str = "timestamp") -
     if positive.empty:
         return float("nan")
     return float(positive.median())
+
+
+def _quantile_shift(source: FloatArray, destination: FloatArray) -> float:
+    """Return the mean absolute difference between matched distribution quantiles.
+
+    Reported so a degraded transfer can be attributed to distribution movement rather
+    than left as an unexplained drop in performance.
+    """
+
+    a = np.asarray(source, dtype=float)
+    b = np.asarray(destination, dtype=float)
+    a = a[np.isfinite(a)]
+    b = b[np.isfinite(b)]
+    if a.size == 0 or b.size == 0:
+        return float("nan")
+    levels = np.linspace(0.05, 0.95, 19)
+    return float(np.mean(np.abs(np.quantile(a, levels) - np.quantile(b, levels))))
+
+
+def evaluate_transfer(
+    region: TargetRegion,
+    destination_test: pd.DataFrame,
+    *,
+    source: str,
+    destination: str,
+    protocol: str,
+    center: pd.Series,
+    scale: pd.Series,
+    threshold: float,
+    scaling_fitted_on: str,
+    threshold_fitted_on: str,
+    source_train_distances: FloatArray,
+    samples_per_day: int,
+    merge_gap: int,
+    horizon: int,
+    matching_tolerance_after: int,
+    failure_column: str = "is_failure",
+) -> TransferResult:
+    """Apply a region to a destination test split and evaluate it at event level."""
+
+    from dyn_evt_pdm.evaluation.events import EarlyWarningPolicy, flags_to_events
+    from dyn_evt_pdm.evaluation.metrics import evaluate_event_predictions
+
+    features = region.features
+    standardised = _standardise(destination_test, features, center=center, scale=scale)
+    prototypes = region.scaled_prototypes(center, scale)
+    distances = _minimum_distance(standardised, prototypes)
+
+    inside = np.asarray(distances <= threshold, dtype=bool)
+    target_flags = destination_test[failure_column].astype(bool).to_numpy()
+    occupancy = float(np.mean(inside)) if inside.size else float("nan")
+    coverage = float(np.mean(inside[target_flags])) if target_flags.any() else float("nan")
+
+    failures = flags_to_events(target_flags, label="failure")
+    alarms = flags_to_events(inside, label="alarm", merge_gap=merge_gap)
+    if not failures:
+        return TransferResult(
+            source=source,
+            destination=destination,
+            protocol=protocol,
+            features=features,
+            scaling_fitted_on=scaling_fitted_on,
+            prototypes_fitted_on=region.fitted_on,
+            threshold_fitted_on=threshold_fitted_on,
+            threshold=threshold,
+            region_occupancy=occupancy,
+            failure_state_coverage=coverage,
+            event_recall=float("nan"),
+            event_precision=float("nan"),
+            false_alarm_events_per_day=float("nan"),
+            median_warning_lead_time=None,
+            time_under_warning=0,
+            alarm_coverage_fraction=float("nan"),
+            predicted_alarm_events=len(alarms),
+            distance_shift=float("nan"),
+            score_distribution_shift=float("nan"),
+            status="not_estimable",
+            note="destination test split contains no labelled failure",
+        )
+
+    evaluation = evaluate_event_predictions(
+        alarms,
+        failures,
+        policy=EarlyWarningPolicy(horizon=horizon, tolerance_after=matching_tolerance_after),
+        method="optimal",
+        total_operating_time=len(target_flags),
+        samples_per_day=samples_per_day,
+    )
+    return TransferResult(
+        source=source,
+        destination=destination,
+        protocol=protocol,
+        features=features,
+        scaling_fitted_on=scaling_fitted_on,
+        prototypes_fitted_on=region.fitted_on,
+        threshold_fitted_on=threshold_fitted_on,
+        threshold=float(threshold),
+        region_occupancy=occupancy,
+        failure_state_coverage=coverage,
+        event_recall=evaluation.recall,
+        event_precision=evaluation.precision,
+        false_alarm_events_per_day=float(evaluation.false_alarm_events_per_operating_day or 0.0),
+        median_warning_lead_time=evaluation.median_warning_lead_time,
+        time_under_warning=evaluation.time_under_warning,
+        alarm_coverage_fraction=(
+            float(evaluation.time_under_warning) / float(len(target_flags))
+            if len(target_flags)
+            else float("nan")
+        ),
+        predicted_alarm_events=len(alarms),
+        distance_shift=_quantile_shift(source_train_distances, distances),
+        score_distribution_shift=_quantile_shift(
+            -source_train_distances.astype(float), -distances.astype(float)
+        ),
+        status="completed",
+        note="",
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class TransferSplits:
+    """Train, validation and test splits for one dataset in a transfer experiment."""
+
+    dataset: str
+    train: pd.DataFrame
+    validation: pd.DataFrame
+    test: pd.DataFrame
+
+
+def run_transfer_protocols(
+    source: TransferSplits,
+    destination: TransferSplits,
+    features: tuple[str, ...],
+    *,
+    samples_per_day: int = 86_400,
+    merge_gap: int = 60,
+    horizon: int = 3_600,
+    matching_tolerance_after: int = 0,
+    threshold_quantile: float = 0.98,
+    failure_column: str = "is_failure",
+) -> list[TransferResult]:
+    """Run every declared protocol for one source and destination pair.
+
+    Each protocol states which component was frozen and which was refitted, so a reader
+    can tell a genuine transfer from a destination refit without inspecting the code.
+    """
+
+    source_region = fit_target_region(
+        source.train,
+        features,
+        dataset=source.dataset,
+        failure_column=failure_column,
+        threshold_quantile=threshold_quantile,
+    )
+    results: list[TransferResult] = []
+    if source_region is None:
+        return [
+            TransferResult(
+                source=source.dataset,
+                destination=destination.dataset,
+                protocol="direct",
+                features=features,
+                scaling_fitted_on=source.dataset,
+                prototypes_fitted_on=source.dataset,
+                threshold_fitted_on=source.dataset,
+                threshold=float("nan"),
+                region_occupancy=float("nan"),
+                failure_state_coverage=float("nan"),
+                event_recall=float("nan"),
+                event_precision=float("nan"),
+                false_alarm_events_per_day=float("nan"),
+                median_warning_lead_time=None,
+                time_under_warning=0,
+                alarm_coverage_fraction=float("nan"),
+                predicted_alarm_events=0,
+                distance_shift=float("nan"),
+                score_distribution_shift=float("nan"),
+                status="not_estimable",
+                note="source training split contains no labelled failure to build prototypes from",
+            )
+        ]
+
+    source_train_standardised = _standardise(
+        source.train, features, center=source_region.center, scale=source_region.scale
+    )
+    source_train_distances = _minimum_distance(
+        source_train_standardised,
+        source_region.scaled_prototypes(source_region.center, source_region.scale),
+    )
+
+    def _run(
+        region: TargetRegion,
+        *,
+        protocol: str,
+        center: pd.Series,
+        scale: pd.Series,
+        threshold: float,
+        scaling_fitted_on: str,
+        threshold_fitted_on: str,
+        source_name: str | None = None,
+    ) -> TransferResult:
+        return evaluate_transfer(
+            region,
+            destination.test,
+            source=source_name or source.dataset,
+            destination=destination.dataset,
+            protocol=protocol,
+            center=center,
+            scale=scale,
+            threshold=threshold,
+            scaling_fitted_on=scaling_fitted_on,
+            threshold_fitted_on=threshold_fitted_on,
+            source_train_distances=source_train_distances,
+            samples_per_day=samples_per_day,
+            merge_gap=merge_gap,
+            horizon=horizon,
+            matching_tolerance_after=matching_tolerance_after,
+            failure_column=failure_column,
+        )
+
+    # 1. Direct: nothing about the destination is used to fit anything.
+    results.append(
+        _run(
+            source_region,
+            protocol="direct",
+            center=source_region.center,
+            scale=source_region.scale,
+            threshold=source_region.threshold,
+            scaling_fitted_on=source.dataset,
+            threshold_fitted_on=source.dataset,
+        )
+    )
+
+    # 2. Threshold recalibrated on the destination validation split only.
+    validation_standardised = _standardise(
+        destination.validation, features, center=source_region.center, scale=source_region.scale
+    )
+    validation_distances = _minimum_distance(
+        validation_standardised,
+        source_region.scaled_prototypes(source_region.center, source_region.scale),
+    )
+    finite_validation = validation_distances[np.isfinite(validation_distances)]
+    recalibrated_threshold = (
+        float(np.quantile(finite_validation, 1.0 - threshold_quantile))
+        if finite_validation.size
+        else source_region.threshold
+    )
+    results.append(
+        _run(
+            source_region,
+            protocol="recalibrated_threshold",
+            center=source_region.center,
+            scale=source_region.scale,
+            threshold=recalibrated_threshold,
+            scaling_fitted_on=source.dataset,
+            threshold_fitted_on=f"{destination.dataset} validation",
+        )
+    )
+
+    # 3. Scaling recalibrated on the destination training split, prototypes still the
+    #    source's. This is why prototypes are carried in raw units.
+    destination_center, destination_scale = _robust_center_scale(destination.train, features)
+    destination_train_standardised = _standardise(
+        destination.train, features, center=destination_center, scale=destination_scale
+    )
+    rescaled_distances = _minimum_distance(
+        destination_train_standardised,
+        source_region.scaled_prototypes(destination_center, destination_scale),
+    )
+    finite_rescaled = rescaled_distances[np.isfinite(rescaled_distances)]
+    rescaled_threshold = (
+        float(np.quantile(finite_rescaled, 1.0 - threshold_quantile))
+        if finite_rescaled.size
+        else source_region.threshold
+    )
+    results.append(
+        _run(
+            source_region,
+            protocol="recalibrated_scaling",
+            center=destination_center,
+            scale=destination_scale,
+            threshold=rescaled_threshold,
+            scaling_fitted_on=f"{destination.dataset} train",
+            threshold_fitted_on=f"{destination.dataset} train",
+        )
+    )
+
+    # 4. Destination refit: the within-dataset reference the transfers are judged against.
+    destination_region = fit_target_region(
+        destination.train,
+        features,
+        dataset=destination.dataset,
+        failure_column=failure_column,
+        threshold_quantile=threshold_quantile,
+    )
+    if destination_region is not None:
+        results.append(
+            _run(
+                destination_region,
+                protocol="destination_refit",
+                center=destination_region.center,
+                scale=destination_region.scale,
+                threshold=destination_region.threshold,
+                scaling_fitted_on=f"{destination.dataset} train",
+                threshold_fitted_on=f"{destination.dataset} train",
+                source_name=destination.dataset,
+            )
+        )
+    return results
+
+
+def transfer_results_frame(results: list[TransferResult]) -> pd.DataFrame:
+    """Return transfer results as a table, with degradation against the refit."""
+
+    if not results:
+        return pd.DataFrame()
+    frame = pd.DataFrame([asdict(result) for result in results])
+    frame["features"] = frame["features"].map(lambda value: ", ".join(value))
+
+    # Degradation is measured against the within-dataset refit for the same destination,
+    # so a transfer that fails is reported as a magnitude rather than as a gap.
+    frame["transfer_degradation_precision"] = float("nan")
+    for destination, group in frame.groupby("destination"):
+        refit = group[group["protocol"] == "destination_refit"]
+        if refit.empty:
+            continue
+        reference = float(refit.iloc[0]["event_precision"])
+        if not np.isfinite(reference):
+            continue
+        mask = frame["destination"] == destination
+        frame.loc[mask, "transfer_degradation_precision"] = (
+            reference - frame.loc[mask, "event_precision"]
+        )
+    return frame
 
 
 def assess_schema_compatibility(

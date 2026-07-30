@@ -9,7 +9,12 @@ import pytest
 from dyn_evt_pdm.pipelines.cross_dataset_transfer import (
     MAX_CADENCE_RATIO,
     MIN_DISTRIBUTION_OVERLAP,
+    TRANSFER_PROTOCOLS,
+    TransferSplits,
     assess_schema_compatibility,
+    fit_target_region,
+    run_transfer_protocols,
+    transfer_results_frame,
 )
 
 
@@ -139,3 +144,113 @@ def test_compatibility_is_reported_for_both_directions(direction: tuple[str, str
     )
     assert report.source == source
     assert report.destination == destination
+
+
+def _labelled_frame(
+    *, rows: int = 4000, shift: float = 0.0, seed: int = 0, failure_at: slice | None = None
+) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    frame = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2024-01-01", periods=rows, freq="1s"),
+            "alpha": rng.normal(shift, 1.0, rows),
+            "beta": rng.normal(10.0 + shift, 1.0, rows),
+            "is_failure": False,
+        }
+    )
+    # A transfer needs a failure in the source training split to build prototypes from
+    # and a failure in the destination test split to evaluate against, so both are
+    # present unless the caller asks for one specific window.
+    windows = (
+        [failure_at]
+        if failure_at is not None
+        else [slice(int(rows * 0.2), int(rows * 0.25)), slice(int(rows * 0.85), int(rows * 0.9))]
+    )
+    for window in windows:
+        frame.loc[window, "alpha"] += 6.0
+        frame.loc[window, "beta"] += 6.0
+        frame.loc[window, "is_failure"] = True
+    return frame
+
+
+def _splits(frame: pd.DataFrame, dataset: str) -> TransferSplits:
+    n = len(frame)
+    a, b = int(n * 0.6), int(n * 0.8)
+    return TransferSplits(
+        dataset=dataset, train=frame.iloc[:a], validation=frame.iloc[a:b], test=frame.iloc[b:]
+    )
+
+
+def test_region_is_not_fitted_without_a_training_failure() -> None:
+    """A prototype region has nothing to build from and must not be invented."""
+
+    clean = _labelled_frame()
+    clean["is_failure"] = False
+    assert fit_target_region(clean, ("alpha", "beta"), dataset="a") is None
+
+
+def test_prototypes_are_stored_in_raw_units() -> None:
+    """Storing them standardised would make scaling recalibration a no-op."""
+
+    frame = _labelled_frame(failure_at=slice(100, 300))
+    region = fit_target_region(frame, ("alpha", "beta"), dataset="a")
+    assert region is not None
+    raw_alpha = frame.loc[frame["is_failure"], "alpha"]
+    assert float(region.prototypes_raw[:, 0].min()) >= float(raw_alpha.min()) - 1e-9
+    assert float(region.prototypes_raw[:, 0].max()) <= float(raw_alpha.max()) + 1e-9
+
+
+def test_rescaling_prototypes_changes_their_standardised_position() -> None:
+    frame = _labelled_frame(failure_at=slice(100, 300))
+    region = fit_target_region(frame, ("alpha", "beta"), dataset="a")
+    assert region is not None
+    other_center = region.center + 5.0
+    original = region.scaled_prototypes(region.center, region.scale)
+    moved = region.scaled_prototypes(other_center, region.scale)
+    assert not np.allclose(original, moved)
+
+
+def test_every_protocol_is_reported_for_a_transferable_pair() -> None:
+    source = _splits(_labelled_frame(seed=1), "a")
+    destination = _splits(_labelled_frame(seed=2), "b")
+    results = run_transfer_protocols(source, destination, ("alpha", "beta"))
+    assert [r.protocol for r in results] == list(TRANSFER_PROTOCOLS)
+
+
+def test_each_protocol_declares_what_it_fitted_where() -> None:
+    source = _splits(_labelled_frame(seed=1), "a")
+    destination = _splits(_labelled_frame(seed=2), "b")
+    by_protocol = {r.protocol: r for r in run_transfer_protocols(source, destination, ("alpha",))}
+
+    direct = by_protocol["direct"]
+    assert direct.scaling_fitted_on == "a"
+    assert direct.prototypes_fitted_on == "a"
+    assert direct.threshold_fitted_on == "a"
+
+    assert by_protocol["recalibrated_threshold"].threshold_fitted_on == "b validation"
+    assert by_protocol["recalibrated_scaling"].scaling_fitted_on == "b train"
+    assert by_protocol["recalibrated_scaling"].prototypes_fitted_on == "a"
+    assert by_protocol["destination_refit"].prototypes_fitted_on == "b"
+
+
+def test_transfer_without_a_source_failure_is_not_estimable() -> None:
+    clean = _labelled_frame(seed=1)
+    clean["is_failure"] = False
+    source = _splits(clean, "a")
+    destination = _splits(_labelled_frame(seed=2), "b")
+    results = run_transfer_protocols(source, destination, ("alpha",))
+    assert len(results) == 1
+    assert results[0].status == "not_estimable"
+    assert "no labelled failure" in results[0].note
+
+
+def test_degradation_is_zero_for_the_destination_refit() -> None:
+    source = _splits(_labelled_frame(seed=1), "a")
+    destination = _splits(_labelled_frame(seed=2), "b")
+    frame = transfer_results_frame(run_transfer_protocols(source, destination, ("alpha",)))
+    refit = frame[frame["protocol"] == "destination_refit"].iloc[0]
+    assert float(refit["transfer_degradation_precision"]) == pytest.approx(0.0)
+
+
+def test_results_frame_is_empty_for_no_results() -> None:
+    assert transfer_results_frame([]).empty
