@@ -26,7 +26,7 @@ from dyn_evt_pdm.pipelines.event_method_impl import (
     regime_conditioned_thresholds,
     single_sensor_score,
 )
-from dyn_evt_pdm.pipelines.event_method_specs import SPECS_BY_NAME
+from dyn_evt_pdm.pipelines.event_method_specs import SPECS_BY_NAME, method_merge_gap
 from dyn_evt_pdm.types import EventInterval
 
 IndustrialResultStatus = Literal["succeeded", "not_estimable", "failed"]
@@ -468,9 +468,10 @@ def _run_metropt_event_comparison(
         # Runtime and peak memory cover the alarm-conversion and evaluation stage, which
         # is the part that differs between methods sharing a score. The caption states
         # this scope so the numbers are not read as end-to-end cost.
+        merge_gap = method_merge_gap(method, default_merge_gap=config.merge_gap)
         tracemalloc.start()
         started = time.perf_counter()
-        alarms = flags_to_events(alarm_flags, label="alarm", merge_gap=config.merge_gap)
+        alarms = flags_to_events(alarm_flags, label="alarm", merge_gap=merge_gap)
         evaluation = evaluate_event_predictions(
             alarms,
             failures,
@@ -518,6 +519,7 @@ def _run_metropt_event_comparison(
                 > _MAX_ALARM_COVERAGE_FRACTION
             ),
             "threshold": thresholds[method],
+            "merge_gap_used": int(merge_gap),
             "score_kind": spec.score_kind if spec else "",
             "threshold_rule": spec.threshold_rule if spec else "",
             "event_policy": spec.event_policy if spec else "",

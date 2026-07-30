@@ -280,3 +280,38 @@ def method_family(method: str) -> str:
     if spec is None:
         raise ValueError(f"undeclared event method: {method}")
     return spec.family
+
+
+#: Event policies that reduce each extreme cluster to a single alarm onset.
+DECLUSTERING_POLICIES: frozenset[str] = frozenset(
+    {
+        "fixed_run_declustering",
+        "ferro_segers_run_length",
+        "k_gaps_run_length",
+        "extremal_index_declustering",
+    }
+)
+
+
+def method_merge_gap(method: str, *, default_merge_gap: int) -> int:
+    """Return the alarm merge gap belonging to one method's event policy.
+
+    Alarm merging is part of the detector, not part of the evaluation protocol, so it
+    varies by method while matching, warning horizon, tolerance and operating time stay
+    shared. The audit reports the variation rather than forbidding it.
+
+    A declustering policy has already reduced each extreme cluster to one onset, so it
+    merges with a gap of zero: one cluster becomes one alarm. Re-applying the global gap
+    on top would merge separate clusters back together and reproduce the undeclustered
+    episode set, which is exactly why the declustering baselines previously returned
+    results identical to the global empirical threshold.
+    """
+
+    if default_merge_gap < 0:
+        raise ValueError("default_merge_gap must be non-negative")
+    spec = SPECS_BY_NAME.get(method)
+    if spec is None:
+        raise ValueError(f"undeclared event method: {method}")
+    if spec.event_policy in DECLUSTERING_POLICIES:
+        return 0
+    return default_merge_gap

@@ -918,6 +918,112 @@ def _ablation_assets(
     return [csv_path, tex_path]
 
 
+#: Method whose rows the main event-level table reports.
+_REGISTERED_EVENT_METHOD = "dynamical_evt_robust_score"
+
+
+def _merge_registered_event_metrics(
+    config: PaperAssetConfig, summary: pd.DataFrame
+) -> pd.DataFrame:
+    """Overwrite the compressor summary metrics with the registered method's benchmark rows.
+
+    Anything downstream that describes the registered method must read the benchmark, not
+    the global-threshold summary path. Non-compressor rows are untouched, since the
+    benchmark only covers the event-level datasets.
+    """
+
+    benchmark_path = config.real_data_matrix_root / "event_baseline_comparison.csv"
+    if not benchmark_path.exists():
+        return summary
+    benchmark = pd.read_csv(benchmark_path)
+    registered = benchmark[benchmark["method"] == _REGISTERED_EVENT_METHOD]
+    if registered.empty:
+        return summary
+
+    updated = summary.copy()
+    for _index, row in registered.iterrows():
+        mask = updated["dataset_id"] == row["dataset_id"]
+        if not mask.any():
+            continue
+        updated.loc[mask, "predicted_events_or_units"] = row["predicted_alarm_events"]
+        updated.loc[mask, "precision"] = row["event_precision"]
+        updated.loc[mask, "recall"] = row["event_recall"]
+        updated.loc[mask, "f1"] = row["event_f1"]
+        updated.loc[mask, "false_alarm_events_per_day"] = row["false_alarm_events_per_day"]
+        updated.loc[mask, "median_warning_lead_time"] = row["median_warning_lead_time"]
+    return updated
+
+
+def _registered_event_level_frame(config: PaperAssetConfig, summary: pd.DataFrame) -> pd.DataFrame:
+    """Build the main event-level table from the benchmark, for the registered method.
+
+    This table previously came from ``industrial_results_summary.csv``, which evaluates a
+    plain robust score at a global empirical threshold and has never run the registered
+    method. While nine baselines were collapsed onto one computation the two agreed
+    numerically, so the discrepancy was invisible; separating the methods revealed that
+    the paper's principal event-level table reported the global empirical threshold while
+    the surrounding text attributed those numbers to the registered recurrence score.
+    Sourcing both from the benchmark removes the second code path.
+
+    Warning exposure is included because alarm burden is only interpretable when
+    interruption frequency and exposure are reported together.
+    """
+
+    benchmark_path = config.real_data_matrix_root / "event_baseline_comparison.csv"
+    datasets = ["metropt", "metropt2"]
+    if benchmark_path.exists():
+        benchmark = pd.read_csv(benchmark_path)
+        registered = benchmark[
+            (benchmark["method"] == _REGISTERED_EVENT_METHOD)
+            & (benchmark["dataset_id"].isin(datasets))
+        ].copy()
+        if not registered.empty:
+            registered = registered.sort_values("dataset_id")
+            exposure = (
+                registered["alarm_coverage_fraction"]
+                if "alarm_coverage_fraction" in registered.columns
+                else pd.Series([float("nan")] * len(registered), index=registered.index)
+            )
+            return pd.DataFrame(
+                {
+                    "Dataset": registered["dataset_id"].map(_dataset_label),
+                    "Failure": registered["dataset_id"].map(
+                        lambda value: f"{_dataset_label(value)} registered test failure"
+                    ),
+                    "Target": registered["target_events"].map(_format_count),
+                    "Alarms": registered["predicted_alarm_events"].map(_format_count),
+                    "Recall": registered["event_recall"].map(_format_metric),
+                    "Precision": registered["event_precision"].map(_format_metric),
+                    "FA/day": registered["false_alarm_events_per_day"].map(_format_metric),
+                    # The writer escapes LaTeX specials, so the percent sign is emitted
+                    # plain here; pre-escaping it produces a literal backslash.
+                    "Exposure %": exposure.map(
+                        lambda value: "" if pd.isna(value) else f"{float(value) * 100:.2f}"
+                    ),
+                    "Lead": registered["median_warning_lead_time"].map(_format_optional_int),
+                }
+            )
+
+    # Fallback keeps the build working where the benchmark artifact is absent, and says
+    # in the table which method it is actually reporting.
+    event_source = summary[summary["dataset_id"].isin(datasets)].copy()
+    return pd.DataFrame(
+        {
+            "Dataset": event_source["dataset_id"].map(_dataset_label),
+            "Failure": event_source["dataset_id"].map(
+                lambda value: f"{_dataset_label(value)} registered test failure"
+            ),
+            "Method": ["global empirical threshold"] * len(event_source),
+            "Target": event_source["target_events_or_units"].map(_format_count),
+            "Alarms": event_source["predicted_events_or_units"].map(_format_count),
+            "Recall": event_source["recall"].map(_format_metric),
+            "Precision": event_source["precision"].map(_format_metric),
+            "FA/day": event_source["false_alarm_events_per_day"].map(_format_metric),
+            "Lead": event_source["median_warning_lead_time"].map(_format_optional_int),
+        }
+    )
+
+
 def _estimator_study_assets(config: PaperAssetConfig, output_root: Path) -> list[Path]:
     """Build the extremal-index estimator figures and tables from the available grids.
 
@@ -1046,22 +1152,7 @@ def _industrial_compact_assets(
         return []
     source = pd.read_csv(path)
     generated: list[Path] = []
-    event_source = source[source["dataset_id"].isin(["metropt", "metropt2"])].copy()
-    event_frame = pd.DataFrame(
-        {
-            "Dataset": event_source["dataset_id"].map(_dataset_label),
-            "Failure": event_source["dataset_id"].map(
-                lambda value: f"{_dataset_label(value)} registered test failure"
-            ),
-            "Target": event_source["target_events_or_units"].map(_format_count),
-            "Alarms": event_source["predicted_events_or_units"].map(_format_count),
-            "Recall": event_source["recall"].map(_format_metric),
-            "Precision": event_source["precision"].map(_format_metric),
-            "FA/day": event_source["false_alarm_events_per_day"].map(_format_metric),
-            "Lead": event_source["median_warning_lead_time"].map(_format_optional_int),
-            "Limit": event_source["limitation"].map(_short_limitation),
-        }
-    )
+    event_frame = _registered_event_level_frame(config, source)
     event_csv = tables / "industrial_event_level_results.csv"
     event_tex = latex / "industrial_event_level_results.tex"
     event_frame.to_csv(event_csv, index=False)
@@ -1630,6 +1721,9 @@ def _root_cause_assets(
     if not path.exists():
         return []
     source = pd.read_csv(path)
+    # The compressor rows describe the registered method, so their evidence must come
+    # from the benchmark rather than from the global-threshold summary path.
+    source = _merge_registered_event_metrics(config, source)
     explanations = {
         "metropt": "alarm-conversion burden with one held-out failure",
         "metropt2": "alarm-conversion burden with one held-out failure",

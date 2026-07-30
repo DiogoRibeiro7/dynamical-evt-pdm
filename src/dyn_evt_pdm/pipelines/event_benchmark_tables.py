@@ -232,6 +232,26 @@ def build_fairness_audit(frame: pd.DataFrame) -> list[FairnessFinding]:
         )
     )
 
+    # Event conversion is part of the detector, not the protocol: several methods exist
+    # precisely to vary declustering and merging. The audit therefore records which
+    # conversions were used instead of requiring one, so a reader can see that the
+    # comparison holds matching, horizon and exposure fixed while the methods differ.
+    if "event_policy" in frame.columns:
+        policies = sorted({str(value) for value in frame["event_policy"].dropna().unique()})
+        gaps = (
+            sorted({int(value) for value in frame["merge_gap_used"].dropna().unique()})
+            if "merge_gap_used" in frame.columns
+            else []
+        )
+        findings.append(
+            FairnessFinding(
+                "event_conversion_declared",
+                "reported",
+                f"event policies in use: {', '.join(policies)}"
+                + (f"; merge gaps in use: {', '.join(str(gap) for gap in gaps)}" if gaps else ""),
+            )
+        )
+
     declared = {spec.name for spec in SPECS_BY_NAME.values()}
     present = set(frame["method"].unique()) if "method" in frame.columns else set()
     undeclared = sorted(present - declared)

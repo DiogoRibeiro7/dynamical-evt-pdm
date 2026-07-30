@@ -15,7 +15,7 @@ The failure mode is layered. Some methods fail at the score layer because failur
 
 \subsection{Comparison With Baselines}
 
-Simple baselines remain competitive under the held-out event policy. The engineering threshold detected both compressor events and reduced alarm burden relative to the registered score. Classical EVT and anomaly baselines did not remove the basic precision problem. The proposed recurrence score therefore adds diagnostic structure, but it does not add measurable operational value on these held-out events.
+Simple baselines remain competitive under the held-out event policy. The engineering threshold detected both compressor events, and its burden relative to the registered score depends on the axis measured: fewer alarm episodes, but far greater warning exposure. That asymmetry is itself the operational point. A method can be made to look better on episode counts by merging its alarms into fewer, longer blocks, which is not an improvement an operator would recognise, so claiming a burden advantage requires naming the burden. Classical EVT and anomaly baselines did not remove the basic precision problem. The proposed recurrence score therefore adds diagnostic structure, but it does not add measurable operational value on these held-out events.
 
 \subsection{Matched Negative Controls}
 

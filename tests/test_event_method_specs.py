@@ -209,3 +209,33 @@ def test_every_declared_method_has_a_spec() -> None:
 
     for method in (*EVENT_BASELINE_METHODS, *EVENT_CONTROL_METHODS):
         assert method in SPECS_BY_NAME, f"{method} has no declared specification"
+
+
+def test_declustering_policies_merge_with_a_zero_gap() -> None:
+    """One cluster must become one alarm.
+
+    Declustering to onsets and then re-applying the global merge gap merges separate
+    clusters back together and reproduces the undeclustered episode set, which is why
+    the declustering baselines previously matched the global empirical threshold.
+    """
+
+    from dyn_evt_pdm.pipelines.event_method_specs import (
+        DECLUSTERING_POLICIES,
+        method_merge_gap,
+    )
+
+    for spec in EVENT_METHOD_SPECS:
+        gap = method_merge_gap(spec.name, default_merge_gap=60)
+        if spec.event_policy in DECLUSTERING_POLICIES:
+            assert gap == 0, f"{spec.name} must merge with a zero gap after declustering"
+        else:
+            assert gap == 60, f"{spec.name} must use the shared default gap"
+
+
+def test_method_merge_gap_rejects_bad_input() -> None:
+    from dyn_evt_pdm.pipelines.event_method_specs import method_merge_gap
+
+    with pytest.raises(ValueError, match="undeclared event method"):
+        method_merge_gap("not_a_method", default_merge_gap=10)
+    with pytest.raises(ValueError, match="default_merge_gap"):
+        method_merge_gap("engineering_threshold", default_merge_gap=-1)
