@@ -1450,27 +1450,61 @@ def _target_region_transferability_assets(
     if not path.exists():
         return []
     source = pd.read_csv(path)
-    if source.empty:
+    if source.empty or "protocol" not in source.columns:
         return []
-    source = source.loc[source["method"].isin(["failure_prototype_region", "rare_state_region"])]
+
+    protocol_labels = {
+        "direct": "Direct",
+        "recalibrated_threshold": "Threshold recal.",
+        "recalibrated_scaling": "Scaling recal.",
+        "destination_refit": "Destination refit",
+    }
     frame = pd.DataFrame(
         {
-            "Source": source["source_dataset_id"].map(_dataset_label),
-            "Target": source["target_dataset_id"].map(_dataset_label),
-            "Region": source["method"].map(_event_method_label),
+            "Source": source["source"].map(_dataset_label),
+            "Dest.": source["destination"].map(_dataset_label),
+            "Protocol": source["protocol"].map(
+                lambda value: protocol_labels.get(str(value), str(value))
+            ),
+            "Scaling": source["scaling_fitted_on"].astype(str),
+            "Threshold": source["threshold_fitted_on"].astype(str),
+            "Occup.": source["region_occupancy"].map(_format_metric),
             "Recall": source["event_recall"].map(_format_metric),
             "Precision": source["event_precision"].map(_format_metric),
             "FA/day": source["false_alarm_events_per_day"].map(_format_metric),
-            "Transfer": source["transfer_type"].astype(str),
+            "Degrad.": source.get("transfer_degradation_precision", pd.Series(dtype=float)).map(
+                _format_metric
+            )
+            if "transfer_degradation_precision" in source.columns
+            else "",
         }
     )
     csv_path = tables / "target_region_transferability.csv"
     tex_path = latex / "target_region_transferability.tex"
     frame.to_csv(csv_path, index=False)
+    excluded = (
+        str(source["excluded_features"].dropna().iloc[0])
+        if "excluded_features" in source.columns and source["excluded_features"].notna().any()
+        else ""
+    )
+    feature_set = (
+        str(source["feature_set"].dropna().iloc[0])
+        if "feature_set" in source.columns and source["feature_set"].notna().any()
+        else ""
+    )
     _write_latex_table(
         frame,
         tex_path,
-        caption="Target-region behaviour across MetroPT and MetroPT2 held-out event splits.",
+        caption=(
+            "Cross-dataset target-region transfer. Each row applies a region fitted on "
+            "the source to the destination's held-out test split; the scaling and "
+            "threshold columns state what was frozen and what was refitted. Degradation "
+            "is event precision relative to the destination refit, so a negative value "
+            "means the transferred region outperformed a region fitted on the "
+            "destination itself. "
+            + (f"Transfer runs on the {feature_set}. " if feature_set else "")
+            + (f"Excluded as incompatible: {excluded.replace('_', ' ')}." if excluded else "")
+        ),
         label="tab:target-region-transferability",
     )
     return [csv_path, tex_path]

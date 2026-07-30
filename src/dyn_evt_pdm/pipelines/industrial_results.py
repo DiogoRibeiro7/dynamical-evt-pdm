@@ -15,6 +15,13 @@ import pandas as pd
 
 from dyn_evt_pdm.evaluation.events import EarlyWarningPolicy, flags_to_events
 from dyn_evt_pdm.evaluation.metrics import evaluate_event_predictions
+from dyn_evt_pdm.pipelines.cross_dataset_transfer import (
+    TransferResult,
+    TransferSplits,
+    assess_schema_compatibility,
+    run_transfer_protocols,
+    transfer_results_frame,
+)
 from dyn_evt_pdm.pipelines.event_method_impl import (
     apply_regime_thresholds,
     best_single_sensor_index,
@@ -350,7 +357,7 @@ def _run_event_level_comparison_artifacts(config: IndustrialResultsConfig) -> di
         reconciliation_rows.extend(reconciliation)
         if timeline is not None:
             timeline_frames.append(timeline)
-    transferability_rows = _target_region_transferability_rows(baseline_rows)
+    transferability_rows, compatibility_rows = _cross_dataset_transfer_rows(config)
 
     artifacts: dict[str, str] = {}
     if baseline_rows:
@@ -365,6 +372,10 @@ def _run_event_level_comparison_artifacts(config: IndustrialResultsConfig) -> di
         path = config.output_root / "target_region_transferability.csv"
         pd.DataFrame(transferability_rows).to_csv(path, index=False)
         artifacts["target_region_transferability_csv"] = str(path)
+    if compatibility_rows:
+        path = config.output_root / "transfer_schema_compatibility.csv"
+        pd.DataFrame(compatibility_rows).to_csv(path, index=False)
+        artifacts["transfer_schema_compatibility_csv"] = str(path)
     if negative_control_summary_rows:
         path = config.output_root / "matched_negative_controls.csv"
         pd.DataFrame(negative_control_summary_rows).to_csv(path, index=False)
@@ -1325,44 +1336,123 @@ def _timeline_reconciliation_row(
     }
 
 
-def _target_region_transferability_rows(
-    baseline_rows: list[dict[str, object]],
-) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-    by_dataset_method = {
-        (str(row["dataset_id"]), str(row["method"])): row
-        for row in baseline_rows
-        if str(row.get("method")) in TARGET_REGION_METHODS
-    }
-    datasets = sorted({dataset_id for dataset_id, _method in by_dataset_method})
-    for source_dataset in datasets:
-        for target_dataset in datasets:
-            for method in TARGET_REGION_METHODS:
-                target_row = by_dataset_method.get((target_dataset, method))
-                if target_row is None:
-                    continue
-                rows.append(
-                    {
-                        "source_dataset_id": source_dataset,
-                        "target_dataset_id": target_dataset,
-                        "method": method,
-                        "transfer_type": "within_dataset"
-                        if source_dataset == target_dataset
-                        else "cross_dataset_metric_projection",
-                        "target_events": target_row["target_events"],
-                        "predicted_alarm_events": target_row["predicted_alarm_events"],
-                        "event_recall": target_row["event_recall"],
-                        "event_precision": target_row["event_precision"],
-                        "event_f1": target_row["event_f1"],
-                        "false_alarm_events_per_day": target_row["false_alarm_events_per_day"],
-                        "limitation": (
-                            "cross-dataset rows compare held-out event behavior under the "
-                            "same registered target-region rule; they are not pooled "
-                            "independent failures"
-                        ),
-                    }
-                )
-    return rows
+def _transfer_splits(
+    dataset_id: str,
+    config: IndustrialResultsConfig,
+    features: tuple[str, ...],
+) -> TransferSplits | None:
+    """Load one dataset's registered train, validation and test splits for transfer.
+
+    The splits come from the same temporal partition the rest of the benchmark uses, so
+    transfer numbers are comparable with the event-level rows rather than produced under
+    an ad-hoc split of their own.
+    """
+
+    manifest_path = config.processed_root / dataset_id / "manifest.json"
+    if not manifest_path.exists():
+        return None
+    manifest = _read_json_object(manifest_path)
+    files = _manifest_files(manifest)
+    rows = int(manifest.get("rows", 0))
+    if not files or rows <= 0:
+        return None
+    available = _available_columns(manifest, features)
+    if not available:
+        return None
+    columns = tuple([*available, "timestamp", "is_failure"])
+    parts: dict[str, list[pd.DataFrame]] = {"train": [], "validation": [], "test": []}
+    offset = 0
+    for path in files:
+        frame = pd.read_parquet(path, columns=list(columns))
+        split = _temporal_split(offset, len(frame), rows, config)
+        for name in parts:
+            selected = frame.loc[split == name]
+            if not selected.empty:
+                parts[name].append(selected)
+        offset += len(frame)
+    if not parts["train"] or not parts["test"]:
+        return None
+    return TransferSplits(
+        dataset=dataset_id,
+        train=pd.concat(parts["train"], ignore_index=True),
+        validation=(
+            pd.concat(parts["validation"], ignore_index=True)
+            if parts["validation"]
+            else pd.concat(parts["train"], ignore_index=True)
+        ),
+        test=pd.concat(parts["test"], ignore_index=True),
+    )
+
+
+def _cross_dataset_transfer_rows(
+    config: IndustrialResultsConfig,
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Run genuine transfer between the compressor datasets, in both directions.
+
+    This replaces a table whose cross-dataset rows were byte-for-byte copies of the
+    destination's own within-dataset row: the source label was decorative and nothing
+    crossed between datasets. Every row here applies a region fitted on the source to
+    the destination's test split, and records what was frozen and what was refitted.
+    """
+
+    candidates = METROPT_FEATURE_PRIORITY
+    splits: dict[str, TransferSplits] = {}
+    for dataset_id in ("metropt", "metropt2"):
+        loaded = _transfer_splits(dataset_id, config, candidates)
+        if loaded is not None:
+            splits[dataset_id] = loaded
+    if len(splits) < 2:
+        return [], []
+
+    source_id, destination_id = "metropt", "metropt2"
+    report = assess_schema_compatibility(
+        splits[source_id].train,
+        splits[destination_id].train,
+        source=source_id,
+        destination=destination_id,
+        candidate_features=candidates,
+    )
+    compatibility = report.to_frame()
+    compatibility.insert(0, "destination_dataset_id", destination_id)
+    compatibility.insert(0, "source_dataset_id", source_id)
+    compatibility_rows: list[dict[str, object]] = [
+        {str(key): value for key, value in record.items()}
+        for record in compatibility.to_dict("records")
+    ]
+
+    if not report.transferable:
+        return [], compatibility_rows
+
+    features = report.compatible_features
+    results: list[TransferResult] = []
+    for source_name, destination_name in ((source_id, destination_id), (destination_id, source_id)):
+        results.extend(
+            run_transfer_protocols(
+                splits[source_name],
+                splits[destination_name],
+                features,
+                samples_per_day=config.samples_per_day,
+                merge_gap=config.merge_gap,
+                horizon=config.horizon,
+                matching_tolerance_after=config.matching_tolerance_after,
+                threshold_quantile=config.threshold_quantile,
+            )
+        )
+    frame = transfer_results_frame(results)
+    if frame.empty:
+        return [], compatibility_rows
+    frame["excluded_features"] = ", ".join(
+        item.feature for item in report.features if not item.compatible
+    )
+    # The transfer runs on the transferable feature subset, so its destination_refit is
+    # not the same construction as the full-feature failure-prototype region in the
+    # event-level benchmark. Labelling the feature set prevents the two within-dataset
+    # numbers from being read as a contradiction.
+    frame["feature_set"] = f"transferable subset ({len(features)} of {len(candidates)})"
+    transfer_rows: list[dict[str, object]] = [
+        {str(key): value for key, value in record.items()} for record in frame.to_dict("records")
+    ]
+    return transfer_rows, compatibility_rows
 
 
 def _scaled_matrix(
