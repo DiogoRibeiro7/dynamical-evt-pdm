@@ -24,6 +24,12 @@ from dyn_evt_pdm.pipelines.cross_dataset_transfer import (
     transfer_distance_samples,
     transfer_results_frame,
 )
+from dyn_evt_pdm.pipelines.detection_aware_controls import (
+    add_detection_columns,
+    detection_aware_summary,
+    joint_utility,
+    utility_sensitivity,
+)
 from dyn_evt_pdm.pipelines.event_method_impl import (
     apply_regime_thresholds,
     best_single_sensor_index,
@@ -334,6 +340,8 @@ def _run_event_level_comparison_artifacts(config: IndustrialResultsConfig) -> di
     transferability_rows: list[dict[str, object]] = []
     negative_control_summary_rows: list[dict[str, object]] = []
     negative_control_draw_rows: list[dict[str, object]] = []
+    detection_aware_rows: list[dict[str, object]] = []
+    utility_sensitivity_rows: list[dict[str, object]] = []
     decomposition_rows: list[dict[str, object]] = []
     reconciliation_rows: list[dict[str, object]] = []
     timeline_frames: list[pd.DataFrame] = []
@@ -347,6 +355,8 @@ def _run_event_level_comparison_artifacts(config: IndustrialResultsConfig) -> di
             variants,
             control_summaries,
             control_draws,
+            detection_aware,
+            utility_sensitivity_batch,
             decomposition,
             reconciliation,
             timeline,
@@ -355,6 +365,8 @@ def _run_event_level_comparison_artifacts(config: IndustrialResultsConfig) -> di
         variant_rows.extend(variants)
         negative_control_summary_rows.extend(control_summaries)
         negative_control_draw_rows.extend(control_draws)
+        detection_aware_rows.extend(detection_aware)
+        utility_sensitivity_rows.extend(utility_sensitivity_batch)
         decomposition_rows.extend(decomposition)
         reconciliation_rows.extend(reconciliation)
         if timeline is not None:
@@ -388,6 +400,14 @@ def _run_event_level_comparison_artifacts(config: IndustrialResultsConfig) -> di
         path = config.output_root / "matched_negative_controls.csv"
         pd.DataFrame(negative_control_summary_rows).to_csv(path, index=False)
         artifacts["matched_negative_controls_csv"] = str(path)
+    if detection_aware_rows:
+        path = config.output_root / "detection_aware_controls.csv"
+        pd.DataFrame(detection_aware_rows).to_csv(path, index=False)
+        artifacts["detection_aware_controls_csv"] = str(path)
+    if utility_sensitivity_rows:
+        path = config.output_root / "control_utility_sensitivity.csv"
+        pd.DataFrame(utility_sensitivity_rows).to_csv(path, index=False)
+        artifacts["control_utility_sensitivity_csv"] = str(path)
     if negative_control_draw_rows:
         path = config.output_root / "matched_negative_control_draws.csv"
         pd.DataFrame(negative_control_draw_rows).to_csv(path, index=False)
@@ -420,17 +440,19 @@ def _run_metropt_event_comparison(
     list[dict[str, object]],
     list[dict[str, object]],
     list[dict[str, object]],
+    list[dict[str, object]],
+    list[dict[str, object]],
     pd.DataFrame | None,
 ]:
     files = _manifest_files(manifest)
     rows = int(manifest.get("rows", 0))
     feature_columns = _available_columns(manifest, METROPT_FEATURE_PRIORITY)
     if not files or rows <= 0 or not feature_columns:
-        return [], [], [], [], [], [], None
+        return [], [], [], [], [], [], [], [], None
 
     train = _collect_metropt_split(files, rows, feature_columns, config, split_name="train")
     if train.empty:
-        return [], [], [], [], [], [], None
+        return [], [], [], [], [], [], [], [], None
     center, scale = _robust_center_scale(train, feature_columns)
     train_refs = _event_method_references(train, feature_columns, center=center, scale=scale)
     train_scores = _event_method_scores(
@@ -438,7 +460,7 @@ def _run_metropt_event_comparison(
     )
     thresholds = _event_method_thresholds(train_scores, config)
     if not thresholds:
-        return [], [], [], [], [], [], None
+        return [], [], [], [], [], [], [], [], None
 
     flags_by_method: dict[str, list[np.ndarray[Any, Any]]] = {method: [] for method in thresholds}
     scores_by_method: dict[str, list[np.ndarray[Any, Any]]] = {method: [] for method in thresholds}
@@ -474,11 +496,13 @@ def _run_metropt_event_comparison(
     target_flags = np.concatenate(target_parts) if target_parts else np.array([], dtype=bool)
     failures = flags_to_events(target_flags, label="failure")
     if not failures:
-        return [], [], [], [], [], [], None
+        return [], [], [], [], [], [], [], [], None
     baseline_rows: list[dict[str, object]] = []
     variant_rows: list[dict[str, object]] = []
     negative_control_summary_rows: list[dict[str, object]] = []
     negative_control_draw_rows: list[dict[str, object]] = []
+    detection_aware_rows: list[dict[str, object]] = []
+    utility_sensitivity_rows: list[dict[str, object]] = []
     decomposition_rows: list[dict[str, object]] = []
     reconciliation_rows: list[dict[str, object]] = []
     configuration_hash = _event_configuration_hash(config)
@@ -610,6 +634,13 @@ def _run_metropt_event_comparison(
             observed_row=observed,
             draw_rows=negative_control_draw_rows,
         )
+        detection_rows, sensitivity_rows = _detection_aware_control_rows(
+            observed_row=observed,
+            draw_rows=negative_control_draw_rows,
+            total_samples=len(target_flags),
+        )
+        detection_aware_rows.extend(detection_rows)
+        utility_sensitivity_rows.extend(sensitivity_rows)
 
     timeline = None
     if dataset_id == "metropt" and timestamp_parts and robust_score_parts:
@@ -634,6 +665,8 @@ def _run_metropt_event_comparison(
         variant_rows,
         negative_control_summary_rows,
         negative_control_draw_rows,
+        detection_aware_rows,
+        utility_sensitivity_rows,
         decomposition_rows,
         reconciliation_rows,
         timeline,
@@ -1059,9 +1092,30 @@ def _matched_negative_control_draw_rows(
                     "false_alarm_events_per_day": evaluation.false_alarm_events_per_operating_day,
                     "median_warning_lead_time": evaluation.median_warning_lead_time,
                     "time_under_warning": evaluation.time_under_warning,
+                    # The observed method's occupancy is constant across draws and is
+                    # kept for reference; the control's own occupancy is what an
+                    # occupancy-matched comparison must condition on, and recording the
+                    # observed value in its place made that comparison impossible.
                     "region_occupancy": float(len(observed_indices) / max(1, len(targets))),
+                    "control_occupancy": float(
+                        sum(alarm.duration for alarm in alarms) / max(1, len(targets))
+                    ),
                     "cluster_count": len(alarms),
-                    "event_utility": float(evaluation.recall - 0.01 * len(alarms)),
+                    "duplicate_alarm_events": evaluation.duplicate_alarm_events,
+                    "alarm_coverage_fraction": (
+                        float(evaluation.time_under_warning) / float(max(1, len(targets)))
+                    ),
+                    "detected": bool(evaluation.recall > 0.0),
+                    "event_utility": joint_utility(
+                        detected=bool(evaluation.recall > 0.0),
+                        false_alarm_events_per_day=float(
+                            evaluation.false_alarm_events_per_operating_day or 0.0
+                        ),
+                        alarm_coverage_fraction=(
+                            float(evaluation.time_under_warning) / float(max(1, len(targets)))
+                        ),
+                        median_warning_lead_time=evaluation.median_warning_lead_time,
+                    ),
                     "matching_basis": _control_matching_basis(family),
                 }
             )
@@ -1225,6 +1279,66 @@ def _matched_negative_control_summary_rows(
                 }
             )
     return rows
+
+
+def _detection_aware_control_rows(
+    *,
+    observed_row: dict[str, object],
+    draw_rows: list[dict[str, object]],
+    total_samples: int,
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Build the detection-aware control comparison and its weight sensitivity.
+
+    The per-metric summary compares burden without reference to whether the failure was
+    found. That rewards a region for not detecting: a region raising no alarms has a
+    false-alarm rate of zero and beats every control on burden while missing the event.
+    These rows carry the control detection rate and a predeclared joint utility, and
+    repeat the comparison restricted to controls that detect, that match the observed
+    recall, and that match the observed occupancy.
+    """
+
+    if not draw_rows:
+        return [], []
+    draws = add_detection_columns(pd.DataFrame(draw_rows), total_samples=total_samples)
+    observed_recall = _object_float(observed_row["event_recall"])
+    observed_coverage = _object_float(observed_row.get("alarm_coverage_fraction", float("nan")))
+    if not np.isfinite(observed_coverage):
+        observed_coverage = _object_float(observed_row["time_under_warning"]) / float(
+            max(1, total_samples)
+        )
+    lead = observed_row.get("median_warning_lead_time")
+    observed_lead = _object_float(lead) if lead is not None else None
+
+    summary = detection_aware_summary(
+        draws,
+        observed_detected=observed_recall > 0.0,
+        observed_recall=observed_recall,
+        observed_occupancy=_object_float(observed_row.get("alarm_coverage_fraction", float("nan"))),
+        observed_false_alarms_per_day=_object_float(observed_row["false_alarm_events_per_day"]),
+        observed_alarm_coverage=observed_coverage,
+        observed_lead_time=observed_lead if observed_lead and np.isfinite(observed_lead) else None,
+    )
+    sensitivity = utility_sensitivity(
+        draws,
+        observed_detected=observed_recall > 0.0,
+        observed_false_alarms_per_day=_object_float(observed_row["false_alarm_events_per_day"]),
+        observed_alarm_coverage=observed_coverage,
+        observed_lead_time=observed_lead if observed_lead and np.isfinite(observed_lead) else None,
+    )
+    if not sensitivity.empty:
+        sensitivity.insert(0, "observed_method", str(observed_row["method"]))
+        sensitivity.insert(0, "dataset_id", str(observed_row["dataset_id"]))
+
+    def _to_records(frame: pd.DataFrame) -> list[dict[str, object]]:
+        return [
+            {str(key): value for key, value in record.items()}
+            for record in frame.to_dict("records")
+        ]
+
+    return (
+        _to_records(summary) if not summary.empty else [],
+        _to_records(sensitivity) if not sensitivity.empty else [],
+    )
 
 
 def _object_float(value: object) -> float:
