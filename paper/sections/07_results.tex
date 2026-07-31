@@ -113,6 +113,23 @@ The consequence for the paper's central heterogeneity claim is a narrowing rathe
 
 Table~\ref{tab:matched-negative-controls} compares the observed failure-prototype alarm burden with 500 deterministic matched-control draws for each control family and dataset. These controls preserve occupancy, exposure length, temporal shifting, rare-region structure, or block structure while breaking the specific relationship to the held-out failure. The comparison is descriptive because only two independent held-out compressor failures are available.
 
+Burden alone is not a sufficient basis for that comparison. A region that raises no alarms attains a false-alarm rate of zero while missing the failure, so comparing burden without conditioning on detection rewards a detector for not detecting. Table~\ref{tab:detection-aware-controls} therefore reports the control population's detection rate on every row and repeats the comparison restricted to controls that detect, that match the observed recall, and that match the observed occupancy. Utility is the predeclared joint utility defined in Section~\ref{sec:event-benchmark}: detection dominates, false alarms are charged per operating day, warning exposure is charged separately, and a capped early-warning reward is paid only when the failure was detected. Component metrics remain reported separately in Table~\ref{tab:matched-negative-controls}.
+
+\input{../reports/paper/latex/detection_aware_controls.tex}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{../reports/paper/figures/detection_aware_controls.png}
+  \caption{Matched-control distributions with the observed failure-prototype region marked. The utility panel overlays the subset of controls that detect the failure, because the comparison that matters is against those; the burden and lead-time panels are restricted to detecting draws for the same reason. On MetroPT no control draw detects, so those panels are empty by construction.}
+  \label{fig:detection-aware-controls}
+\end{figure}
+
+The conditioning changes both results. On MetroPT the observed region missed the failure, and so did all 3000 draws across the six control families: the detection rate is zero throughout and no draw satisfies the detecting condition. Its zero alarm burden is therefore matched by every control and accompanied by no detection, which is not evidence of a favourable region.
+
+On MetroPT2 the effect is uniform in direction but not in size. Restricting to controls that also detect lowers the observed percentile in every family, and in two of the six it moves the observed region below the control median: from \(0.654\) to \(0.279\) against occupancy-matched random regions, and from \(0.656\) to \(0.265\) against prototype-source permutations. Against phase-randomised scores and regime-matched rare regions the observed region still exceeds every detecting draw. The families that reverse are those whose draws preserve the region's own structure while breaking its relation to the failure, which is the comparison most informative about whether the learned region is failure-proximal; the families it still beats are those whose detection rate is near unity, where detecting the failure carries little information. Detection is not a discriminating achievement on this dataset: \(92\%\) of regime-matched rare regions and all phase-randomised scores detect the same failure.
+
+The sensitivity sweep varies each declared weight by factors from \(0.25\) to \(4\). Pooled across families the observed percentile among detecting draws moves between \(0.68\) and \(0.83\), so the overall standing is not an artifact of the chosen weighting; nor, for the two reversing families, is the reversal.
+
 \input{../reports/paper/latex/matched_negative_controls.tex}
 
 \subsection{Score-threshold-alarm decomposition}

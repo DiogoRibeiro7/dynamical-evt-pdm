@@ -21,7 +21,11 @@ Simple baselines remain competitive under the held-out event policy. The enginee
 
 \subsection{Matched Negative Controls}
 
-Matched controls prevent over-interpreting one favorable target-region result. For MetroPT2, the failure-prototype region has lower false-alarm burden than rare-region and phase-randomised controls, but occupancy-matched random regions can have lower burden. The result is promising as a diagnostic contrast, not as evidence that the learned region is uniquely failure-proximal.
+Matched controls prevent over-interpreting one favourable target-region result, but only when they are conditioned on detection. Comparing alarm burden without that condition rewards a region for not detecting: a region raising no alarms attains the best possible burden and the worst possible outcome simultaneously. Both compressor results change once the condition is imposed.
+
+On MetroPT the failure-prototype region raised no alarms and missed the failure, and so did every one of the 3000 control draws across six families. The comparison is therefore vacuous: a zero burden that is matched by every control and accompanied by no detection is not evidence of anything. On MetroPT2 the region detects, and conditioning lowers its standing against every control family. In two of the six it falls below the control median, and those two are the informative ones: occupancy-matched random regions and prototype-source permutations preserve the region's own structure while breaking its relation to the failure. The families the region still beats are those whose draws detect almost always, where detection separates nothing.
+
+The honest reading is narrower than the earlier one. Against chance regions that share its structure and also detect, the learned region is not better; against controls that detect trivially it is. Part of what the unconditioned comparison measured was the difficulty of the detection problem rather than the quality of the region, and the residual advantage rests on control families that discriminate least.
 
 \subsection{Independent-Event Scarcity}
 

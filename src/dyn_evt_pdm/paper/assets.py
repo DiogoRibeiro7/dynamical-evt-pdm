@@ -1121,6 +1121,8 @@ def _revision_summary_assets(
     generated += _event_variant_comparison_assets(config, tables, latex)
     generated += _target_region_transferability_assets(config, tables, latex)
     generated += _transfer_distance_figure(config, figures)
+    generated += _detection_aware_control_figure(config, figures)
+    generated += _detection_aware_control_table(config, tables, latex)
     generated += _matched_negative_control_assets(config, tables, latex)
     generated += _metric_provenance_assets(config, figures, tables, latex)
     generated += _method_scope_assets(config, tables, latex)
@@ -1509,6 +1511,178 @@ def _target_region_transferability_assets(
         label="tab:target-region-transferability",
     )
     return [csv_path, tex_path]
+
+
+def _detection_aware_control_table(
+    config: PaperAssetConfig, tables: Path, latex: Path
+) -> list[Path]:
+    """Write the detection-aware control comparison table.
+
+    The control detection rate is a column rather than a footnote: a favourable
+    percentile means nothing without knowing whether the controls found the failure.
+    """
+
+    path = config.real_data_matrix_root / "detection_aware_controls.csv"
+    if not path.exists():
+        return []
+    source = pd.read_csv(path)
+    if source.empty:
+        return []
+
+    condition_labels = {
+        "all_draws": "All draws",
+        "detecting_draws": "Detecting only",
+        "recall_matched": "Recall matched",
+        "occupancy_matched": "Occupancy matched",
+    }
+    frame = pd.DataFrame(
+        {
+            "Data": source["dataset_id"].map(_dataset_label),
+            "Control family": source["control_family"].map(lambda v: str(v).replace("_", " ")),
+            "Condition": source["condition"].map(lambda v: condition_labels.get(str(v), str(v))),
+            "Draws": source["control_draws"],
+            "Ctrl det. rate": source["control_detection_rate"].map(_format_metric),
+            "Obs. detected": source["observed_detected"].map(
+                lambda value: "yes" if bool(value) else "no"
+            ),
+            "Obs. utility": source["observed_utility"].map(_format_metric),
+            "Ctrl median": source["control_utility_median"].map(_format_metric),
+            "Percentile": source["observed_percentile"].map(_format_metric),
+        }
+    )
+    csv_path = tables / "detection_aware_controls.csv"
+    tex_path = latex / "detection_aware_controls.tex"
+    frame.to_csv(csv_path, index=False)
+    _write_latex_table(
+        frame,
+        tex_path,
+        caption=(
+            "Detection-aware matched controls. Every comparison reports the share of "
+            "control draws that detected the failure, because a burden advantage means "
+            "nothing if the observed region did not detect while the controls did. "
+            "Utility is the predeclared joint utility, which charges false alarms per "
+            "operating day and warning exposure separately and pays a capped early-warning "
+            "reward only when the failure was detected."
+        ),
+        label="tab:detection-aware-controls",
+    )
+    return [csv_path, tex_path]
+
+
+def _detection_aware_control_figure(config: PaperAssetConfig, figures: Path) -> list[Path]:
+    """Plot control distributions for utility and, conditional on detection, burden.
+
+    The two burden panels are restricted to control draws that detect the failure. An
+    unconditioned burden distribution flatters any region that does not detect, since a
+    region raising no alarms has the best possible burden and the worst possible outcome.
+    """
+
+    path = config.real_data_matrix_root / "matched_negative_control_draws.csv"
+    if not path.exists():
+        return []
+    draws = pd.read_csv(path)
+    if draws.empty or "detected" not in draws.columns:
+        return []
+
+    baseline_path = config.real_data_matrix_root / "event_baseline_comparison.csv"
+    observed = pd.read_csv(baseline_path) if baseline_path.exists() else pd.DataFrame()
+
+    # The observed joint utility must come from the detection-aware summary, which
+    # computes it under the same predeclared weights as the control draws. The baseline
+    # table's event_utility is a different quantity, and marking it on a joint-utility
+    # histogram would compare two scales against each other.
+    summary_path = config.real_data_matrix_root / "detection_aware_controls.csv"
+    observed_utility_by_dataset: dict[str, float] = {}
+    if summary_path.exists():
+        summary = pd.read_csv(summary_path)
+        for dataset_id, group in summary.groupby("dataset_id"):
+            values = pd.to_numeric(group["observed_utility"], errors="coerce").dropna()
+            if not values.empty:
+                observed_utility_by_dataset[str(dataset_id)] = float(values.iloc[0])
+
+    datasets = sorted(draws["dataset_id"].unique())
+    panels = (
+        # The draws column already holds the predeclared joint utility; the observed
+        # marker is read from the detection-aware summary so both use the same weights.
+        ("event_utility", "Joint utility", False),
+        ("false_alarm_events_per_day", "False alarms per day", True),
+        ("median_warning_lead_time", "Median lead time (samples)", True),
+    )
+    figure, axes = plt.subplots(
+        len(datasets), len(panels), figsize=(4.6 * len(panels), 3.6 * len(datasets)), squeeze=False
+    )
+    for row, dataset in enumerate(datasets):
+        dataset_draws = draws[draws["dataset_id"] == dataset]
+        observed_row = observed[
+            (observed["dataset_id"] == dataset) & (observed["method"] == "failure_prototype_region")
+        ]
+        for column, (metric, label, detecting_only) in enumerate(panels):
+            axis = axes[row][column]
+            selected = (
+                dataset_draws[dataset_draws["detected"].astype(bool)]
+                if detecting_only
+                else dataset_draws
+            )
+            values = pd.to_numeric(selected.get(metric), errors="coerce").dropna().to_numpy()
+            if values.size == 0:
+                axis.annotate(
+                    "no control draw detects the failure"
+                    if detecting_only
+                    else "no control draw available",
+                    xy=(0.5, 0.5),
+                    xycoords="axes fraction",
+                    ha="center",
+                    fontsize=8,
+                    color="#666666",
+                )
+            else:
+                axis.hist(values, bins=40, color="#56B4E9", edgecolor="none", alpha=0.85)
+                # On the utility panel the detecting subset is overlaid, because the
+                # conclusion rests on that subset. Showing only the pooled distribution
+                # would put the observed marker near its upper end while the observed
+                # region actually sits below the median of controls that detect.
+                if not detecting_only and "detected" in dataset_draws.columns:
+                    detecting_values = (
+                        pd.to_numeric(
+                            dataset_draws[dataset_draws["detected"].astype(bool)].get(metric),
+                            errors="coerce",
+                        )
+                        .dropna()
+                        .to_numpy()
+                    )
+                    if detecting_values.size:
+                        axis.hist(
+                            detecting_values,
+                            bins=40,
+                            color="#E69F00",
+                            edgecolor="none",
+                            alpha=0.85,
+                            label="detecting draws",
+                        )
+            observed_value: float | None = None
+            if metric == "event_utility":
+                observed_value = observed_utility_by_dataset.get(str(dataset))
+            elif not observed_row.empty and metric in observed_row.columns:
+                candidate = pd.to_numeric(observed_row[metric], errors="coerce").iloc[0]
+                observed_value = float(candidate) if pd.notna(candidate) else None
+            if observed_value is not None:
+                axis.axvline(observed_value, color="#D55E00", linewidth=2.0, label="observed")
+            if column == 0 and axis.get_legend_handles_labels()[0]:
+                axis.legend(frameon=False, fontsize=7)
+            title = f"{_dataset_label(dataset)}: {label}"
+            if detecting_only:
+                title += " (detecting draws)"
+            axis.set_title(title, fontsize=9)
+            axis.set_xlabel(label)
+            axis.set_ylabel("Control draws" if column == 0 else "")
+            axis.grid(True, alpha=0.25, linewidth=0.6)
+            axis.set_axisbelow(True)
+            for spine in ("top", "right"):
+                axis.spines[spine].set_visible(False)
+
+    figure_path = figures / "detection_aware_controls.png"
+    _save_figure(figure, figure_path)
+    return [figure_path]
 
 
 def _transfer_distance_figure(config: PaperAssetConfig, figures: Path) -> list[Path]:

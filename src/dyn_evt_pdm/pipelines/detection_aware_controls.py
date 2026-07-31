@@ -283,6 +283,16 @@ def utility_sensitivity(
 
     if draws.empty:
         return pd.DataFrame()
+    # The sweep runs on the detecting subset as well as on all draws. Sweeping only the
+    # unconditioned population would test the robustness of a comparison that is not the
+    # one the conclusion rests on: a region can look stable against all controls while
+    # its standing against controls that also detect moves under reweighting.
+    populations: dict[str, pd.DataFrame] = {"all_draws": draws}
+    if "detected" in draws.columns:
+        detecting = draws[draws["detected"].astype(bool)]
+        if not detecting.empty:
+            populations["detecting_draws"] = detecting
+
     records: list[dict[str, object]] = []
     for field in ("detection", "false_alarm_per_day", "time_under_warning", "lead_time"):
         for multiplier in multipliers:
@@ -302,16 +312,21 @@ def utility_sensitivity(
                 median_warning_lead_time=observed_lead_time,
                 weights=weights,
             )
-            control = joint_utility_array(draws, weights=weights)
-            records.append(
-                {
-                    "varied_weight": field,
-                    "multiplier": multiplier,
-                    "observed_utility": observed_utility,
-                    "control_utility_median": float(np.median(control)) if control.size else np.nan,
-                    "observed_percentile": (
-                        float(np.mean(control <= observed_utility)) if control.size else np.nan
-                    ),
-                }
-            )
+            for condition, population in populations.items():
+                control = joint_utility_array(population, weights=weights)
+                records.append(
+                    {
+                        "condition": condition,
+                        "varied_weight": field,
+                        "multiplier": multiplier,
+                        "control_draws": int(len(population)),
+                        "observed_utility": observed_utility,
+                        "control_utility_median": (
+                            float(np.median(control)) if control.size else np.nan
+                        ),
+                        "observed_percentile": (
+                            float(np.mean(control <= observed_utility)) if control.size else np.nan
+                        ),
+                    }
+                )
     return pd.DataFrame.from_records(records)
