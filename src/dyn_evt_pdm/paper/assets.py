@@ -6,7 +6,7 @@ import hashlib
 import json
 import subprocess
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -1123,6 +1123,7 @@ def _revision_summary_assets(
     generated += _transfer_distance_figure(config, figures)
     generated += _detection_aware_control_figure(config, figures)
     generated += _detection_aware_control_table(config, tables, latex)
+    generated += _decomposition_assets(config, tables, latex)
     generated += _matched_negative_control_assets(config, tables, latex)
     generated += _metric_provenance_assets(config, figures, tables, latex)
     generated += _method_scope_assets(config, tables, latex)
@@ -1316,48 +1317,257 @@ def _metric_provenance_assets(
     return [csv_path, tex_path, figure_path]
 
 
+def classify_failure_layer(row: pd.Series) -> tuple[str, str]:
+    """Return the first stage at which this method's evidence broke down, and why.
+
+    The layers are checked in pipeline order, so the verdict names the earliest stage
+    that failed rather than the last symptom observed. A method that produces no
+    exceedance has a score or threshold problem; one that produces alarms none of which
+    match has a matching problem; one that matches but drowns the match in false alarms
+    has an alarm-burden problem. These are different repairs, and collapsing them into
+    one dataset-level explanation hides which repair is needed.
+    """
+
+    exceedances = float(row.get("threshold_exceedances_samples", 0) or 0)
+    clusters = float(row.get("extreme_clusters_count", 0) or 0)
+    episodes = float(row.get("alarm_episodes_count", 0) or 0)
+    matched = float(row.get("matched_alarm_episodes_count", 0) or 0)
+    failures = float(row.get("labelled_failure_events_count", 0) or 0)
+    precision = float(row.get("event_precision", 0) or 0)
+    recall = float(row.get("event_recall", 0) or 0)
+
+    if failures == 0:
+        return "not estimable", "no labelled failure in the evaluated split"
+    if exceedances == 0:
+        return (
+            "score or threshold failure",
+            "no test sample crossed the threshold, so no later stage could run",
+        )
+    if clusters == 0:
+        return "clustering failure", "exceedances present but no extreme cluster was formed"
+    if episodes == 0:
+        return "alarm-merging failure", "clusters present but no alarm episode was produced"
+    if matched == 0:
+        return (
+            "event-matching failure",
+            "alarm episodes were raised but none matched a labelled failure",
+        )
+    if recall > 0.0 and precision < 0.01:
+        return (
+            "alarm-burden failure",
+            "the failure was matched, but the match is buried in false alarm episodes",
+        )
+    return "no operational failure at this layer", "matched with acceptable alarm burden"
+
+
+def _decomposition_assets(config: PaperAssetConfig, tables: Path, latex: Path) -> list[Path]:
+    """Write the stage-by-stage decomposition table with its root-cause classification."""
+
+    path = config.real_data_matrix_root / "score_threshold_alarm_decomposition.csv"
+    if not path.exists():
+        return []
+    source = pd.read_csv(path)
+    if source.empty or "test_observations_samples" not in source.columns:
+        return []
+
+    layers = [classify_failure_layer(row) for _index, row in source.iterrows()]
+    frame = pd.DataFrame(
+        {
+            "Data": source["dataset_id"].map(_dataset_label),
+            "Method": source["method"].map(_event_method_label),
+            "Obs.": source["test_observations_samples"].map(_format_count),
+            "Exceed.": source["threshold_exceedances_samples"].map(_format_count),
+            "Clusters": source["extreme_clusters_count"].map(_format_count),
+            "Episodes": source["alarm_episodes_count"].map(_format_count),
+            "Matched": source["matched_alarm_episodes_count"].map(_format_count),
+            "False": source["false_alarm_episodes_count"].map(_format_count),
+            "Dupl.": source["duplicate_alarm_episodes_count"].map(_format_count),
+            "Failure layer": [layer for layer, _reason in layers],
+        }
+    )
+    csv_path = tables / "score_alarm_decomposition.csv"
+    tex_path = latex / "score_alarm_decomposition.tex"
+    # The CSV keeps every column for audit; the printed table drops the two that carry
+    # no per-method information. Observations are constant within a dataset and
+    # duplicates never exceed single digits, and at ten columns the method names
+    # collided with the counts.
+    frame.to_csv(csv_path, index=False)
+    observations = {
+        _dataset_label(dataset): _format_count(group["test_observations_samples"].iloc[0])
+        for dataset, group in source.groupby("dataset_id")
+    }
+    observed = "; ".join(f"{name} {count}" for name, count in sorted(observations.items()))
+    printed = frame.drop(columns=["Obs.", "Dupl."])
+    # "failure" is already in the column header, and repeating it wrapped every cell
+    # onto three lines.
+    printed["Failure layer"] = printed["Failure layer"].str.replace(
+        " failure", "", regex=False
+    )
+    _write_latex_table(
+        printed,
+        tex_path,
+        caption=(
+            "Score, threshold, cluster and alarm decomposition per method. Exceedances "
+            "are counts of samples, clusters are counts of extreme clusters, and the "
+            "remaining columns are counts of alarm episodes; the columns are therefore "
+            "not comparable across stages. Test observations are constant within a "
+            f"dataset ({observed}) and are omitted. Labelled failures are ground truth "
+            "and are not part of this detector flow. The failure layer names the "
+            "earliest stage at which the method's evidence broke down."
+        ),
+        label="tab:score-alarm-decomposition",
+        # Method names and the failure-layer phrase need room; the counts do not.
+        column_weights=(0.95, 1.5, 0.9, 0.85, 0.85, 0.8, 0.8, 1.35),
+        # 38 rows do not fit a float, and as a table environment the last rows ran off
+        # the bottom of the page.
+        long=True,
+    )
+    return [csv_path, tex_path]
+
+
+#: Horizontal separation between the matched-alarm stage and the ground-truth marker.
+_GROUND_TRUTH_OFFSET = 0.22
+
+#: Detector-track stages, with the unit each count is measured in.
+_DECOMPOSITION_STAGES: tuple[tuple[str, str, str], ...] = (
+    ("test_observations_samples", "Test\nobservations", "samples"),
+    ("threshold_exceedances_samples", "Threshold\nexceedances", "samples"),
+    ("extreme_clusters_count", "Extreme\nclusters", "clusters"),
+    ("alarm_episodes_count", "Alarm\nepisodes", "episodes"),
+    ("matched_alarm_episodes_count", "Matched\nalarms", "episodes"),
+)
+
+
 def _score_alarm_flow_figure(source: pd.DataFrame, figure_path: Path) -> None:
-    required = {"dataset_id", "method", "point_exceedances", "alarm_events", "target_events"}
+    """Draw the decomposition as two tracks that are never mixed.
+
+    The detector track runs observations to matched alarms. Labelled failures are ground
+    truth and sit on their own track, connected to the matched alarms rather than placed
+    at the end of the detector flow. The previous version put labelled failure samples at
+    the start and labelled target events at the end of a single monotone flow, which
+    reads as a derivation from failures to failures and is not what the pipeline computes.
+    """
+
+    required = {name for name, _label, _unit in _DECOMPOSITION_STAGES}
     if source.empty or not required.issubset(source.columns):
         figure, axis = plt.subplots(figsize=(6.0, 3.0))
-        axis.text(0.5, 0.5, "Decomposition artifact unavailable", ha="center", va="center")
+        axis.text(
+            0.5,
+            0.5,
+            "Decomposition artifact predates the two-track schema; regenerate it",
+            ha="center",
+            va="center",
+        )
         axis.axis("off")
         _save_figure(figure, figure_path)
         return
+
     selected = source.loc[
         source["method"].isin(["dynamical_evt_robust_score", "failure_prototype_region"])
     ].copy()
     if selected.empty:
         selected = source.head(4).copy()
-    selected["label"] = (
-        selected["dataset_id"].map(_dataset_label)
-        + "\n"
-        + selected["method"].map(_event_method_label)
-    )
-    stages = ["Failure\npoints", "Threshold\nexceedances", "Alarm\nepisodes", "Target\nevents"]
+
     figure, axes = plt.subplots(
         nrows=max(1, len(selected)),
         ncols=1,
-        figsize=(7.0, max(2.8, 1.7 * len(selected))),
+        figsize=(9.0, max(3.0, 1.7 * len(selected))),
         squeeze=False,
     )
-    for axis, row in zip(axes[:, 0], selected.itertuples(index=False), strict=False):
-        values = [
-            max(1.0, float(getattr(row, "target_points", 0) or 0)),
-            float(getattr(row, "point_exceedances", 0) or 0),
-            float(getattr(row, "alarm_events", 0) or 0),
-            float(getattr(row, "target_events", 0) or 0),
-        ]
-        axis.plot(np.arange(len(stages)), values, color="#3B6EA8", marker="o", linewidth=2)
-        axis.fill_between(np.arange(len(stages)), values, color="#B9D6F2", alpha=0.35)
+    positions = np.arange(len(_DECOMPOSITION_STAGES), dtype=float)
+    for axis, (_index, row) in zip(axes[:, 0], selected.iterrows(), strict=False):
+        values = [float(row.get(name, 0) or 0) for name, _label, _unit in _DECOMPOSITION_STAGES]
+        axis.plot(positions, np.maximum(values, 0.5), color="#0072B2", marker="o", linewidth=2)
         for index, value in enumerate(values):
-            axis.text(index, value, _format_count(value), ha="center", va="bottom", fontsize=8)
+            unit = _DECOMPOSITION_STAGES[index][2]
+            # Zero is annotated explicitly: on a log axis it is otherwise invisible and
+            # reads as missing data rather than as a detector that produced nothing.
+            text = f"0 {unit}" if value == 0 else f"{_format_count(value)} {unit}"
+            # The final stage is right-aligned so it clears the ground-truth marker,
+            # which sits just to its right.
+            last = index == len(_DECOMPOSITION_STAGES) - 1
+            axis.annotate(
+                text,
+                xy=(index, max(value, 0.5)),
+                xytext=(-4, 7) if last else (0, 7),
+                textcoords="offset points",
+                ha="right" if last else "center",
+                fontsize=7,
+            )
+
+        failures = float(row.get("labelled_failure_events_count", 0) or 0)
+        matched = float(row.get("matched_alarm_episodes_count", 0) or 0)
+        ground_truth_y = max(failures, 0.5)
+        # Offset in x so the ground-truth marker reads as its own track rather than as
+        # another point on the detector line; sharing the x position let the two
+        # markers and their labels overplot whenever matched alarms was small.
+        ground_truth_x = positions[-1] + _GROUND_TRUTH_OFFSET
+        axis.scatter(
+            [ground_truth_x],
+            [ground_truth_y],
+            marker="s",
+            s=70,
+            color="#D55E00",
+            zorder=5,
+            label="labelled failures (ground truth)",
+        )
+        # Labelled to the right rather than below: below the marker the text fell off
+        # the bottom of the axes whenever the matched count sat on the floor.
+        axis.annotate(
+            f"{_format_count(failures)} events",
+            xy=(ground_truth_x, ground_truth_y),
+            xytext=(9, 0),
+            textcoords="offset points",
+            ha="left",
+            va="center",
+            fontsize=7,
+            color="#D55E00",
+        )
+        # The only link between the two tracks is the matching step.
+        axis.annotate(
+            "",
+            xy=(ground_truth_x, ground_truth_y),
+            xytext=(positions[-1], max(matched, 0.5)),
+            arrowprops={"arrowstyle": "<->", "color": "#888888", "linewidth": 1.0},
+        )
+
+        false_alarms = float(row.get("false_alarm_episodes_count", 0) or 0)
+        duplicates = float(row.get("duplicate_alarm_episodes_count", 0) or 0)
+        exposure = float(row.get("time_under_warning_samples", 0) or 0)
+        # Below the axis rather than inside it. These three numbers are properties of
+        # the whole track, not of any stage, and every in-axes position collided with
+        # some panel's track: the shapes differ too much across methods to place text
+        # among them.
+        axis.set_xlabel(
+            f"false alarms {_format_count(false_alarms)} episodes    "
+            f"duplicates {_format_count(duplicates)} episodes    "
+            f"time under warning {_format_count(exposure)} samples",
+            fontsize=6.5,
+            color="#555555",
+        )
+
         axis.set_yscale("symlog", linthresh=1.0)
-        axis.set_xticks(np.arange(len(stages)))
-        axis.set_xticklabels(stages, fontsize=8)
-        axis.set_ylabel(str(getattr(row, "label", "")), rotation=0, ha="right", va="center")
+        # Every decade collides at this panel height; the stage labels carry the exact
+        # counts, so the axis only has to convey the order of magnitude.
+        axis.set_yticks([1.0, 1e2, 1e4, 1e6])
+        axis.tick_params(axis="y", labelsize=7)
+        axis.set_xticks(positions)
+        axis.set_xticklabels([label for _name, label, _unit in _DECOMPOSITION_STAGES], fontsize=7.5)
+        axis.set_xlim(-0.35, len(_DECOMPOSITION_STAGES) - 1 + _GROUND_TRUTH_OFFSET + 0.75)
+        label = f"{_dataset_label(row['dataset_id'])}\n{_event_method_label(row['method'])}"
+        axis.set_ylabel(label, rotation=0, ha="right", va="center", fontsize=8)
         axis.grid(axis="y", alpha=0.25)
-    axes[0, 0].set_title("Score-threshold-alarm decomposition counts")
+        for spine in ("top", "right"):
+            axis.spines[spine].set_visible(False)
+
+    axes[0, 0].set_title(
+        "Detector evidence (circles) and labelled failures (square)\n"
+        "counts are not comparable across stages",
+        fontsize=9,
+    )
+    # Upper right: the detector track descends left to right in every panel, so this
+    # corner is empty, and the lower left now carries the burden annotation.
+    axes[0, 0].legend(frameon=False, fontsize=7, loc="upper right")
     figure.tight_layout()
     _save_figure(figure, figure_path)
 
@@ -2368,24 +2578,103 @@ def _require_columns(frame: pd.DataFrame, columns: tuple[str, ...]) -> None:
         raise ValueError(f"missing required columns: {missing}")
 
 
-def _write_latex_table(frame: pd.DataFrame, path: Path, *, caption: str, label: str) -> None:
+def _write_latex_table(
+    frame: pd.DataFrame,
+    path: Path,
+    *,
+    caption: str,
+    label: str,
+    column_weights: Sequence[float] | None = None,
+    long: bool = False,
+) -> None:
+    r"""Write ``frame`` as a full-width table.
+
+    ``column_weights`` optionally reweights the equal-width default, which crowds
+    tables that mix long method names with short counts. Weights must sum to the
+    column count.
+
+    ``long`` emits a ``longtable`` instead of a ``tabularx`` float, for tables with
+    more rows than fit a page. A float that overruns the page silently drops its
+    last rows, so tables of that size have to break explicitly.
+    """
     columns = [str(column) for column in frame.columns]
-    column_spec = " ".join([r">{\raggedright\arraybackslash}X" for _column in columns])
-    lines = [
-        "\\begin{table}[!htbp]",
-        "\\centering",
-        "\\small",
-        f"\\caption{{{_latex_escape(caption)}}}",
-        f"\\label{{{_latex_escape(label)}}}",
-        "\\begin{tabularx}{\\textwidth}{" + column_spec + "}",
-        "\\toprule",
-        " & ".join(_latex_escape(_pretty_column_header(column)) for column in columns) + " \\\\",
-        "\\midrule",
-    ]
+    if column_weights is not None:
+        if len(column_weights) != len(columns):
+            raise ValueError(
+                f"column_weights has {len(column_weights)} entries for {len(columns)} columns"
+            )
+        total = sum(column_weights)
+        if abs(total - len(columns)) > 1e-6:
+            raise ValueError(f"column_weights must sum to {len(columns)}, got {total}")
+    weights = list(column_weights or [1.0] * len(columns))
+    header = (
+        " & ".join(_latex_escape(_pretty_column_header(column)) for column in columns) + " \\\\"
+    )
+    body = []
     for _index, row in frame.iterrows():
         values = [_latex_escape(_format_latex_value(row[column])) for column in frame.columns]
-        lines.append(" & ".join(values) + " \\\\")
-    lines.extend(["\\bottomrule", "\\end{tabularx}", "\\end{table}", ""])
+        body.append(" & ".join(values) + " \\\\")
+
+    if not long:
+        column_spec = " ".join(
+            rf">{{\hsize={weight}\hsize\raggedright\arraybackslash}}X"
+            if column_weights is not None
+            else r">{\raggedright\arraybackslash}X"
+            for weight in weights
+        )
+        lines = [
+            "\\begin{table}[!htbp]",
+            "\\centering",
+            "\\small",
+            f"\\caption{{{_latex_escape(caption)}}}",
+            f"\\label{{{_latex_escape(label)}}}",
+            "\\begin{tabularx}{\\textwidth}{" + column_spec + "}",
+            "\\toprule",
+            header,
+            "\\midrule",
+            *body,
+            "\\bottomrule",
+            "\\end{tabularx}",
+            "\\end{table}",
+            "",
+        ]
+        path.write_text("\n".join(lines), encoding="utf-8")
+        return
+
+    # longtable has no X column, so the widths are resolved against a length that
+    # subtracts the inter-column glue from the text width.
+    count = len(columns)
+    span = rf"\dimexpr\textwidth-{2 * count}\tabcolsep\relax"
+    column_spec = " ".join(
+        rf">{{\raggedright\arraybackslash}}p{{{weight / count:.4f}{span}}}" for weight in weights
+    )
+    lines = [
+        "\\begingroup",
+        "\\small",
+        # longtable captions default to 4in, which reads as a mistake next to a
+        # full-width table.
+        "\\setlength{\\LTcapwidth}{\\textwidth}",
+        "\\begin{longtable}{" + column_spec + "}",
+        f"\\caption{{{_latex_escape(caption)}}}",
+        f"\\label{{{_latex_escape(label)}}}\\\\",
+        "\\toprule",
+        header,
+        "\\midrule",
+        "\\endfirsthead",
+        "\\toprule",
+        header,
+        "\\midrule",
+        "\\endhead",
+        "\\midrule",
+        rf"\multicolumn{{{count}}}{{r}}{{\small\itshape continued on next page}}\\",
+        "\\endfoot",
+        "\\bottomrule",
+        "\\endlastfoot",
+        *body,
+        "\\end{longtable}",
+        "\\endgroup",
+        "",
+    ]
     path.write_text("\n".join(lines), encoding="utf-8")
 
 

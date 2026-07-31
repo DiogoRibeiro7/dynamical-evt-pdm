@@ -15,6 +15,7 @@ import pandas as pd
 
 from dyn_evt_pdm.evaluation.events import EarlyWarningPolicy, flags_to_events
 from dyn_evt_pdm.evaluation.metrics import evaluate_event_predictions
+from dyn_evt_pdm.evt.clusters import extract_clusters
 from dyn_evt_pdm.pipelines.cross_dataset_transfer import (
     TransferResult,
     TransferSplits,
@@ -464,6 +465,9 @@ def _run_metropt_event_comparison(
 
     flags_by_method: dict[str, list[np.ndarray[Any, Any]]] = {method: [] for method in thresholds}
     scores_by_method: dict[str, list[np.ndarray[Any, Any]]] = {method: [] for method in thresholds}
+    exceedances_by_method: dict[str, list[np.ndarray[Any, Any]]] = {
+        method: [] for method in thresholds
+    }
     target_parts: list[np.ndarray[Any, Any]] = []
     timestamp_parts: list[np.ndarray[Any, Any]] = []
     robust_score_parts: list[np.ndarray[Any, Any]] = []
@@ -478,15 +482,15 @@ def _run_metropt_event_comparison(
                 test, feature_columns, center=center, scale=scale, refs=train_refs
             )
             for method, threshold in thresholds.items():
-                flags_by_method[method].append(
-                    _method_alarm_flags(
-                        method,
-                        scores[method],
-                        threshold,
-                        refs=train_refs,
-                        config=config,
-                    )
+                raw_exceedances, onset_flags = _method_alarm_flags(
+                    method,
+                    scores[method],
+                    threshold,
+                    refs=train_refs,
+                    config=config,
                 )
+                flags_by_method[method].append(onset_flags)
+                exceedances_by_method[method].append(raw_exceedances)
                 scores_by_method[method].append(scores[method])
             target_parts.append(test["is_failure"].astype(bool).to_numpy())
             timestamp_parts.append(test["timestamp"].to_numpy())
@@ -508,6 +512,14 @@ def _run_metropt_event_comparison(
     configuration_hash = _event_configuration_hash(config)
     for method, parts in flags_by_method.items():
         alarm_flags = np.concatenate(parts) if parts else np.array([], dtype=bool)
+        # The decomposition reports exceedances before the event policy collapses them,
+        # so a declustering method shows the reduction it performed rather than an
+        # exceedance count identical to its cluster count.
+        raw_exceedance_flags = (
+            np.concatenate(exceedances_by_method[method])
+            if exceedances_by_method.get(method)
+            else alarm_flags
+        )
         # Runtime and peak memory cover the alarm-conversion and evaluation stage, which
         # is the part that differs between methods sharing a score. The caption states
         # this scope so the numbers are not read as end-to-end cost.
@@ -589,10 +601,21 @@ def _run_metropt_event_comparison(
                 method=method,
                 scores=np.concatenate(scores_by_method[method]),
                 threshold=thresholds[method],
-                alarm_flags=alarm_flags,
+                alarm_flags=raw_exceedance_flags,
                 target_flags=target_flags,
                 alarm_count=len(alarms),
                 target_count=len(failures),
+                # Clusters are counted under the method's own event policy, so the
+                # decomposition reflects the conversion that method actually performed.
+                cluster_count=len(
+                    extract_clusters(raw_exceedance_flags, run_length=max(0, merge_gap))
+                ),
+                matched_alarm_count=len(evaluation.matching.assignments),
+                false_alarm_count=len(evaluation.matching.false_alarm_indices),
+                duplicate_alarm_count=evaluation.duplicate_alarm_events,
+                time_under_warning=evaluation.time_under_warning,
+                event_recall=evaluation.recall,
+                event_precision=evaluation.precision,
             )
         )
         if method in TARGET_REGION_METHODS:
@@ -901,8 +924,13 @@ def _method_alarm_flags(
     *,
     refs: dict[str, Any],
     config: IndustrialResultsConfig,
-) -> np.ndarray[Any, Any]:
-    """Convert scores to alarm-onset flags under the method's declared event policy.
+) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
+    """Return raw threshold exceedances and the post-policy alarm-onset flags.
+
+    Both are needed by the decomposition. A declustering policy collapses a run of
+    exceedances to a single onset, so reporting its onset flags as the exceedance stage
+    would show a method whose exceedance and cluster counts are identical and hide the
+    reduction the declustering actually performed.
 
     Methods sharing a score are separated here: the threshold rule decides which samples
     exceed, and the event policy decides how a run of exceedances becomes alarm onsets.
@@ -934,17 +962,17 @@ def _method_alarm_flags(
 
     policy = spec.event_policy if spec is not None else "merge_gap"
     if policy == "fixed_run_declustering":
-        return declustered_flags(exceedances, run_length=config.merge_gap)
+        return exceedances, declustered_flags(exceedances, run_length=config.merge_gap)
     if policy == "ferro_segers_run_length":
         run_length = derived_run_length(exceedances, estimator="ferro_segers")
-        return declustered_flags(exceedances, run_length=run_length)
+        return exceedances, declustered_flags(exceedances, run_length=run_length)
     if policy == "k_gaps_run_length":
         run_length = derived_run_length(exceedances, estimator="k_gaps")
-        return declustered_flags(exceedances, run_length=run_length)
+        return exceedances, declustered_flags(exceedances, run_length=run_length)
     if policy == "extremal_index_declustering":
         run_length = derived_run_length(exceedances, estimator="ferro_segers")
-        return declustered_flags(exceedances, run_length=max(1, run_length // 2))
-    return exceedances
+        return exceedances, declustered_flags(exceedances, run_length=max(1, run_length // 2))
+    return exceedances, exceedances
 
 
 def _principal_components(
@@ -1396,8 +1424,27 @@ def _score_threshold_alarm_decomposition_row(
     target_flags: np.ndarray[Any, Any],
     alarm_count: int,
     target_count: int,
+    cluster_count: int,
+    matched_alarm_count: int,
+    false_alarm_count: int,
+    duplicate_alarm_count: int,
+    time_under_warning: int,
+    event_recall: float,
+    event_precision: float,
 ) -> dict[str, object]:
+    """Record one method's decomposition, keeping detector counts and ground truth apart.
+
+    The detector track runs test observations, threshold exceedances, extreme clusters,
+    alarm episodes, matched alarm episodes. Labelled failures are ground truth and are
+    recorded separately: they are not produced by the detector, and placing them at the
+    end of a detector count flow implies a derivation that does not exist.
+
+    Units differ by stage and are named in the column, because a count of samples, a
+    count of clusters and a count of episodes are not comparable quantities.
+    """
+
     finite = scores[np.isfinite(scores)]
+    exceedances = int(np.count_nonzero(alarm_flags))
     return {
         "dataset_id": dataset_id,
         "failure_id": f"{dataset_id}_test_failure_001",
@@ -1405,13 +1452,22 @@ def _score_threshold_alarm_decomposition_row(
         "score_median": float(np.median(finite)) if len(finite) else np.nan,
         "score_p95": float(np.quantile(finite, 0.95)) if len(finite) else np.nan,
         "threshold": threshold,
-        "point_exceedances": int(np.count_nonzero(alarm_flags)),
-        "alarm_events": alarm_count,
-        "target_events": target_count,
-        "target_points": int(np.count_nonzero(target_flags)),
-        "exceedance_to_alarm_ratio": (
-            float(np.count_nonzero(alarm_flags) / alarm_count) if alarm_count else np.nan
-        ),
+        # Detector evidence track.
+        "test_observations_samples": int(len(alarm_flags)),
+        "threshold_exceedances_samples": exceedances,
+        "extreme_clusters_count": cluster_count,
+        "alarm_episodes_count": alarm_count,
+        "matched_alarm_episodes_count": matched_alarm_count,
+        "false_alarm_episodes_count": false_alarm_count,
+        "duplicate_alarm_episodes_count": duplicate_alarm_count,
+        # Ground-truth track, kept separate from the detector counts above.
+        "labelled_failure_events_count": target_count,
+        "labelled_failure_samples": int(np.count_nonzero(target_flags)),
+        # Outcome.
+        "event_recall": event_recall,
+        "event_precision": event_precision,
+        "time_under_warning_samples": time_under_warning,
+        "exceedance_to_alarm_ratio": (float(exceedances / alarm_count) if alarm_count else np.nan),
         "leakage_control": "scores evaluated on test split; thresholds fitted before test split",
     }
 

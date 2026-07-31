@@ -13,7 +13,11 @@ Two cautions follow. The first is that a recalibration step cannot be assumed be
 
 \subsection{Score, Threshold, and Alarm Failure}
 
-The failure mode is layered. Some methods fail at the score layer because failure-proximal states are not separated from normal states. Others produce score information that is lost or made operationally unusable by threshold choice. The registered recurrence score detects both compressor failures, but alarm conversion leaves hundreds or thousands of episodes. That is an alarm-policy failure after thresholding, not a calibrated maintenance signal.
+The failure mode is layered, and the decomposition locates each method's layer rather than assigning one explanation to the datasets. Three of the 38 rows fail before any alarm exists: they produce no exceedance, so the score and threshold together retain nothing, and no alarm policy could have recovered the failure. Four raise alarms that never match, of which two are the negative control behaving as intended. The remaining 31 reach the failure and fail on burden.
+
+That last group is the substantive one, and the registered recurrence score sits inside it: it detects both compressor failures, but alarm conversion leaves hundreds or thousands of episodes. This is an alarm-policy failure after thresholding, not a calibrated maintenance signal.
+
+Two cautions follow from reading the stages as a flow. The counts change unit at every stage, so a steep decline between exceedances and episodes reflects a change from samples to episodes as much as any reduction the method achieved, and comparing methods across stages is not meaningful. More importantly, the labelled failures are not the end of the detector's flow. Placing them there, as an earlier version of this figure did, invites reading the decomposition as a derivation from failures back to failures; they are a separate track that meets the detector only at the matching step, and the pipeline never uses them before that point.
 
 \subsection{Comparison With Baselines}
 
