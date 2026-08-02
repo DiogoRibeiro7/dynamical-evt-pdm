@@ -43,7 +43,13 @@ from dyn_evt_pdm.pipelines.event_method_impl import (
     single_sensor_score,
 )
 from dyn_evt_pdm.pipelines.event_method_specs import SPECS_BY_NAME, method_merge_gap
-from dyn_evt_pdm.types import EventInterval
+from dyn_evt_pdm.pipelines.event_timeline import (
+    TimelineInputs,
+    build_global_overview,
+    build_local_trace,
+    build_timeline_metadata,
+)
+from dyn_evt_pdm.types import BoolArray, EventInterval
 
 IndustrialResultStatus = Literal["succeeded", "not_estimable", "failed"]
 
@@ -345,7 +351,9 @@ def _run_event_level_comparison_artifacts(config: IndustrialResultsConfig) -> di
     utility_sensitivity_rows: list[dict[str, object]] = []
     decomposition_rows: list[dict[str, object]] = []
     reconciliation_rows: list[dict[str, object]] = []
-    timeline_frames: list[pd.DataFrame] = []
+    timeline_local_frames: list[pd.DataFrame] = []
+    timeline_overview_frames: list[pd.DataFrame] = []
+    timeline_metadata_rows: list[dict[str, object]] = []
     for dataset_id in ("metropt", "metropt2"):
         manifest_path = config.processed_root / dataset_id / "manifest.json"
         if not manifest_path.exists():
@@ -371,7 +379,11 @@ def _run_event_level_comparison_artifacts(config: IndustrialResultsConfig) -> di
         decomposition_rows.extend(decomposition)
         reconciliation_rows.extend(reconciliation)
         if timeline is not None:
-            timeline_frames.append(timeline)
+            if not timeline.local.empty:
+                timeline_local_frames.append(timeline.local)
+            if not timeline.overview.empty:
+                timeline_overview_frames.append(timeline.overview)
+            timeline_metadata_rows.append(timeline.metadata)
     transferability_rows, compatibility_rows, transfer_distances = _cross_dataset_transfer_rows(
         config
     )
@@ -421,10 +433,18 @@ def _run_event_level_comparison_artifacts(config: IndustrialResultsConfig) -> di
         path = config.output_root / "timeline_reconciliation.csv"
         pd.DataFrame(reconciliation_rows).to_csv(path, index=False)
         artifacts["timeline_reconciliation_csv"] = str(path)
-    if timeline_frames:
+    if timeline_local_frames:
         path = config.output_root / "event_timeline_trace.csv"
-        pd.concat(timeline_frames, ignore_index=True).to_csv(path, index=False)
+        pd.concat(timeline_local_frames, ignore_index=True).to_csv(path, index=False)
         artifacts["event_timeline_csv"] = str(path)
+    if timeline_overview_frames:
+        path = config.output_root / "event_timeline_overview.csv"
+        pd.concat(timeline_overview_frames, ignore_index=True).to_csv(path, index=False)
+        artifacts["event_timeline_overview_csv"] = str(path)
+    if timeline_metadata_rows:
+        path = config.output_root / "event_timeline_metadata.csv"
+        pd.DataFrame(timeline_metadata_rows).to_csv(path, index=False)
+        artifacts["event_timeline_metadata_csv"] = str(path)
     manifest_path = config.output_root / "event_level_comparison_manifest.json"
     manifest_path.write_text(json.dumps(artifacts, indent=2), encoding="utf-8")
     return artifacts
@@ -443,7 +463,7 @@ def _run_metropt_event_comparison(
     list[dict[str, object]],
     list[dict[str, object]],
     list[dict[str, object]],
-    pd.DataFrame | None,
+    TimelineViews | None,
 ]:
     files = _manifest_files(manifest)
     rows = int(manifest.get("rows", 0))
@@ -555,6 +575,10 @@ def _run_metropt_event_comparison(
             "event_precision": evaluation.precision,
             "event_f1": evaluation.f1,
             "false_alarm_events_per_day": evaluation.false_alarm_events_per_operating_day,
+            # Absolute counts alongside the rate: the timeline caption has to state them,
+            # and deriving them from the total silently folded duplicates into false alarms.
+            "false_alarm_events": len(evaluation.matching.false_alarm_indices),
+            "matched_alarm_events": len(evaluation.matching.assignments),
             "duplicate_alarm_events": evaluation.duplicate_alarm_events,
             "median_warning_lead_time": evaluation.median_warning_lead_time,
             "time_under_warning": evaluation.time_under_warning,
@@ -666,22 +690,46 @@ def _run_metropt_event_comparison(
         utility_sensitivity_rows.extend(sensitivity_rows)
 
     timeline = None
-    if dataset_id == "metropt" and timestamp_parts and robust_score_parts:
-        timestamps = np.concatenate(timestamp_parts)
-        robust_scores = np.concatenate(robust_score_parts)
-        robust_flags = (
-            np.concatenate(flags_by_method["dynamical_evt_robust_score"])
-            if "dynamical_evt_robust_score" in flags_by_method
-            else np.zeros(len(target_flags), dtype=bool)
-        )
-        timeline = _event_timeline_trace(
-            dataset_id,
-            timestamps=timestamps,
-            scores=robust_scores,
-            alarm_flags=robust_flags,
+    # Built for both compressor datasets, not just MetroPT: the local window is the
+    # part a reader trusts, and it is only trustworthy next to the global burden.
+    if timestamp_parts and robust_score_parts and TIMELINE_METHOD in flags_by_method:
+        timeline = _build_timeline_views(
+            dataset_id=dataset_id,
+            timestamps=np.concatenate(timestamp_parts),
+            scores=np.concatenate(robust_score_parts),
+            exceedance_flags=np.concatenate(exceedances_by_method[TIMELINE_METHOD]),
+            alarm_onset_flags=np.concatenate(flags_by_method[TIMELINE_METHOD]),
             target_flags=target_flags,
-            threshold=thresholds["dynamical_evt_robust_score"],
-            samples_per_day=config.samples_per_day,
+            threshold=thresholds[TIMELINE_METHOD],
+            regime_edges=np.asarray(
+                train_refs.get("regime_edges", np.array([], dtype=float)), dtype=float
+            ),
+            baseline_rows=baseline_rows,
+            config=config,
+        )
+    # Every method in the main comparison gets a global overview for the supplement.
+    # The binned form is 240 rows per method, so covering all of them is cheap; the
+    # per-sample local trace stays limited to the registered method.
+    if timeline is not None:
+        timeline = TimelineViews(
+            local=timeline.local,
+            overview=pd.concat(
+                [
+                    _method_global_overview(
+                        dataset_id=dataset_id,
+                        method=method,
+                        exceedance_flags=np.concatenate(exceedances_by_method[method]),
+                        alarm_onset_flags=np.concatenate(parts),
+                        target_flags=target_flags,
+                        threshold=thresholds[method],
+                        config=config,
+                    )
+                    for method, parts in flags_by_method.items()
+                    if parts
+                ],
+                ignore_index=True,
+            ),
+            metadata=timeline.metadata,
         )
     return (
         baseline_rows,
@@ -973,6 +1021,27 @@ def _method_alarm_flags(
         run_length = derived_run_length(exceedances, estimator="ferro_segers")
         return exceedances, declustered_flags(exceedances, run_length=max(1, run_length // 2))
     return exceedances, exceedances
+
+
+def _method_run_length(method: str, exceedances: BoolArray, config: IndustrialResultsConfig) -> int:
+    """Return the declustering run length a method actually used.
+
+    The timeline caption has to state this, and for the estimator-driven policies it is
+    derived from the exceedance pattern rather than declared, so it cannot be read off
+    the configuration.
+    """
+
+    spec = SPECS_BY_NAME.get(method)
+    policy = spec.event_policy if spec is not None else "merge_gap"
+    if policy == "fixed_run_declustering":
+        return int(config.merge_gap)
+    if policy == "ferro_segers_run_length":
+        return derived_run_length(exceedances, estimator="ferro_segers")
+    if policy == "k_gaps_run_length":
+        return derived_run_length(exceedances, estimator="k_gaps")
+    if policy == "extremal_index_declustering":
+        return max(1, derived_run_length(exceedances, estimator="ferro_segers") // 2)
+    return 0
 
 
 def _principal_components(
@@ -1470,6 +1539,122 @@ def _score_threshold_alarm_decomposition_row(
         "exceedance_to_alarm_ratio": (float(exceedances / alarm_count) if alarm_count else np.nan),
         "leakage_control": "scores evaluated on test split; thresholds fitted before test split",
     }
+
+
+#: The registered method the main-paper timeline is drawn for.
+TIMELINE_METHOD = "dynamical_evt_robust_score"
+
+
+@dataclass(frozen=True)
+class TimelineViews:
+    """The two scales plus the metadata needed to identify what produced them."""
+
+    local: pd.DataFrame
+    overview: pd.DataFrame
+    metadata: dict[str, object]
+
+
+def _build_timeline_views(
+    *,
+    dataset_id: str,
+    timestamps: np.ndarray[Any, Any],
+    scores: np.ndarray[Any, Any],
+    exceedance_flags: np.ndarray[Any, Any],
+    alarm_onset_flags: np.ndarray[Any, Any],
+    target_flags: np.ndarray[Any, Any],
+    threshold: float,
+    regime_edges: np.ndarray[Any, Any],
+    baseline_rows: list[dict[str, object]],
+    config: IndustrialResultsConfig,
+) -> TimelineViews | None:
+    """Assemble both timeline scales from the series the event tables were built from.
+
+    The counts are taken from the same ``baseline_rows`` entry the event table prints,
+    rather than recomputed here, so the reconciliation check compares the figure against
+    the table instead of comparing two copies of the same calculation.
+    """
+    row = next(
+        (
+            candidate
+            for candidate in baseline_rows
+            if candidate["dataset_id"] == dataset_id and candidate["method"] == TIMELINE_METHOD
+        ),
+        None,
+    )
+    if row is None:
+        return None
+
+    merge_gap = method_merge_gap(TIMELINE_METHOD, default_merge_gap=config.merge_gap)
+    spec = SPECS_BY_NAME.get(TIMELINE_METHOD)
+    inputs = TimelineInputs(
+        dataset_id=dataset_id,
+        failure_id=f"{dataset_id}_test_failure_001",
+        method=TIMELINE_METHOD,
+        timestamps=timestamps,
+        scores=np.asarray(scores, dtype=float),
+        threshold=float(threshold),
+        exceedance_flags=np.asarray(exceedance_flags, dtype=bool),
+        alarm_onset_flags=np.asarray(alarm_onset_flags, dtype=bool),
+        target_flags=np.asarray(target_flags, dtype=bool),
+        regime_edges=np.asarray(regime_edges, dtype=float),
+        samples_per_day=config.samples_per_day,
+        merge_gap=int(merge_gap),
+        horizon=int(config.horizon),
+        matching_tolerance_after=int(config.matching_tolerance_after),
+        threshold_quantile=float(config.threshold_quantile),
+        run_length=_method_run_length(
+            TIMELINE_METHOD, np.asarray(exceedance_flags, dtype=bool), config
+        ),
+        target_region_variant=spec.score_kind if spec is not None else "",
+    )
+
+    local = build_local_trace(inputs)
+    overview = build_global_overview(inputs)
+    lead = row.get("median_warning_lead_time")
+    lead_value = float(lead) if isinstance(lead, int | float) and not pd.isna(lead) else None
+    metadata = build_timeline_metadata(
+        inputs,
+        local_trace=local,
+        matched_alarm_count=int(cast(float, row.get("matched_alarm_events", 0)) or 0),
+        false_alarm_count=int(cast(float, row.get("false_alarm_events", 0)) or 0),
+        false_alarms_per_day=float(cast(float, row.get("false_alarm_events_per_day", 0.0)) or 0.0),
+        lead_time_samples=lead_value,
+        time_under_warning=int(cast(float, row.get("time_under_warning", 0)) or 0),
+    )
+    return TimelineViews(local=local, overview=overview, metadata=metadata)
+
+
+def _method_global_overview(
+    *,
+    dataset_id: str,
+    method: str,
+    exceedance_flags: np.ndarray[Any, Any],
+    alarm_onset_flags: np.ndarray[Any, Any],
+    target_flags: np.ndarray[Any, Any],
+    threshold: float,
+    config: IndustrialResultsConfig,
+) -> pd.DataFrame:
+    """Binned global alarm burden for one method, for the supplementary timelines."""
+    inputs = TimelineInputs(
+        dataset_id=dataset_id,
+        failure_id=f"{dataset_id}_test_failure_001",
+        method=method,
+        timestamps=np.empty(0),
+        scores=np.zeros(target_flags.shape[0], dtype=float),
+        threshold=float(threshold),
+        exceedance_flags=np.asarray(exceedance_flags, dtype=bool),
+        alarm_onset_flags=np.asarray(alarm_onset_flags, dtype=bool),
+        target_flags=np.asarray(target_flags, dtype=bool),
+        regime_edges=np.array([], dtype=float),
+        samples_per_day=config.samples_per_day,
+        merge_gap=int(method_merge_gap(method, default_merge_gap=config.merge_gap)),
+        horizon=int(config.horizon),
+        matching_tolerance_after=int(config.matching_tolerance_after),
+        threshold_quantile=float(config.threshold_quantile),
+        run_length=0,
+        target_region_variant="",
+    )
+    return build_global_overview(inputs)
 
 
 def _timeline_reconciliation_row(

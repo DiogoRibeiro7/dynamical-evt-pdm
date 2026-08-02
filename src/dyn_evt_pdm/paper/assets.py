@@ -2138,8 +2138,73 @@ def _timeline_traceability_assets(
     latex: Path,
 ) -> list[Path]:
     trace_path = config.real_data_matrix_root / "event_timeline_trace.csv"
+    overview_path = config.real_data_matrix_root / "event_timeline_overview.csv"
+    metadata_path = config.real_data_matrix_root / "event_timeline_metadata.csv"
     generated: list[Path] = []
-    if trace_path.exists():
+    frame = _representative_timeline_frame()
+    if trace_path.exists() and overview_path.exists() and metadata_path.exists():
+        trace = pd.read_csv(trace_path)
+        overview = pd.read_csv(overview_path)
+        metadata = pd.read_csv(metadata_path)
+        rows = []
+        for dataset_id in metadata["dataset_id"].unique():
+            dataset_metadata = metadata[metadata["dataset_id"] == dataset_id]
+            if dataset_metadata.empty:
+                continue
+            # The overview carries every method for the supplement, so the main figure
+            # has to select its own method as well as its dataset.
+            method = dataset_metadata.iloc[0]["method"]
+            dataset_trace = trace[trace["dataset_id"] == dataset_id]
+            dataset_overview = overview[
+                (overview["dataset_id"] == dataset_id) & (overview["method"] == method)
+            ]
+            if dataset_trace.empty or dataset_overview.empty or dataset_metadata.empty:
+                continue
+            figure_path = figures / f"timeline_{dataset_id}.png"
+            _two_scale_timeline_figure(
+                dataset_overview,
+                dataset_trace,
+                dataset_metadata.iloc[0],
+                figure_path,
+            )
+            generated.append(figure_path)
+            # The caption defines a macro rather than holding bare text: \input inside a
+            # \caption argument is a moving argument and makes hyperref abort the build.
+            caption_path = latex / f"timeline_caption_{dataset_id}.tex"
+            caption_path.write_text(
+                f"\\newcommand{{{_timeline_caption_macro(dataset_id)}}}{{%\n"
+                f"{_timeline_caption(dataset_metadata.iloc[0])}%\n}}\n",
+                encoding="utf-8",
+            )
+            generated.append(caption_path)
+            rows.append(
+                {
+                    "Figure": figure_path.name,
+                    "Source": f"{_dataset_label(dataset_id)} held-out test failure",
+                    "Status": "traceable",
+                    "Scales": "global and local",
+                    "Use": "burden and timing audit",
+                }
+            )
+        for dataset_id in metadata["dataset_id"].unique():
+            dataset_overview = overview[overview["dataset_id"] == dataset_id]
+            if dataset_overview["method"].nunique() <= 1:
+                continue
+            figure_path = figures / f"timeline_all_methods_{dataset_id}.png"
+            _all_method_timeline_figure(dataset_overview, dataset_id, figure_path)
+            generated.append(figure_path)
+            rows.append(
+                {
+                    "Figure": figure_path.name,
+                    "Source": f"{_dataset_label(dataset_id)} held-out test failure",
+                    "Status": "traceable",
+                    "Scales": "global, every method",
+                    "Use": "supplementary burden comparison",
+                }
+            )
+        if rows:
+            frame = pd.DataFrame(rows)
+    elif trace_path.exists():
         trace = pd.read_csv(trace_path)
         if not trace.empty:
             figure_path = figures / "real_event_timeline.png"
@@ -2150,16 +2215,12 @@ def _timeline_traceability_assets(
                     {
                         "Figure": "real_event_timeline.png",
                         "Source": "MetroPT test event",
-                        "Status": "traceable",
-                        "Missing": "none",
+                        "Status": "local only",
+                        "Scales": "local",
                         "Use": "empirical timing audit",
                     }
                 ]
             )
-        else:
-            frame = _representative_timeline_frame()
-    else:
-        frame = _representative_timeline_frame()
     csv_path = tables / "timeline_traceability.csv"
     tex_path = latex / "timeline_traceability.tex"
     frame.to_csv(csv_path, index=False)
@@ -2180,12 +2241,327 @@ def _representative_timeline_frame() -> pd.DataFrame:
                 "Figure": "event_timeline.png",
                 "Source": "synthetic cyclic input",
                 "Status": "representative",
-                "Missing": "MetroPT real timeline",
+                "Scales": "local",
                 "Use": "timing audit only",
             }
         ]
     )
     return frame
+
+
+def _two_scale_timeline_figure(
+    overview: pd.DataFrame,
+    trace: pd.DataFrame,
+    metadata: pd.Series,
+    figure_path: Path,
+) -> None:
+    """Draw the full test split above the failure window, on one figure.
+
+    The local window alone is not honest about burden: it shows the alarms nearest the
+    failure and none of the thousands elsewhere. Putting the global density directly
+    above it means the reader cannot see the matched alarm without also seeing how many
+    other episodes the method raised over the same test split.
+    """
+
+    figure, axes = plt.subplots(
+        5,
+        1,
+        figsize=(8.6, 7.6),
+        gridspec_kw={"height_ratios": [1.15, 0.75, 1.4, 0.62, 0.62]},
+    )
+
+    # --- Global scale -------------------------------------------------------
+    days = pd.to_numeric(overview["bin_start_day"], errors="coerce").to_numpy(dtype=float)
+    episodes = pd.to_numeric(overview["alarm_episodes"], errors="coerce").to_numpy(dtype=float)
+    exposure = pd.to_numeric(
+        overview["time_under_warning_samples"], errors="coerce"
+    ).to_numpy(dtype=float)
+    bin_width = float(np.median(np.diff(days))) if days.size > 1 else 1.0
+
+    axes[0].bar(days, episodes, width=bin_width * 0.9, color="#0072B2", align="edge")
+    axes[0].set_ylabel("alarm episodes\nper bin", fontsize=8)
+    axes[0].set_title(
+        f"Full test split: {int(metadata['global_alarm_episodes']):,} alarm episodes over "
+        f"{float(metadata['test_duration_days']):.1f} operating days",
+        fontsize=9,
+    )
+
+    axes[1].fill_between(days, 0.0, exposure, step="post", color="#56B4E9", alpha=0.85)
+    axes[1].set_ylabel("samples under\nwarning per bin", fontsize=8)
+    axes[1].set_xlabel("Operating days from start of test split", fontsize=8)
+
+    failure_days = overview.loc[overview["contains_failure_onset"].astype(bool), "bin_start_day"]
+    reset_days = overview.loc[overview["contains_maintenance_reset"].astype(bool), "bin_start_day"]
+    for axis in axes[:2]:
+        for position, day in enumerate(failure_days):
+            axis.axvline(
+                float(day),
+                color="#D55E00",
+                linewidth=1.4,
+                label="labelled failure" if position == 0 else None,
+            )
+        for position, day in enumerate(reset_days):
+            axis.axvline(
+                float(day),
+                color="#009E73",
+                linewidth=1.2,
+                linestyle=":",
+                label="return to service" if position == 0 else None,
+            )
+        axis.grid(axis="y", alpha=0.25)
+        for spine in ("top", "right"):
+            axis.spines[spine].set_visible(False)
+    axes[0].legend(frameon=False, fontsize=7, loc="upper right")
+
+    # The local window drawn on the global axis, so the zoom is locatable.
+    window_start = float(trace["test_index"].min()) / float(metadata["test_duration_samples"])
+    window_end = float(trace["test_index"].max()) / float(metadata["test_duration_samples"])
+    span = float(metadata["test_duration_days"])
+    for axis in axes[:2]:
+        axis.axvspan(
+            window_start * span,
+            max(window_end * span, window_start * span + bin_width),
+            color="#999999",
+            alpha=0.35,
+            zorder=0,
+        )
+
+    # --- Local scale --------------------------------------------------------
+    hours = pd.to_numeric(trace["elapsed_hours"], errors="coerce").to_numpy(dtype=float)
+    score = pd.to_numeric(trace["score"], errors="coerce").to_numpy(dtype=float)
+    threshold = float(metadata["threshold_value"])
+
+    axes[2].plot(hours, score, color="#0072B2", linewidth=0.8, label="score")
+    axes[2].axhline(
+        threshold,
+        color="#D55E00",
+        linewidth=1.0,
+        linestyle="--",
+        label=f"frozen threshold {threshold:,.1f}",
+    )
+    exceed = trace["is_exceedance"].astype(bool).to_numpy()
+    if exceed.any():
+        axes[2].scatter(
+            hours[exceed],
+            score[exceed],
+            s=4,
+            color="#D55E00",
+            zorder=3,
+            label="exceedance",
+        )
+    axes[2].set_ylabel("score", fontsize=8)
+    axes[2].set_yscale("symlog", linthresh=1.0)
+    axes[2].legend(frameon=False, fontsize=7, loc="upper left", ncol=3)
+    axes[2].set_title(
+        f"Failure window: {int(metadata['local_alarm_episodes'])} of those episodes fall here",
+        fontsize=9,
+    )
+
+    regimes = pd.to_numeric(trace["regime_id"], errors="coerce").to_numpy(dtype=float)
+    axes[3].step(hours, regimes, where="post", color="#333333", linewidth=0.8)
+    axes[3].set_ylabel("operating\nregime", fontsize=8)
+
+    # Alarm episodes get a minimum drawn width: after declustering an episode is often a
+    # single sample, which is invisible across a window of tens of thousands, and an
+    # empty band would read as "no alarms" in exactly the panel meant to show them.
+    _timeline_band(
+        axes[4],
+        hours,
+        trace["alarm_episode_id"].to_numpy() >= 0,
+        0.62,
+        "#0072B2",
+        min_width=0.02 * float(hours.max() - hours.min()),
+    )
+    _timeline_band(
+        axes[4], hours, trace["in_warning_window"].astype(bool).to_numpy(), 0.38, "#999999"
+    )
+    _timeline_band(axes[4], hours, trace["is_failure"].astype(bool).to_numpy(), 0.14, "#D55E00")
+    axes[4].set_yticks([0.14, 0.38, 0.62])
+    axes[4].set_yticklabels(["failure", "warning window", "alarm episode"], fontsize=7)
+    axes[4].set_ylim(0.0, 0.8)
+    axes[4].set_xlabel("Elapsed hours from held-out failure onset", fontsize=8)
+
+    resets = trace["is_maintenance_reset"].astype(bool).to_numpy()
+    for axis in axes[2:]:
+        axis.axvline(0.0, color="#D55E00", linewidth=1.0)
+        if resets.any():
+            axis.axvline(float(hours[resets][0]), color="#009E73", linewidth=1.0, linestyle=":")
+        axis.grid(axis="x", alpha=0.2)
+        for spine in ("top", "right"):
+            axis.spines[spine].set_visible(False)
+
+    figure.tight_layout()
+    _save_figure(figure, figure_path)
+
+
+def _all_method_timeline_figure(
+    overview: pd.DataFrame,
+    dataset_id: str,
+    figure_path: Path,
+) -> None:
+    """One global alarm-density strip per method, on a shared scale.
+
+    The main-paper timeline shows one method. This shows every method in the comparison
+    over the same test split, which is what makes the burden claims comparable: a method
+    that alarms continuously and one that alarms in bursts can share an episode count.
+    """
+
+    methods = sorted(overview["method"].unique(), key=_event_method_label)
+    figure, axes = plt.subplots(
+        nrows=len(methods),
+        ncols=1,
+        figsize=(7.6, max(3.0, 0.52 * len(methods))),
+        sharex=True,
+        squeeze=False,
+    )
+    peak = float(overview["alarm_episodes"].max()) or 1.0
+    for axis, method in zip(axes[:, 0], methods, strict=True):
+        rows = overview[overview["method"] == method]
+        days = pd.to_numeric(rows["bin_start_day"], errors="coerce").to_numpy(dtype=float)
+        episodes = pd.to_numeric(rows["alarm_episodes"], errors="coerce").to_numpy(dtype=float)
+        width = float(np.median(np.diff(days))) if days.size > 1 else 1.0
+        axis.bar(days, episodes, width=width, color="#0072B2", align="edge")
+        # A shared y-limit is the point: per-panel scaling would make a method with two
+        # episodes per bin look like one with twenty.
+        axis.set_ylim(0.0, peak)
+        axis.set_ylabel(
+            _event_method_label(method), rotation=0, ha="right", va="center", fontsize=7
+        )
+        axis.set_yticks([])
+        failures = rows.loc[rows["contains_failure_onset"].astype(bool), "bin_start_day"]
+        for day in failures:
+            axis.axvline(float(day), color="#D55E00", linewidth=1.0)
+        axis.tick_params(axis="x", labelsize=7)
+        for spine in ("top", "right", "left"):
+            axis.spines[spine].set_visible(False)
+        # Outside the axes: inside, the total sat on top of the taller panels' bars.
+        axis.annotate(
+            f"{int(rows['alarm_episodes'].sum()):,}",
+            xy=(1.01, 0.5),
+            xycoords="axes fraction",
+            ha="left",
+            va="center",
+            fontsize=6.5,
+            color="#555555",
+        )
+
+    axes[0, 0].set_title(
+        f"{_dataset_label(dataset_id)}: alarm episodes per bin over the full test split, "
+        f"shared vertical scale (peak {int(peak)}); totals at right",
+        fontsize=8.5,
+    )
+    axes[-1, 0].set_xlabel("Operating days from start of test split", fontsize=8)
+    figure.tight_layout()
+    _save_figure(figure, figure_path)
+
+
+def _timeline_band(
+    axis: Axes,
+    hours: np.ndarray[Any, Any],
+    flags: np.ndarray[Any, Any],
+    level: float,
+    colour: str,
+    min_width: float = 0.0,
+) -> None:
+    """Draw one boolean channel as a band at a fixed height.
+
+    ``min_width`` widens each contiguous run to at least that many x-units, for channels
+    whose true runs are a handful of samples and would otherwise render as nothing.
+    """
+    values = np.asarray(flags, dtype=bool)
+    if min_width <= 0.0:
+        axis.fill_between(
+            hours,
+            level - 0.09,
+            level + 0.09,
+            where=values,
+            color=colour,
+            step="post",
+            linewidth=0.0,
+        )
+        return
+
+    padded = np.pad(values.astype(np.int8), (1, 1))
+    changes = np.diff(padded)
+    starts = np.flatnonzero(changes == 1)
+    ends = np.flatnonzero(changes == -1) - 1
+    for start, end in zip(starts, ends, strict=True):
+        left = float(hours[min(start, len(hours) - 1)])
+        right = float(hours[min(end, len(hours) - 1)])
+        if right - left < min_width:
+            right = left + min_width
+        axis.fill_between(
+            [left, right],
+            level - 0.09,
+            level + 0.09,
+            color=colour,
+            linewidth=0.0,
+        )
+
+
+#: Digits are not letters in TeX control sequences, so dataset ids are romanised.
+_ROMAN_DIGITS = {
+    "0": "O",
+    "1": "I",
+    "2": "II",
+    "3": "III",
+    "4": "IV",
+    "5": "V",
+    "6": "VI",
+    "7": "VII",
+    "8": "VIII",
+    "9": "IX",
+}
+
+
+def _timeline_caption_macro(dataset_id: str) -> str:
+    """Return a TeX-legal control sequence name for one dataset's caption."""
+    letters = "".join(
+        _ROMAN_DIGITS.get(character, character)
+        for character in dataset_id
+        if character.isalnum()
+    )
+    return f"\\timelinecaption{letters}"
+
+
+def _timeline_caption(metadata: pd.Series) -> str:
+    """State every configuration field, so the figure identifies what produced it."""
+    lead = metadata.get("lead_time_hours", "")
+    lead_text = (
+        "No alarm matched the failure"
+        if lead == "" or pd.isna(lead)
+        else f"The matched alarm leads the failure by {float(lead):.2f} h"
+    )
+    resets = int(metadata["maintenance_resets_recorded"])
+    reset_text = (
+        "the end of the single labelled failure interval"
+        if resets == 1
+        else f"the ends of the {resets} labelled failure intervals"
+    )
+    # Only the interpolated values are escaped; the template carries deliberate LaTeX
+    # such as the percent sign, which a blanket escape would turn into literal text.
+    failure_id = _latex_escape(str(metadata["failure_id"]))
+    variant = _latex_escape(str(metadata["target_region_variant"]))
+    return (
+        f"Global and local views of the {_dataset_label(metadata['dataset_id'])} held-out "
+        f"failure {failure_id} under the {_event_method_label(metadata['method'])} "
+        f"method ({variant} score). "
+        f"Threshold quantile {float(metadata['threshold_quantile']):.3f} gives a frozen test "
+        f"threshold of {float(metadata['threshold_value']):,.1f}; declustering run length "
+        f"{int(metadata['run_length'])} samples, merge gap {int(metadata['merge_gap'])} samples, "
+        f"warning horizon {float(metadata['warning_horizon_hours']):.1f} h. "
+        f"The test split runs {float(metadata['test_duration_days']):.1f} operating days "
+        f"({int(metadata['test_duration_samples']):,} samples). "
+        f"Globally the method raises {int(metadata['global_alarm_episodes']):,} alarm episodes, "
+        f"of which {int(metadata['global_false_alarm_episodes']):,} are false, at "
+        f"{float(metadata['false_alarms_per_operating_day']):.2f} false alarms per operating day; "
+        f"{int(metadata['local_alarm_episodes'])} episodes fall inside the plotted failure window "
+        f"and {int(metadata['local_false_alarm_episodes'])} of those are false. "
+        f"{lead_text}. Time under warning is "
+        f"{int(metadata['time_under_warning_samples']):,} samples "
+        f"({100.0 * float(metadata['time_under_warning_fraction']):.2f}\\% of the split). "
+        f"The only maintenance boundary the processed data records is {reset_text}."
+    )
 
 
 def _real_event_timeline_figure(trace: pd.DataFrame, figure_path: Path) -> None:

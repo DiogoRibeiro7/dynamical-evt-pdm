@@ -30,3 +30,26 @@ The event timeline artifact is retained because it can reveal aligned-axis mista
   \caption{Supplementary alarm timeline generated from the cached processed data.}
   \label{fig:supp-timeline}
 \end{figure}
+
+\subsection{Global alarm burden for every method}
+\label{supp:all-method-timelines}
+
+The main paper shows the two-scale timeline for the registered recurrence score on each compressor dataset. Figures~\ref{fig:supp-timeline-metropt} and~\ref{fig:supp-timeline-metropt2} extend the global scale to every method in the benchmark, binned identically and drawn on a shared vertical axis.
+
+The shared axis is the point of these figures. Two methods can report similar episode counts and distribute those episodes very differently over the test split, and only the second property determines what an operator experiences. Reading down each column shows which methods alarm continuously, which alarm in bursts, and which produce nothing at all; the episode total printed on each strip ties the panel to the corresponding row of Table~\ref{tab:supp-event-benchmark}.
+
+Only the registered method carries a per-sample local trace, because the local view exists to explain one detection and the per-sample series for nineteen methods on two datasets is not a reviewable artifact. The binned global series for every method is distributed as \texttt{event\_timeline\_overview.csv}, and the local trace as \texttt{event\_timeline\_trace.csv}.
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.95\linewidth]{../../reports/paper/figures/timeline_all_methods_metropt.png}
+  \caption{MetroPT global alarm burden for every benchmark method over the held-out test split, on a shared vertical scale. Vertical rules mark the labelled failure onset; the count on each strip is that method's total alarm episodes.}
+  \label{fig:supp-timeline-metropt}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.95\linewidth]{../../reports/paper/figures/timeline_all_methods_metropt2.png}
+  \caption{MetroPT2 global alarm burden for every benchmark method over the held-out test split, on a shared vertical scale. Vertical rules mark the labelled failure onset; the count on each strip is that method's total alarm episodes.}
+  \label{fig:supp-timeline-metropt2}
+\end{figure}

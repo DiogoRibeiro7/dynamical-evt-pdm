@@ -157,13 +157,29 @@ The remaining 31 rows detect the single held-out failure and fail on burden. The
 
 \subsection{Timeline reconciliation}
 
-The event timeline in Figure~\ref{fig:timeline} is generated from the MetroPT held-out test failure. It is a local explanation of one failure window, not a substitute for global false-alarm burden. The global alarm counts remain those in the event-level tables.
+Figures~\ref{fig:timeline-metropt} and~\ref{fig:timeline-metropt2} show each held-out failure at two scales. The upper panels cover the full test split, so every alarm episode the method raised is visible at once; the lower panels expand the failure window itself. Both scales are drawn from the same per-sample alarm series, and the shaded band in the upper panels marks the window the lower panels expand.
 
-\begin{figure}[t]
+The two scales are shown together because either alone misleads. The local window around the MetroPT failure contains 23 alarm episodes, one of which matches the failure with a lead time of 0.93 hours. Read on its own that window describes a usable detector. Over the full test split the same configuration raises 2{,}631 episodes across 24.9 operating days, of which 2{,}627 are false, which is 105.3 false alarms per operating day. MetroPT2 behaves the same way: 19 episodes in the plotted window against 852 over 16.5 days, 848 of them false, at 51.5 false alarms per operating day. The local view is a correct picture of the moment of detection and a misleading picture of the method.
+
+The local windows also show that proximity is not usefulness. Of the 23 MetroPT episodes inside the plotted window, 19 fall outside the warning horizon and count as false alarms, and only one is the matched alarm; the remaining three are duplicates inside the same window. An alarm raised during the failure interval is not an early warning, so the matching window is the declared horizon before onset rather than the interval itself.
+
+The counts in both figures are reconciled against the event-level tables rather than recomputed for the figure: the binned episode counts sum to the global total, the local window is a strict subset of the global series, the plotted threshold is the frozen test threshold, and the false-alarm rate matches the rate in Table~\ref{tab:event-level-results}. These checks are enforced in the test suite, so a figure that drifts from the tables fails the build rather than reaching a reader.
+
+\input{../reports/paper/latex/timeline_caption_metropt.tex}
+\input{../reports/paper/latex/timeline_caption_metropt2.tex}
+
+\begin{figure}[p]
   \centering
-  \includegraphics[width=0.95\linewidth]{../reports/paper/figures/real_event_timeline.png}
-  \caption{Traceable MetroPT held-out failure timeline. The x-axis is elapsed hours from the registered test failure onset; the panels show the fitted score threshold, alarm flags after thresholding, and labelled failure interval.}
-  \label{fig:timeline}
+  \includegraphics[width=0.96\linewidth]{../reports/paper/figures/timeline_metropt.png}
+  \caption{\timelinecaptionmetropt}
+  \label{fig:timeline-metropt}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.96\linewidth]{../reports/paper/figures/timeline_metropt2.png}
+  \caption{\timelinecaptionmetroptII}
+  \label{fig:timeline-metropt2}
 \end{figure}
 
 \subsection{Supplementary non-event stress tests}
