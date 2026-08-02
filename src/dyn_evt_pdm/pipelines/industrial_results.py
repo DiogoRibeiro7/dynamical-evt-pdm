@@ -640,6 +640,8 @@ def _run_metropt_event_comparison(
                 time_under_warning=evaluation.time_under_warning,
                 event_recall=evaluation.recall,
                 event_precision=evaluation.precision,
+                horizon=config.horizon,
+                tolerance_after=config.matching_tolerance_after,
             )
         )
         if method in TARGET_REGION_METHODS:
@@ -1483,6 +1485,74 @@ def _stable_seed(*parts: str) -> int:
     return int(digest[:8], 16)
 
 
+def _warning_window_separation(
+    scores: np.ndarray[Any, Any],
+    target_flags: np.ndarray[Any, Any],
+    *,
+    horizon: int,
+) -> float:
+    """Rank separation between scores in the warning window and scores outside it.
+
+    This is the Mann-Whitney statistic, ``P(score inside > score outside)``, computed on
+    ranks so it does not depend on the score's units and is comparable across methods.
+    0.5 means the score is uninformative about the window; 1.0 means every warning-window
+    sample outranks every other sample.
+
+    The window is the declared horizon before each labelled failure onset, which is the
+    interval a detector would have to score highly to be useful. Scoring the failure
+    interval itself would reward a method for reacting after the fact.
+    """
+
+    values = np.asarray(scores, dtype=float)
+    targets = np.asarray(target_flags, dtype=bool)
+    if values.size == 0 or values.size != targets.size:
+        return float("nan")
+
+    window = np.zeros(values.size, dtype=bool)
+    for event in flags_to_events(targets, label="failure"):
+        window[max(0, int(event.start) - horizon) : int(event.start) + 1] = True
+
+    finite = np.isfinite(values)
+    inside = window & finite
+    outside = (~window) & finite
+    if not inside.any() or not outside.any():
+        return float("nan")
+
+    ranks = np.empty(values.size, dtype=float)
+    order = np.argsort(values[finite], kind="mergesort")
+    finite_ranks = np.empty(order.size, dtype=float)
+    finite_ranks[order] = np.arange(1, order.size + 1, dtype=float)
+    ranks[finite] = finite_ranks
+    n_inside = int(inside.sum())
+    n_outside = int(outside.sum())
+    rank_sum = float(ranks[inside].sum())
+    return float((rank_sum - n_inside * (n_inside + 1) / 2.0) / (n_inside * n_outside))
+
+
+def _chance_match_probability(
+    *,
+    alarm_count: int,
+    target_flags: np.ndarray[Any, Any],
+    horizon: int,
+    tolerance_after: int,
+) -> float:
+    """Probability that a detector this busy matches the failure with no signal at all.
+
+    Under a homogeneous Poisson model with the method's own episode rate, this is
+    ``1 - exp(-N W / T)`` for ``N`` episodes, matching window width ``W`` and test span
+    ``T``. It is the analytic counterpart of the matched-control comparison: a recall of
+    1.0 is only evidence of early warning when this probability is well below one.
+    """
+
+    targets = np.asarray(target_flags, dtype=bool)
+    total = int(targets.size)
+    events = flags_to_events(targets, label="failure")
+    if total <= 0 or alarm_count <= 0 or not events:
+        return float("nan")
+    window = float(len(events) * (horizon + tolerance_after + 1))
+    return float(1.0 - np.exp(-alarm_count * window / total))
+
+
 def _score_threshold_alarm_decomposition_row(
     *,
     dataset_id: str,
@@ -1500,6 +1570,8 @@ def _score_threshold_alarm_decomposition_row(
     time_under_warning: int,
     event_recall: float,
     event_precision: float,
+    horizon: int,
+    tolerance_after: int,
 ) -> dict[str, object]:
     """Record one method's decomposition, keeping detector counts and ground truth apart.
 
@@ -1520,6 +1592,21 @@ def _score_threshold_alarm_decomposition_row(
         "method": method,
         "score_median": float(np.median(finite)) if len(finite) else np.nan,
         "score_p95": float(np.quantile(finite, 0.95)) if len(finite) else np.nan,
+        # Separates a score that carries no warning information from a threshold that
+        # discarded it. Both produce zero exceedances, and the counts alone cannot tell
+        # them apart, so the repair they imply cannot be named without this.
+        "score_separation_auc": _warning_window_separation(
+            scores, target_flags, horizon=horizon
+        ),
+        # Probability that a detector alarming this often lands at least one episode in
+        # the warning window with no signal at all. Recall of 1.0 means little when this
+        # is near 1: the match is what an equally busy random detector would produce.
+        "chance_match_probability": _chance_match_probability(
+            alarm_count=alarm_count,
+            target_flags=target_flags,
+            horizon=horizon,
+            tolerance_after=tolerance_after,
+        ),
         "threshold": threshold,
         # Detector evidence track.
         "test_observations_samples": int(len(alarm_flags)),

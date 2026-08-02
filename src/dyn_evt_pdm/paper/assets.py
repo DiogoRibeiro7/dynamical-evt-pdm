@@ -1317,15 +1317,48 @@ def _metric_provenance_assets(
     return [csv_path, tex_path, figure_path]
 
 
+#: Rank separation below this is treated as a score that carries no warning signal.
+#: 0.5 is chance; the margin allows for the sampling noise of a single failure window.
+_SCORE_SEPARATION_FLOOR = 0.55
+
+#: Event precision below this makes a matched detection operationally unusable.
+_USABLE_PRECISION = 0.01
+
+
+@dataclass(frozen=True)
+class FailureVerdict:
+    """One method's failure layer, the evidence for it, and what it does not rule out."""
+
+    layer: str
+    evidence: str
+    alternative: str
+    confidence: str
+
+
 def classify_failure_layer(row: pd.Series) -> tuple[str, str]:
     """Return the first stage at which this method's evidence broke down, and why.
 
-    The layers are checked in pipeline order, so the verdict names the earliest stage
-    that failed rather than the last symptom observed. A method that produces no
-    exceedance has a score or threshold problem; one that produces alarms none of which
-    match has a matching problem; one that matches but drowns the match in false alarms
-    has an alarm-burden problem. These are different repairs, and collapsing them into
-    one dataset-level explanation hides which repair is needed.
+    Thin wrapper over :func:`classify_root_cause` kept for the decomposition table, which
+    prints only the layer name.
+    """
+    verdict = classify_root_cause(row)
+    return verdict.layer, verdict.evidence
+
+
+def classify_root_cause(row: pd.Series) -> FailureVerdict:
+    """Classify one dataset-method row into the earliest stage that failed.
+
+    The stages are checked in pipeline order, so the verdict names the earliest failure
+    rather than the last symptom. Each is a different repair: a score that does not
+    separate needs a different observable, a threshold that admits nothing needs
+    recalibration, alarms that never match need a different horizon, and a match buried
+    in false alarms needs a different alarm policy. A single dataset-level explanation
+    hides which one applies, and the layers differ by method on the same dataset.
+
+    Score and threshold failures are distinguished by rank separation rather than
+    assumed. Both produce zero exceedances, so the counts alone cannot tell a score that
+    carries no warning information from a threshold that discarded information the score
+    did carry.
     """
 
     exceedances = float(row.get("threshold_exceedances_samples", 0) or 0)
@@ -1333,31 +1366,107 @@ def classify_failure_layer(row: pd.Series) -> tuple[str, str]:
     episodes = float(row.get("alarm_episodes_count", 0) or 0)
     matched = float(row.get("matched_alarm_episodes_count", 0) or 0)
     failures = float(row.get("labelled_failure_events_count", 0) or 0)
+    false_alarms = float(row.get("false_alarm_episodes_count", 0) or 0)
     precision = float(row.get("event_precision", 0) or 0)
-    recall = float(row.get("event_recall", 0) or 0)
+    separation = float(row.get("score_separation_auc", float("nan")) or float("nan"))
 
     if failures == 0:
-        return "not estimable", "no labelled failure in the evaluated split"
+        return FailureVerdict(
+            layer="insufficient independent evidence",
+            evidence="no labelled failure in the evaluated split",
+            alternative="any layer; nothing is estimable without a labelled event",
+            confidence="high",
+        )
+
+    # Checked before the counts, because a score that does not rank the warning window
+    # above the rest of the split has already failed: no threshold or alarm policy can
+    # recover ordering information the score does not carry. A method in this state can
+    # still match a failure, but only by alarming often enough that one episode lands in
+    # the window by chance, which is not early warning.
+    chance = float(row.get("chance_match_probability", float("nan")) or float("nan"))
+    chance_text = "" if not np.isfinite(chance) else f", chance match {chance:.2f}"
+
+    if np.isfinite(separation) and separation < _SCORE_SEPARATION_FLOOR:
+        below_chance = separation < 0.5
+        qualifier = "below chance" if below_chance else "at chance"
+        return FailureVerdict(
+            layer="score failure",
+            evidence=(
+                f"separation {separation:.2f} ({qualifier}); "
+                + (
+                    f"match among {episodes:,.0f} episodes incidental{chance_text}"
+                    if episodes > 0
+                    else "no episodes raised"
+                )
+            ),
+            alternative="a different lead time may separate; the horizon may be mis-specified",
+            confidence="high" if below_chance else "medium",
+        )
+
     if exceedances == 0:
-        return (
-            "score or threshold failure",
-            "no test sample crossed the threshold, so no later stage could run",
+        if not np.isfinite(separation):
+            return FailureVerdict(
+                layer="score failure",
+                evidence="no exceedance; separation not computable",
+                alternative="a different observable may separate",
+                confidence="low",
+            )
+        return FailureVerdict(
+            layer="threshold failure",
+            evidence=(
+                f"separation {separation:.2f} but no exceedance; the threshold discarded "
+                "the ranking"
+            ),
+            alternative="no threshold may separate and control burden simultaneously",
+            confidence="medium",
         )
+
     if clusters == 0:
-        return "clustering failure", "exceedances present but no extreme cluster was formed"
+        return FailureVerdict(
+            layer="extreme-cluster failure",
+            evidence=f"{exceedances:,.0f} exceedances formed no cluster",
+            alternative="the run length may be too long for this exceedance pattern",
+            confidence="high",
+        )
+
     if episodes == 0:
-        return "alarm-merging failure", "clusters present but no alarm episode was produced"
+        return FailureVerdict(
+            layer="alarm-merging failure",
+            evidence=f"{clusters:,.0f} clusters produced no episode",
+            alternative="the merge gap may absorb every cluster",
+            confidence="high",
+        )
+
     if matched == 0:
-        return (
-            "event-matching failure",
-            "alarm episodes were raised but none matched a labelled failure",
+        return FailureVerdict(
+            layer="event-matching failure",
+            evidence=(
+                f"separation {separation:.2f} but none of {episodes:,.0f} episodes fell in "
+                "the window"
+            ),
+            alternative="a longer horizon may capture alarms raised earlier",
+            confidence="medium",
         )
-    if recall > 0.0 and precision < 0.01:
-        return (
-            "alarm-burden failure",
-            "the failure was matched, but the match is buried in false alarm episodes",
+
+    if precision < _USABLE_PRECISION:
+        return FailureVerdict(
+            layer="no operationally acceptable result",
+            evidence=(
+                f"separation {separation:.2f}; matched, but {false_alarms:,.0f} false "
+                f"episodes give precision {precision:.4f}{chance_text}"
+            ),
+            alternative="a stricter threshold or alarm policy may cut burden without losing it",
+            confidence="medium",
         )
-    return "no operational failure at this layer", "matched with acceptable alarm burden"
+
+    return FailureVerdict(
+        layer="insufficient independent evidence",
+        evidence=(
+            f"matched at precision {precision:.3f}, on {failures:.0f} held-out failure"
+        ),
+        alternative="the result may not survive on failures not represented here",
+        confidence="low",
+    )
 
 
 def _decomposition_assets(config: PaperAssetConfig, tables: Path, latex: Path) -> list[Path]:
@@ -2644,37 +2753,173 @@ def _root_cause_assets(
     path = config.real_data_matrix_root / "industrial_results_summary.csv"
     if not path.exists():
         return []
-    source = pd.read_csv(path)
-    # The compressor rows describe the registered method, so their evidence must come
-    # from the benchmark rather than from the global-threshold summary path.
-    source = _merge_registered_event_metrics(config, source)
-    explanations = {
-        "metropt": "alarm-conversion burden with one held-out failure",
-        "metropt2": "alarm-conversion burden with one held-out failure",
-        "scania_component_x": "vehicle-level repair-risk estimand mismatch",
-        "hydraulic_systems": "cycle-state target is not a field event onset",
-        "secom": "yield-failure target and missingness differ from maintenance events",
-    }
-    frame = pd.DataFrame(
-        {
-            "Dataset": source["dataset_id"].map(_dataset_label),
-            "Primary explanation": source["dataset_id"].map(explanations),
-            "Evidence": source.apply(_root_cause_evidence, axis=1),
-            "Evidence status": source["dataset_id"].map(_root_cause_status),
-            "Competing explanation": source["dataset_id"].map(_root_cause_alternative),
-            "Confidence": source["dataset_id"].map(_root_cause_confidence),
-        }
-    )
+    rows = _method_root_cause_rows(config) + _non_event_root_cause_rows(config, path)
+    if not rows:
+        return []
+    frame = pd.DataFrame(rows)
+
     csv_path = tables / "root_cause_summary.csv"
     tex_path = latex / "root_cause_summary.tex"
     frame.to_csv(csv_path, index=False)
     _write_latex_table(
         frame,
         tex_path,
-        caption="Most plausible explanations under the current evidence.",
+        caption=(
+            "Failure layer per dataset and method. The layer is the earliest stage at "
+            "which that method's evidence broke down, taken from the score, threshold, "
+            "cluster and alarm decomposition; it is not a dataset-level property, and "
+            "methods on the same dataset fail at different stages. Score and threshold "
+            "failures are separated by the warning-window rank separation, which is the "
+            "probability that a sample in the horizon before onset outranks one outside "
+            "it; 0.5 is chance. The competing explanation is what the evidence does not "
+            "exclude."
+        ),
         label="tab:root-cause",
+        column_weights=(0.6, 0.95, 0.95, 1.75, 1.25, 0.5),
+        long=True,
     )
     return [csv_path, tex_path]
+
+
+#: Methods the root-cause table must cover: the registered score, the strongest simple
+#: policy, a classical EVT fit, a learned detector, both target regions, and the best
+#: full-family baseline, which is selected from the benchmark rather than declared.
+_ROOT_CAUSE_METHODS = (
+    "dynamical_evt_robust_score",
+    "engineering_threshold",
+    "classical_pot_gpd",
+    "isolation_forest",
+    "failure_prototype_region",
+    "rare_state_region",
+)
+
+
+def _best_full_family_baseline(baselines: pd.DataFrame, dataset_id: str) -> str | None:
+    """Return the best-performing baseline outside the target-region families.
+
+    Selected on event utility rather than named in advance, so the table compares the
+    proposed method against the strongest competitor the benchmark actually produced.
+    """
+    candidates = baselines[
+        (baselines["dataset_id"] == dataset_id)
+        & (~baselines["method"].isin(_ROOT_CAUSE_METHODS))
+        & (baselines["method"] != "negative_control_region")
+    ]
+    if candidates.empty:
+        return None
+    ranked = candidates.sort_values(
+        ["event_f1", "false_alarm_events_per_day"], ascending=[False, True]
+    )
+    return str(ranked.iloc[0]["method"])
+
+
+def _method_root_cause_rows(config: PaperAssetConfig) -> list[dict[str, object]]:
+    """Method-specific root-cause rows for the compressor datasets."""
+    decomposition_path = (
+        config.real_data_matrix_root / "score_threshold_alarm_decomposition.csv"
+    )
+    baseline_path = config.real_data_matrix_root / "event_baseline_comparison.csv"
+    if not decomposition_path.exists() or not baseline_path.exists():
+        return []
+    decomposition = pd.read_csv(decomposition_path)
+    baselines = pd.read_csv(baseline_path)
+    if "score_separation_auc" not in decomposition.columns:
+        return []
+
+    rows: list[dict[str, object]] = []
+    for dataset_id in decomposition["dataset_id"].unique():
+        wanted = list(_ROOT_CAUSE_METHODS)
+        best = _best_full_family_baseline(baselines, dataset_id)
+        if best is not None and best not in wanted:
+            wanted.append(best)
+        for method in wanted:
+            entry = decomposition[
+                (decomposition["dataset_id"] == dataset_id)
+                & (decomposition["method"] == method)
+            ]
+            if entry.empty:
+                continue
+            row = entry.iloc[0]
+            verdict = classify_root_cause(row)
+            baseline_row = baselines[
+                (baselines["dataset_id"] == dataset_id) & (baselines["method"] == method)
+            ]
+            per_day = (
+                float(baseline_row["false_alarm_events_per_day"].iloc[0])
+                if not baseline_row.empty
+                else float("nan")
+            )
+            rows.append(
+                {
+                    "Dataset": _dataset_label(dataset_id),
+                    "Method": _event_method_label(method)
+                    + (" (best baseline)" if method == best else ""),
+                    "Primary failure layer": verdict.layer,
+                    "Supporting evidence": (
+                        f"{verdict.evidence}; {per_day:,.1f} FA/day; {_exposure_text(row)}"
+                    ),
+                    "Alternative not excluded": verdict.alternative,
+                    "Confidence": verdict.confidence,
+                }
+            )
+    return rows
+
+
+def _exposure_text(row: pd.Series) -> str:
+    """Warning exposure as a share of the split.
+
+    The percent sign is emitted plain: the table writer escapes LaTeX specials, and
+    pre-escaping it produces a literal backslash in the rendered cell.
+    """
+    exposure = float(row.get("time_under_warning_samples", 0) or 0)
+    total = float(row.get("test_observations_samples", 0) or 0)
+    if total <= 0:
+        return "exposure unknown"
+    return f"{100.0 * exposure / total:.2f}% exposure"
+
+
+def _non_event_root_cause_rows(
+    config: PaperAssetConfig, summary_path: Path
+) -> list[dict[str, object]]:
+    """Estimand-mismatch rows for the datasets whose units are not failure episodes.
+
+    These are not method failures. Their independent units are cycles, vehicles and
+    wafers, so no alarm policy on them answers the question the compressor datasets
+    answer, and giving them a pipeline-stage layer would misattribute a design mismatch
+    to the detector.
+    """
+    source = pd.read_csv(summary_path)
+    source = _merge_registered_event_metrics(config, source)
+    explanations = {
+        "scania_component_x": (
+            "vehicle-level repair risk is not a compressor failure-episode onset"
+        ),
+        "hydraulic_systems": (
+            "laboratory cycle states are not field failure-event onsets"
+        ),
+        "secom": "wafer yield labels are quality outcomes, not maintenance repair events",
+    }
+    rows: list[dict[str, object]] = []
+    for _index, row in source.iterrows():
+        dataset_id = str(row["dataset_id"])
+        if dataset_id not in explanations:
+            continue
+        rows.append(
+            {
+                "Dataset": _dataset_label(dataset_id),
+                "Method": "high-quantile diagnostic",
+                "Primary failure layer": "estimand mismatch",
+                "Supporting evidence": (
+                    f"{explanations[dataset_id]}; {_root_cause_evidence(row)}"
+                ),
+                "Alternative not excluded": (
+                    "a redesigned target and evaluation on these units might succeed; "
+                    "this is not evidence that the method fails on them"
+                ),
+                "Confidence": "high",
+            }
+        )
+    return rows
 
 
 def _range_text(values: pd.Series) -> str:

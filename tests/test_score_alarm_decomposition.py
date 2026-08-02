@@ -16,7 +16,11 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from dyn_evt_pdm.paper.assets import _write_latex_table, classify_failure_layer
+from dyn_evt_pdm.paper.assets import (
+    _write_latex_table,
+    classify_failure_layer,
+    classify_root_cause,
+)
 
 ARTIFACT = (
     Path(__file__).resolve().parents[1]
@@ -86,9 +90,11 @@ def test_failure_layer_names_the_earliest_broken_stage() -> None:
             "labelled_failure_events_count": 1,
             "event_precision": 0.0,
             "event_recall": 0.0,
+            "score_separation_auc": 0.90,
         }
     )
-    assert classify_failure_layer(no_exceedance)[0] == "score or threshold failure"
+    # Separation is high, so the threshold discarded information the score did carry.
+    assert classify_failure_layer(no_exceedance)[0] == "threshold failure"
 
     alarms_never_match = pd.Series(
         {
@@ -100,6 +106,7 @@ def test_failure_layer_names_the_earliest_broken_stage() -> None:
             "labelled_failure_events_count": 1,
             "event_precision": 0.0,
             "event_recall": 0.0,
+            "score_separation_auc": 0.82,
         }
     )
     assert classify_failure_layer(alarms_never_match)[0] == "event-matching failure"
@@ -114,24 +121,80 @@ def test_failure_layer_names_the_earliest_broken_stage() -> None:
             "labelled_failure_events_count": 1,
             "event_precision": 1.0 / 2_631,
             "event_recall": 1.0,
+            "score_separation_auc": 0.86,
+            "chance_match_probability": 0.99,
         }
     )
-    assert classify_failure_layer(detects_with_burden)[0] == "alarm-burden failure"
+    layer = classify_failure_layer(detects_with_burden)[0]
+    assert layer == "no operationally acceptable result"
 
     # Without a labelled failure in the split no layer is identifiable, and saying so
     # is different from saying the method succeeded.
     unlabelled = no_exceedance.copy()
     unlabelled["labelled_failure_events_count"] = 0
-    assert classify_failure_layer(unlabelled)[0] == "not estimable"
+    assert classify_failure_layer(unlabelled)[0] == "insufficient independent evidence"
+
+
+def test_score_failure_is_checked_before_the_counts() -> None:
+    """A score that does not rank the warning window has already failed.
+
+    This row matches the failure and would otherwise be classified on burden, but its
+    separation is below chance: the match is what an equally busy random detector
+    produces, so calling it an alarm-policy problem would misdirect the repair.
+    """
+    matched_but_uninformative = pd.Series(
+        {
+            "threshold_exceedances_samples": 55_622,
+            "extreme_clusters_count": 3_363,
+            "alarm_episodes_count": 2_631,
+            "matched_alarm_episodes_count": 1,
+            "false_alarm_episodes_count": 2_627,
+            "labelled_failure_events_count": 1,
+            "event_precision": 1.0 / 2_631,
+            "event_recall": 1.0,
+            "score_separation_auc": 0.46,
+            "chance_match_probability": 0.99,
+        }
+    )
+    verdict = classify_root_cause(matched_but_uninformative)
+    assert verdict.layer == "score failure"
+    assert verdict.confidence == "high"
+    assert "below chance" in verdict.evidence
+
+    # Just above chance but below the floor is still a score failure, at lower confidence.
+    marginal = matched_but_uninformative.copy()
+    marginal["score_separation_auc"] = 0.52
+    assert classify_root_cause(marginal).layer == "score failure"
+    assert classify_root_cause(marginal).confidence == "medium"
+
+    # Clear separation moves the verdict to the burden layer.
+    informative = matched_but_uninformative.copy()
+    informative["score_separation_auc"] = 0.86
+    assert classify_root_cause(informative).layer == "no operationally acceptable result"
+
+
+def test_every_verdict_names_a_competing_explanation() -> None:
+    """No verdict is presented as a causal proof."""
+    if not ARTIFACT.exists():
+        pytest.skip("real-data decomposition artifact is not present")
+    frame = pd.read_csv(ARTIFACT)
+    for _index, row in frame.iterrows():
+        verdict = classify_root_cause(row)
+        assert verdict.alternative.strip()
+        assert verdict.confidence in {"high", "medium", "low"}
+        assert verdict.evidence.strip()
 
 
 def test_every_row_is_classified(decomposition: pd.DataFrame) -> None:
     layers = {classify_failure_layer(row)[0] for _index, row in decomposition.iterrows()}
     assert layers <= {
-        "score or threshold failure",
+        "score failure",
+        "threshold failure",
+        "extreme-cluster failure",
+        "alarm-merging failure",
         "event-matching failure",
-        "alarm-burden failure",
-        "no operational failure at this layer",
+        "no operationally acceptable result",
+        "insufficient independent evidence",
     }
 
 
