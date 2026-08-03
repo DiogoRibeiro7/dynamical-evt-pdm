@@ -1884,6 +1884,10 @@ def _detection_aware_control_table(
             "reward only when the failure was detected."
         ),
         label="tab:detection-aware-controls",
+        # Six families times four conditions on two datasets does not fit a float; as a
+        # table environment it overran the page and dropped its last rows silently.
+        column_weights=(0.7, 1.4, 1.3, 0.7, 0.95, 0.95, 1.0, 1.0, 1.0),
+        long=True,
     )
     return [csv_path, tex_path]
 
@@ -3199,6 +3203,13 @@ def _require_columns(frame: pd.DataFrame, columns: tuple[str, ...]) -> None:
         raise ValueError(f"missing required columns: {missing}")
 
 
+#: Data rows above which a table is emitted as a breakable ``longtable``. Set from the
+#: smallest table observed to overrun a page: the 19-row method-provenance table, whose
+#: text cells wrap. Row count alone does not determine height, so this is deliberately
+#: below the largest table that happens to fit.
+_MAX_FLOAT_TABLE_ROWS = 15
+
+
 def _write_latex_table(
     frame: pd.DataFrame,
     path: Path,
@@ -3206,7 +3217,7 @@ def _write_latex_table(
     caption: str,
     label: str,
     column_weights: Sequence[float] | None = None,
-    long: bool = False,
+    long: bool | None = None,
 ) -> None:
     r"""Write ``frame`` as a full-width table.
 
@@ -3214,9 +3225,11 @@ def _write_latex_table(
     tables that mix long method names with short counts. Weights must sum to the
     column count.
 
-    ``long`` emits a ``longtable`` instead of a ``tabularx`` float, for tables with
-    more rows than fit a page. A float that overruns the page silently drops its
-    last rows, so tables of that size have to break explicitly.
+    ``long`` emits a ``longtable`` instead of a ``tabularx`` float. Left unset, it is
+    chosen from the row count: a float that overruns the page does not error, it warns
+    and lets the surplus rows fall off the bottom, so they disappear from the PDF while
+    the source and the CSV still list them. Deciding here rather than at each call site
+    means a table that grows past the limit cannot silently start dropping rows.
     """
     columns = [str(column) for column in frame.columns]
     if column_weights is not None:
@@ -3235,6 +3248,9 @@ def _write_latex_table(
     for _index, row in frame.iterrows():
         values = [_latex_escape(_format_latex_value(row[column])) for column in frame.columns]
         body.append(" & ".join(values) + " \\\\")
+
+    if long is None:
+        long = len(frame) > _MAX_FLOAT_TABLE_ROWS
 
     if not long:
         column_spec = " ".join(

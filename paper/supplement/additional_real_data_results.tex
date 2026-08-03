@@ -53,3 +53,32 @@ Only the registered method carries a per-sample local trace, because the local v
   \caption{MetroPT2 global alarm burden for every benchmark method over the held-out test split, on a shared vertical scale. Vertical rules mark the labelled failure onset; the count on each strip is that method's total alarm episodes.}
   \label{fig:supp-timeline-metropt2}
 \end{figure}
+
+\subsection{Non-event stress-test results}
+\label{supp:non-event}
+
+Table~\ref{tab:non-event-results} gives the high-quantile diagnostic on Hydraulic Systems, SCANIA Component X, and SECOM. All three attain \(F_1 = 0\). These are not hidden failures of the method: their independent units are cycles, vehicles, and wafers rather than compressor failure episodes, so the estimand differs from the one the main results address. They are evidence that a simple extreme-score adapter does not transfer across laboratory cycle states, vehicle-level repair risk, and wafer-level yield labels without redesigning the target and the evaluation, and they are reported here rather than in the main text for that reason.
+
+\input{../../reports/paper/latex/industrial_non_event_results.tex}
+
+\subsection{Full decomposition and control tables}
+\label{supp:full-tables}
+
+Table~\ref{tab:score-alarm-decomposition} is the complete score, threshold, cluster and alarm decomposition for all 38 dataset-method rows. The main text reports the failure layer derived from it; this is the underlying stage-by-stage evidence.
+
+\input{../../reports/paper/latex/score_alarm_decomposition.tex}
+
+Table~\ref{tab:matched-negative-controls} reports the unconditioned matched-control comparison, with component metrics for each control family. The main text uses the detection-conditioned version, because comparing alarm burden without conditioning on detection rewards a region for not detecting; this table is retained so the component metrics behind that comparison remain inspectable.
+
+\input{../../reports/paper/latex/matched_negative_controls.tex}
+
+\subsection{Dataset roles and leakage audit}
+\label{supp:roles-leakage}
+
+Table~\ref{tab:dataset-roles} records the empirical role, sampling structure, independent unit, independent positives, rows, and target type for every dataset. The independent-unit column is the quantity that governs which datasets can carry the primary claim.
+
+\input{../../reports/paper/latex/dataset_role_summary.tex}
+
+Table~\ref{tab:leakage-audit} gives the terminal result of each registered leakage check: held-out failures excluded from feature construction, from scaling, and from regime inference, with thresholds and references fitted on the training split alone.
+
+\input{../../reports/paper/latex/leakage_audit.tex}
