@@ -7,8 +7,8 @@
   "programmingLanguage": "Python",
   "runtimePlatform": "Python >=3.11,<3.13",
   "license": "https://spdx.org/licenses/BSD-3-Clause.html",
-  "version": "0.2.2",
-  "dateModified": "2026-07-28",
+  "version": "0.3.0",
+  "dateModified": "2026-08-03",
   "author": [
     {
       "@type": "Person",

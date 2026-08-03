@@ -11,7 +11,7 @@ The central empirical finding is directional. Under the seven-feature constructi
 
 Two cautions follow. The first is that a recalibration step cannot be assumed benign: recalibrating the threshold or the scaling on the destination rescued the failing direction and degraded the working one, so recalibration should be reported as a separate experiment rather than folded into a single transfer number. The second is that a feature set chosen for within-dataset performance is not automatically a feature set that supports transfer, and here it actively prevented detection. The evidence supports directional and feature-dependent transfer, not a general target-region solution, and two held-out failures cannot settle the question either way.
 
-\subsection{Score, Threshold, and Alarm Failure}
+\subsection{Score, threshold, clustering, and alarm-conversion failure}
 
 The failure mode is layered, and the decomposition locates each method's layer rather than assigning one explanation to the datasets. Seventeen of the 38 rows fail at the score layer, three at the threshold, one at event matching, and seventeen after alarm conversion. The layers split largely by dataset, and that split is the most consequential result in this section.
 

@@ -1828,6 +1828,9 @@ def _target_region_transferability_assets(
             + (f"Excluded as incompatible: {excluded.replace('_', ' ')}." if excluded else "")
         ),
         label="tab:target-region-transferability",
+        # The protocol column holds "destination refit"; at equal widths that word
+        # overflowed into the next column.
+        column_weights=(0.9, 0.9, 1.5, 1.0, 1.1, 0.9, 0.9, 1.0, 0.9, 0.9),
     )
     return [csv_path, tex_path]
 
@@ -1886,7 +1889,9 @@ def _detection_aware_control_table(
         label="tab:detection-aware-controls",
         # Six families times four conditions on two datasets does not fit a float; as a
         # table environment it overran the page and dropped its last rows silently.
-        column_weights=(0.7, 1.4, 1.3, 0.7, 0.95, 0.95, 1.0, 1.0, 1.0),
+        # The dataset column must fit "MetroPT2" unbroken: it has no hyphenation point,
+        # so a narrower column pushes it into the neighbouring cell.
+        column_weights=(1.25, 1.35, 1.25, 0.6, 0.9, 0.9, 0.9, 0.9, 0.95),
         long=True,
     )
     return [csv_path, tex_path]
@@ -2779,7 +2784,7 @@ def _root_cause_assets(
             "exclude."
         ),
         label="tab:root-cause",
-        column_weights=(0.6, 0.95, 0.95, 1.75, 1.25, 0.5),
+        column_weights=(0.8, 0.9, 0.95, 1.55, 0.98, 0.82),
         long=True,
     )
     return [csv_path, tex_path]

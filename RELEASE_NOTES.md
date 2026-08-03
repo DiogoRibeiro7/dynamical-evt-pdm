@@ -1,5 +1,42 @@
 # Release Notes
 
+## 0.3.0 - 2026-08-03
+
+Fifth-review revision. This release changes a headline scientific conclusion, so it is a
+minor version rather than a patch.
+
+- **The MetroPT detection is reclassified as a score-layer failure.** A new
+  warning-window rank separation measures how well each score ranks the hour before
+  onset against the rest of the test split. The registered recurrence score separates at
+  0.46 on MetroPT, below the chance value of 0.50, while raising 2,631 alarm episodes; a
+  detector alarming that often matches the failure with probability 0.99 carrying no
+  signal. Its recall of 1.0 there is not evidence of early warning. Fourteen of the
+  nineteen MetroPT methods are in the same position. MetroPT2 separates at 0.86 and its
+  methods do fail on alarm conversion, as previously reported.
+- Root-cause analysis is now per dataset-method, with evidence, a competing explanation
+  and a confidence level on every row, over an eight-layer taxonomy used consistently by
+  the decomposition and root-cause tables.
+- The failure timeline is reported at two scales. The local window around the MetroPT
+  failure holds 23 alarm episodes; the full test split holds 2,631. Reconciliation tests
+  tie the figure to the event tables.
+- Cross-dataset target-region transfer replaces the previous cross-dataset comparison,
+  under four protocols in both directions, with schema compatibility checked first.
+- Matched controls are conditioned on detection, with a predeclared joint utility.
+- The decomposition separates detector evidence from ground truth and carries raw
+  exceedances, which had been reported as post-declustering onsets for four methods.
+- **Fixed: the supplementary 38-row benchmark had been silently dropping rows from the
+  published PDF.** A table float that overruns its page does not error; LaTeX warns and
+  lets the surplus fall off the bottom. The writer now selects `longtable` by row count,
+  and a test fails the build on any float overflow.
+- Main text focused to five tables; non-event stress tests moved to the supplement.
+- Twelve bibliography entries added; Related Work reorganised; false-alarm rates compared
+  against alarm-management standards.
+- Supplementary table numbers now resolve through `xr` rather than being hardcoded.
+
+The archival DOI remains unminted. It requires connecting the repository to Zenodo and
+publishing a GitHub release against the version tag, which the build cannot perform. The
+manuscript states this rather than claiming a persistent identifier.
+
 ## 0.2.2 - 2026-07-28
 
 This release candidate corrects a stale manuscript build. The `paper/main.pdf` shipped in `0.2.0` and `0.2.1` was compiled before the final regeneration of the `reports/paper` assets, so its matched-negative-control table reported superseded values. Most consequentially, the MetroPT2 prototype-permutation control was typeset as `lower alarm burden than controls` when the generating artifacts report `not lower burden`.
