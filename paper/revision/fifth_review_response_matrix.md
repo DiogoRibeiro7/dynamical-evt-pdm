@@ -40,4 +40,9 @@ resolved.
 | Release notes | Present |
 | Artifact manifest with per-file hashes | Present |
 | Exact commit hash | Recorded in the manifest |
-| **Archival DOI** | **Not minted.** Depositing the release requires an account action on the archive service that the build cannot perform: the repository must be connected to Zenodo and a GitHub release published against the version tag. Stated as unresolved in the Code and Data Availability section; the paper does not claim a persistent software identifier. |
+| **Public availability** | **Blocked. The repository is private.** The address cited in the manuscript does not resolve for a reader, so there is currently no code-availability route at all. This is a stronger blocker than the missing DOI and was recorded incorrectly in the first version of this matrix, which described only the DOI as outstanding. |
+| **Archival DOI** | **Not minted.** The automated GitHub–Zenodo integration is unavailable while the repository is private. A DOI does not require publishing the development history: depositing a release archive directly with Zenodo or an equivalent service mints one for that snapshot. Neither step is performed by the build. |
+
+Both are stated in the Code and Data Availability section. The paper claims neither
+public code nor a persistent identifier, and says explicitly that its reproducibility
+claims are internal until they are resolved.
