@@ -1595,9 +1595,7 @@ def _score_threshold_alarm_decomposition_row(
         # Separates a score that carries no warning information from a threshold that
         # discarded it. Both produce zero exceedances, and the counts alone cannot tell
         # them apart, so the repair they imply cannot be named without this.
-        "score_separation_auc": _warning_window_separation(
-            scores, target_flags, horizon=horizon
-        ),
+        "score_separation_auc": _warning_window_separation(scores, target_flags, horizon=horizon),
         # Probability that a detector alarming this often lands at least one episode in
         # the warning window with no signal at all. Recall of 1.0 means little when this
         # is near 1: the match is what an equally busy random detector would produce.

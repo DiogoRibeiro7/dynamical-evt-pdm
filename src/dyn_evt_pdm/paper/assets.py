@@ -1461,9 +1461,7 @@ def classify_root_cause(row: pd.Series) -> FailureVerdict:
 
     return FailureVerdict(
         layer="insufficient independent evidence",
-        evidence=(
-            f"matched at precision {precision:.3f}, on {failures:.0f} held-out failure"
-        ),
+        evidence=(f"matched at precision {precision:.3f}, on {failures:.0f} held-out failure"),
         alternative="the result may not survive on failures not represented here",
         confidence="low",
     )
@@ -1509,9 +1507,7 @@ def _decomposition_assets(config: PaperAssetConfig, tables: Path, latex: Path) -
     printed = frame.drop(columns=["Obs.", "Dupl."])
     # "failure" is already in the column header, and repeating it wrapped every cell
     # onto three lines.
-    printed["Failure layer"] = printed["Failure layer"].str.replace(
-        " failure", "", regex=False
-    )
+    printed["Failure layer"] = printed["Failure layer"].str.replace(" failure", "", regex=False)
     _write_latex_table(
         printed,
         tex_path,
@@ -2391,9 +2387,9 @@ def _two_scale_timeline_figure(
     # --- Global scale -------------------------------------------------------
     days = pd.to_numeric(overview["bin_start_day"], errors="coerce").to_numpy(dtype=float)
     episodes = pd.to_numeric(overview["alarm_episodes"], errors="coerce").to_numpy(dtype=float)
-    exposure = pd.to_numeric(
-        overview["time_under_warning_samples"], errors="coerce"
-    ).to_numpy(dtype=float)
+    exposure = pd.to_numeric(overview["time_under_warning_samples"], errors="coerce").to_numpy(
+        dtype=float
+    )
     bin_width = float(np.median(np.diff(days))) if days.size > 1 else 1.0
 
     axes[0].bar(days, episodes, width=bin_width * 0.9, color="#0072B2", align="edge")
@@ -2635,9 +2631,7 @@ _ROMAN_DIGITS = {
 def _timeline_caption_macro(dataset_id: str) -> str:
     """Return a TeX-legal control sequence name for one dataset's caption."""
     letters = "".join(
-        _ROMAN_DIGITS.get(character, character)
-        for character in dataset_id
-        if character.isalnum()
+        _ROMAN_DIGITS.get(character, character) for character in dataset_id if character.isalnum()
     )
     return f"\\timelinecaption{letters}"
 
@@ -2824,9 +2818,7 @@ def _best_full_family_baseline(baselines: pd.DataFrame, dataset_id: str) -> str 
 
 def _method_root_cause_rows(config: PaperAssetConfig) -> list[dict[str, object]]:
     """Method-specific root-cause rows for the compressor datasets."""
-    decomposition_path = (
-        config.real_data_matrix_root / "score_threshold_alarm_decomposition.csv"
-    )
+    decomposition_path = config.real_data_matrix_root / "score_threshold_alarm_decomposition.csv"
     baseline_path = config.real_data_matrix_root / "event_baseline_comparison.csv"
     if not decomposition_path.exists() or not baseline_path.exists():
         return []
@@ -2843,8 +2835,7 @@ def _method_root_cause_rows(config: PaperAssetConfig) -> list[dict[str, object]]
             wanted.append(best)
         for method in wanted:
             entry = decomposition[
-                (decomposition["dataset_id"] == dataset_id)
-                & (decomposition["method"] == method)
+                (decomposition["dataset_id"] == dataset_id) & (decomposition["method"] == method)
             ]
             if entry.empty:
                 continue
@@ -2903,9 +2894,7 @@ def _non_event_root_cause_rows(
         "scania_component_x": (
             "vehicle-level repair risk is not a compressor failure-episode onset"
         ),
-        "hydraulic_systems": (
-            "laboratory cycle states are not field failure-event onsets"
-        ),
+        "hydraulic_systems": ("laboratory cycle states are not field failure-event onsets"),
         "secom": "wafer yield labels are quality outcomes, not maintenance repair events",
     }
     rows: list[dict[str, object]] = []
@@ -2918,9 +2907,7 @@ def _non_event_root_cause_rows(
                 "Dataset": _dataset_label(dataset_id),
                 "Method": "high-quantile diagnostic",
                 "Primary failure layer": "estimand mismatch",
-                "Supporting evidence": (
-                    f"{explanations[dataset_id]}; {_root_cause_evidence(row)}"
-                ),
+                "Supporting evidence": (f"{explanations[dataset_id]}; {_root_cause_evidence(row)}"),
                 "Alternative not excluded": (
                     "a redesigned target and evaluation on these units might succeed; "
                     "this is not evidence that the method fails on them"

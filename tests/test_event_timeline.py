@@ -219,9 +219,7 @@ def test_real_timeline_reconciles_with_the_event_table() -> None:
             local_trace=local[local["dataset_id"] == dataset_id],
             metadata=dict(row),
             event_table_alarm_count=int(table_row["predicted_alarm_events"].iloc[0]),
-            event_table_false_alarms_per_day=float(
-                table_row["false_alarm_events_per_day"].iloc[0]
-            ),
+            event_table_false_alarms_per_day=float(table_row["false_alarm_events_per_day"].iloc[0]),
         )
         assert problems == [], f"{dataset_id}: {problems}"
 
@@ -248,18 +246,15 @@ def test_each_method_overview_matches_its_event_table_row() -> None:
     """Every supplementary strip's episode total must equal the table's alarm count."""
     overview = pd.read_csv(ARTIFACTS / "event_timeline_overview.csv")
     baselines = pd.read_csv(ARTIFACTS / "event_baseline_comparison.csv")
-    merged = (
-        overview.groupby(["dataset_id", "method"])["alarm_episodes"].sum().reset_index()
-    )
+    merged = overview.groupby(["dataset_id", "method"])["alarm_episodes"].sum().reset_index()
     for _index, row in merged.iterrows():
         table_row = baselines[
-            (baselines["dataset_id"] == row["dataset_id"])
-            & (baselines["method"] == row["method"])
+            (baselines["dataset_id"] == row["dataset_id"]) & (baselines["method"] == row["method"])
         ]
         assert not table_row.empty
-        assert int(row["alarm_episodes"]) == int(table_row["predicted_alarm_events"].iloc[0]), (
-            f"{row['dataset_id']}/{row['method']} timeline and table disagree"
-        )
+        assert int(row["alarm_episodes"]) == int(
+            table_row["predicted_alarm_events"].iloc[0]
+        ), f"{row['dataset_id']}/{row['method']} timeline and table disagree"
 
 
 @pytest.mark.skipif(
