@@ -3,16 +3,38 @@
 
 \subsection{Simulation validity and estimator stability}
 
-The first research question asks whether the extremal-index diagnostics are stable enough to interpret. The high-replication simulation artifact now covers fourteen process families with 500 replications per configured cell, and a focused coverage artifact uses 1000 replications on a preregistered subset. The retained estimators are runs, Ferro--Segers intervals, K-gaps, reciprocal mean cluster size, block-based clustering, and a no-declustering reference. Figure~\ref{fig:simulation-rmse} reports finite-sample RMSE by threshold quantile and simulation family. The result is useful for finding unstable threshold regions, but it is still interpreted as bounded finite-sample validation rather than a universal theorem about industrial fault mechanisms.
+The first research question asks whether the extremal-index diagnostics are stable enough to interpret. The high-replication simulation artifact covers fourteen process families with 500 replications per configured cell, and a focused coverage artifact uses 1000 replications on a preregistered subset. The six estimators of Section~\ref{sec:simulation} are compared against theoretical references where a closed form exists and numerical references otherwise, with unestablished configurations excluded from every performance quantity. Table~\ref{tab:estimator-main-summary} reports one representative process per clustering regime; the full grid and the reference-availability audit are in the supplement.
+
+The central result is that the estimator ranking \emph{inverts} between regimes. For the independent process, where \(\theta = 1\), runs and K-gaps record interval coverage of \(0.40\) and \(0.39\) against a nominal \(0.95\), with biases of \(-0.133\) and \(-0.117\). For the periodic target, where \(\theta = 1/2\), the same two estimators are the least biased of the six, at \(-0.010\) and \(+0.003\), with coverage of \(0.844\) and \(0.850\). A reader who saw only the near-independent rows would conclude against precisely the estimators that work once extremes actually cluster.
+
+The apparent superiority of Ferro--Segers and disjoint blocks at \(\theta = 1\) requires care. Both attain coverage of \(1.000\) there, but with boundary-clipping probabilities between \(0.50\) and \(0.70\): their intervals contain the truth largely because the estimate saturates at the admissible boundary \(\theta = 1\), not because they are calibrated. Figure~\ref{fig:estimator-failure} reports the clipping share beside the non-estimability share for this reason, and coverage at \(\theta = 1\) should not be read without it. The undercoverage of runs and K-gaps has the same origin: at the boundary the estimate can only err downwards, so a symmetric percentile interval misses systematically. Coverage comparisons at \(\theta = 1\) are structurally distorted for every estimator, which is a further reason to treat the near-independent grid as bounded evidence.
+
+The no-declustering control behaves exactly as intended, with zero bias at \(\theta = 1\) and bias \(+0.500\) and \(+0.728\) in the two clustered rows, confirming that the comparison is measuring extremal clustering rather than an artifact of the harness.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.78\linewidth]{../reports/paper/figures/simulation_bias_rmse.png}
-  \caption{Broad finite-sample simulation recovery summary. The plotted quantity is runs-estimator RMSE by threshold quantile and simulation family across the generated Monte Carlo grid.}
+  \includegraphics[width=\linewidth]{../reports/paper/figures/estimator_rmse_by_sample_size.png}
+  \caption{Finite-sample RMSE of the extremal-index estimate by series length, faceted by clustering regime. Error bars are \(1.96\) bootstrap standard errors. Panels use independent vertical scales because the no-declustering control has RMSE \(|1 - \theta|\) by construction. Reference values are \(\theta = 1\) (theoretical) for the near-independent panel, \(\theta = 1/2\) (theoretical) for the moderately clustered panel, and numerically established values below \(0.3\) for the strongly clustered panel.}
   \label{fig:simulation-rmse}
 \end{figure}
 
-Threshold and run-length sensitivity in Figure~\ref{fig:threshold-stability} and Table~\ref{tab:threshold-stability-summary} show that clustering conclusions depend on \(q\) and \(m\). That supports a negative-result interpretation: regime-conditioned dynamical-EVT diagnostics are sensitive design objects, not model-free evidence of impending failure.
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{../reports/paper/figures/estimator_coverage_by_family.png}
+  \caption{Empirical coverage of the bootstrap interval by process family against the nominal \(0.95\) level, with \(1.96\) binomial standard errors. Families whose reference extremal index could not be established are omitted, since coverage is undefined without a reference.}
+  \label{fig:estimator-coverage}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{../reports/paper/figures/estimator_failure_by_threshold.png}
+  \caption{Non-estimability and boundary clipping against threshold quantile. No estimator failed to return a value at any threshold; the informative panel is the clipped share, which explains the coverage of the block-based estimators near \(\theta = 1\).}
+  \label{fig:estimator-failure}
+\end{figure}
+
+\input{../reports/paper/latex/estimator_main_summary.tex}
+
+Threshold and run-length sensitivity in Figure~\ref{fig:threshold-stability} shows that clustering conclusions depend on \(q\) and \(m\); the tabulated grid is Supplementary Table~\ref{X-tab:threshold-stability}. That supports a negative-result interpretation: regime-conditioned dynamical-EVT diagnostics are sensitive design objects, not model-free evidence of impending failure.
 
 \begin{figure}[t]
   \centering
@@ -21,62 +43,149 @@ Threshold and run-length sensitivity in Figure~\ref{fig:threshold-stability} and
   \label{fig:threshold-stability}
 \end{figure}
 
-\input{../reports/paper/latex/threshold_stability_summary.tex}
-
 \subsection{Alarm conversion and failed-detection regions}
 
-The second research question asks whether declustering and alarm merging reduce duplicate alarms while preserving event recall. In the registered threshold grid, event recall was zero at all reported quantiles, with false-alarm burdens between 133.92 and 168.48 alarm episodes per operating day. This is a failed-detection region under the current observable, threshold grid, and matching rule; it shows that alarm conversion can destroy utility. The full threshold grid is reported in the supplement rather than as a main-text figure because a zero-recall line plot would add no scientific information.
+The second research question asks whether declustering and alarm merging reduce duplicate alarms while preserving event recall. In the registered threshold grid, event recall was zero at all reported quantiles, with false-alarm burdens between 133.92 and 168.48 alarm episodes per operating day. This is a failed-detection region under the current observable, threshold grid, and matching rule; it shows that alarm conversion can destroy utility. Across all registered combinations of alarm merge gap and post-onset matching tolerance, event recall, precision, and \(F_1\) remained zero, and relaxing post-onset tolerance did not alter the result. Both grids are reported in the supplement rather than as main-text figures, because a zero-recall surface adds no scientific information beyond the statement that it is zero.
 
-Across all registered combinations of alarm merge gap and post-onset matching tolerance, event recall, precision, and \(F_1\) remained zero. Relaxing post-onset tolerance did not alter the result, so the full grid is reported in the supplement rather than as a main-text sensitivity figure.
+\subsection{Complete held-out event-level benchmark}
+\label{sec:event-benchmark}
 
-\input{../reports/paper/latex/matching_tolerance_summary.tex}
+Nineteen methods were run on both compressor datasets under one shared alarm policy: identical warning horizon, matching tolerance, matching rule, operating exposure and independent unit, verified by the fairness audit in Supplementary Table~\ref{X-tab:supp-event-fairness}. Alarm merging is treated as part of the detector rather than the protocol, since four methods exist precisely to vary declustering; the audit reports which event conversions were used instead of requiring one. Supplementary Table~\ref{X-tab:supp-event-benchmark} reports the complete held-out event-level benchmark under the shared alarm policy, and Supplementary Table~\ref{X-tab:supp-event-provenance} records each method's score, threshold rule, event policy, merge gap, parameter count, calibration status and tuning partition.
 
-\subsection{Held-out event-level method comparison}
+\input{../reports/paper/latex/event_benchmark_compact.tex}
 
-The third and fourth research questions ask whether the registered robust extreme-score diagnostic adds operational value after episode conversion, and why empirical failures occur. Table~\ref{tab:event-level-results} gives the held-out event-level rows for MetroPT and MetroPT2. Each dataset contains one labelled test event in the registered split. Both events are detected by the registered score, but the detection is operationally weak: MetroPT produces 2527 predicted alarm episodes with precision \(0.00040\), and MetroPT2 produces 849 predicted alarm episodes with precision \(0.00118\). The median lead times, 3346 and 3469 samples respectively, are not persuasive by themselves because they are paired with extreme false-alarm burdens.
+Five conclusions follow, and none of them is favourable to the registered method.
 
-Table~\ref{tab:event-baseline-comparison} compares the registered score with a compact event-level baseline set under the same held-out event policy. The table keeps the best simple rule class, a classical EVT baseline, an anomaly baseline, the registered recurrence score, and the two target-region methods. The full baseline family remains in the generated CSV artifact.
+\emph{No method is operationally plausible on either dataset.} Every method that detects the held-out failure does so with event precision below \(0.7\%\), and most below \(0.05\%\). The best event utility achieved by any detecting method is negative on both datasets. A maintenance function receiving these alarms would be responding overwhelmingly to false positives.
 
-\input{../reports/paper/latex/industrial_event_level_results.tex}
-\input{../reports/paper/latex/event_baseline_comparison.tex}
+\emph{The best simple baseline wins on both datasets.} On MetroPT the best simple policy is the single-sensor threshold, at 90.9 false alarms per operating day against the registered score's 105.3; the fixed engineering threshold reaches a lower false-alarm rate of 62.0 but is flagged as effectively always on, holding the system under warning for \(75.1\%\) of the test period, so it is excluded from selection. On MetroPT2 the single-sensor threshold is best again and by a wide margin, at 21.2 false alarms per day against 51.5 for the registered score, with more than double its event precision.
 
-\subsection{Target-region heterogeneity across MetroPT and MetroPT2}
+\emph{Classical EVT and anomaly baselines do not change the picture.} The generalised Pareto return level, the three declustering policies, SPOT, the isolation forest, the change-point detector, both autoencoders and the conformal detector all sit within the same precision decade as the registered score. Making the tail model or the declustering rule more sophisticated does not recover operational value that the alarm conversion has already destroyed.
 
-The strongest empirical divergence is the failure-prototype target region. It materially reduces alarm burden in MetroPT2 but fails to detect the held-out MetroPT event. Table~\ref{tab:target-region-transferability} reports the within-dataset and cross-dataset target-region comparison for failure-prototype and rare-state regions. This instability means the two compressor datasets cannot be treated as equivalent evidence for one transferable recurrence region.
+\emph{The registered recurrence score adds no measurable event-level value.} It is beaten by a simple single-sensor threshold on both datasets, on precision, on false alarms per day and on event utility. Its distinguishing feature is not accuracy but exposure: at \(0.12\%\) and \(0.06\%\) of the test period under warning it is far less intrusive than the engineering threshold, which is a real property but not the early-warning claim the method was proposed to support.
+
+\emph{The one exception is the failure-prototype region on MetroPT2.} There it attains the best precision of any method, \(0.0064\), at 9.4 false alarms per day and the best utility, \(-30.1\). Under this seven-feature construction the same region raises no alarms at all on MetroPT and misses the failure entirely. Section~\ref{sec:transfer} shows that the MetroPT non-detection is a property of the feature set rather than of the method, and that the region does transfer in one direction.
+
+Alarm burden must be read on two axes that can disagree. Episode counts measure how often an operator is interrupted; time under warning measures how long the system is held in an alarmed state. On MetroPT the engineering threshold raises fewer episodes than the registered score (1551 against 2631) while holding the system under warning for 75.1\% of the test period against the registered score's 0.12\%. A detector that merges its exceedances into few long alarms therefore looks better on episode counts and far worse on exposure. Because episode-level precision and recall are computed after merging, a permanently-on detector attains a recall and precision of one with no unmatched episodes to count as false alarms; exposure is the only reported quantity that exposes it. Every alarm-burden comparison in this paper is therefore reported with both axes, and the supplementary benchmark flags any method whose warning exposure exceeds half the test period.
+
+\subsection{Cross-dataset target-region transfer}
+\label{sec:transfer}
+
+Transfer is tested by fitting a target region on one compressor dataset and applying it to the other, not by comparing the two datasets' own metrics. Four protocols are separated: \emph{direct}, with scaling, prototypes, threshold and distance metric all frozen from the source; \emph{threshold recalibration} on the destination validation split; \emph{scaling recalibration} on the destination training split with the source prototypes retained; and a \emph{destination refit}, which is the within-dataset reference that degradation is measured against. Table~\ref{tab:target-region-transferability} reports all four in both directions.
+
+Compatibility is checked before any region crosses. The two datasets share an identical schema and a compatible sampling cadence, 1.000 against 0.991 seconds, and five of the seven candidate features are admissible. Two are not: \texttt{reservoir\_pressure} and \texttt{flowmeter} have effectively zero overlap between the datasets, with standardised median shifts of 122 and 503 interquartile ranges. Those two channels occupy disjoint ranges across the datasets and are excluded rather than silently mapped, so the transfer runs on the five compatible features.
+
+Transfer is strongly asymmetric. Applying the MetroPT region directly to MetroPT2 reaches event precision \(0.0057\) at 10.5 false alarms per operating day, which is better than a region fitted on MetroPT2 itself (\(0.0022\) at 27.0); the degradation against the within-dataset refit is negative. The reverse direction fails: the MetroPT2 region applied directly to MetroPT occupies \(50.3\%\) of the test period at precision \(0.00033\), an alarm that is on more often than off. Recalibration does not act uniformly. It rescues the failing direction, lifting MetroPT2 to MetroPT from \(0.00033\) to \(0.00108\), and it degrades the working one, dropping MetroPT to MetroPT2 from \(0.0057\) to \(0.0012\).
+
+Figure~\ref{fig:transfer-distances} shows why the two directions differ. In the working direction the destination's failure states lie closer to the transferred prototypes than its normal operation, which is the ordering a usable region requires. In the failing direction that ordering inverts: MetroPT's normal operation sits closer to the MetroPT2 prototypes than MetroPT's own failure does, so the frozen threshold admits ordinary operation first and the region is occupied half the time. The failure is therefore not a matter of threshold placement, and no recalibration of the threshold alone can repair it.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{../reports/paper/figures/transfer_distance_distributions.png}
+  \caption{Distance to the nearest transferred failure prototype, for the source's training rows, the destination's normal operation, and the destination's failure states, against the frozen threshold. The horizontal axis is truncated at six times the threshold because the distance distribution is heavy-tailed; the share of each population beyond the axis is annotated. A transferable region requires destination failure states to sit closer than destination normal operation, which holds in the left panel and is inverted in the right.}
+  \label{fig:transfer-distances}
+\end{figure}
+
+The feature restriction also explains the MetroPT non-detection reported above. Holding the threshold rule fixed and varying only the feature set, the five compatible features detect the held-out MetroPT failure with 815 alarm episodes and recall \(1.0\), while all seven produce zero alarms and zero region occupancy. The seven-feature run reproduces the benchmark exactly, so the two constructions agree and the difference is attributable to the feature set alone. Including the two channels with no cross-dataset distributional support suppresses detection entirely on MetroPT.
+
+The consequence for the paper's central heterogeneity claim is a narrowing rather than a reversal. A recurrence region does carry information across these two compressors in one direction, and better than refitting locally. But the direction matters, recalibration can hurt as easily as help, and part of what previously looked like dataset heterogeneity was a feature-selection artifact. The two datasets still cannot be pooled as equivalent evidence, and one directional success across two failures is not a transferability result.
 
 \input{../reports/paper/latex/target_region_transferability.tex}
 
 \subsection{Matched negative controls}
 
-Table~\ref{tab:matched-negative-controls} compares the observed failure-prototype alarm burden with 500 deterministic matched-control draws for each control family and dataset. These controls preserve occupancy, exposure length, temporal shifting, rare-region structure, or block structure while breaking the specific relationship to the held-out failure. The comparison is descriptive because only two independent held-out compressor failures are available.
+Table~\ref{X-tab:matched-negative-controls} compares the observed failure-prototype alarm burden with 500 deterministic matched-control draws for each control family and dataset. These controls preserve occupancy, exposure length, temporal shifting, rare-region structure, or block structure while breaking the specific relationship to the held-out failure. The comparison is descriptive because only two independent held-out compressor failures are available.
 
-\input{../reports/paper/latex/matched_negative_controls.tex}
+Burden alone is not a sufficient basis for that comparison. A region that raises no alarms attains a false-alarm rate of zero while missing the failure, so comparing burden without conditioning on detection rewards a detector for not detecting. Table~\ref{tab:detection-aware-controls} therefore reports the control population's detection rate on every row and repeats the comparison restricted to controls that detect, that match the observed recall, and that match the observed occupancy. Utility is the predeclared joint utility defined in Section~\ref{sec:event-benchmark}: detection dominates, false alarms are charged per operating day, warning exposure is charged separately, and a capped early-warning reward is paid only when the failure was detected. Component metrics remain reported separately in Table~\ref{X-tab:matched-negative-controls}.
 
-\subsection{Score-threshold-alarm decomposition}
-
-Figure~\ref{fig:metric-collapse} replaces the previous incomparable metric plot. It follows count-valued evidence through the score, threshold, alarm, and target-event layers. The dominant failure layer is not identical across methods: some scores never isolate the event, some thresholds create too many exceedances, and some alarm policies collapse precision after clustering and merging.
+\input{../reports/paper/latex/detection_aware_controls.tex}
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.76\linewidth]{../reports/paper/figures/metric_collapse_decomposition.png}
-  \caption{Score-threshold-alarm decomposition for real held-out event methods. The panels show count-valued transitions rather than mixing event precision with false alarms per day on one axis.}
+  \includegraphics[width=\linewidth]{../reports/paper/figures/detection_aware_controls.png}
+  \caption{Matched-control distributions with the observed failure-prototype region marked. The utility panel overlays the subset of controls that detect the failure, because the comparison that matters is against those; the burden and lead-time panels are restricted to detecting draws for the same reason. On MetroPT no control draw detects, so those panels are empty by construction.}
+  \label{fig:detection-aware-controls}
+\end{figure}
+
+The conditioning changes both results. On MetroPT the observed region missed the failure, and so did all 3000 draws across the six control families: the detection rate is zero throughout and no draw satisfies the detecting condition. Its zero alarm burden is therefore matched by every control and accompanied by no detection, which is not evidence of a favourable region.
+
+On MetroPT2 the effect is uniform in direction but not in size. Restricting to controls that also detect lowers the observed percentile in every family, and in two of the six it moves the observed region below the control median: from \(0.654\) to \(0.279\) against occupancy-matched random regions, and from \(0.656\) to \(0.265\) against prototype-source permutations. Against phase-randomised scores and regime-matched rare regions the observed region still exceeds every detecting draw. The families that reverse are those whose draws preserve the region's own structure while breaking its relation to the failure, which is the comparison most informative about whether the learned region is failure-proximal; the families it still beats are those whose detection rate is near unity, where detecting the failure carries little information. Detection is not a discriminating achievement on this dataset: \(92\%\) of regime-matched rare regions and all phase-randomised scores detect the same failure.
+
+The sensitivity sweep varies each declared weight by factors from \(0.25\) to \(4\). Pooled across families the observed percentile among detecting draws moves between \(0.68\) and \(0.83\), so the overall standing is not an artifact of the chosen weighting; nor, for the two reversing families, is the reversal.
+
+
+\subsection{Score-threshold-cluster-alarm decomposition}
+
+Table~\ref{X-tab:score-alarm-decomposition} follows every method's evidence through the stages that separate a score from a matched alarm: test observations, threshold exceedances, extreme clusters, alarm episodes after merging, and alarm episodes that match a labelled failure. Two properties of the table govern how it should be read. The first is that the columns are not comparable across stages: observations and exceedances count samples, clusters count extreme clusters, and the remaining columns count alarm episodes, so the decline along a row is a change of unit as much as a reduction in number. The second is that the labelled failures are ground truth, not a stage the detector passes through. They enter only at the matching step, which is why they are reported separately rather than as the terminus of the flow.
+
+Figure~\ref{fig:metric-collapse} draws that structure for four representative rows: the detector track as connected circles, the labelled failures as a separate square joined to the matched-alarm stage by the matching step alone.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.98\linewidth]{../reports/paper/figures/metric_collapse_decomposition.png}
+  \caption{Score-threshold-cluster-alarm decomposition for four representative held-out event methods. Circles are the detector evidence track and the square is the labelled ground truth, which is connected to the detector only at the matching step. Each stage carries its own unit, so the counts are not comparable along a panel.}
   \label{fig:metric-collapse}
 \end{figure}
 
+The decomposition shows that the failure layer is method-specific rather than a single property of the datasets. Table~\ref{tab:root-cause} classifies each dataset-method pair by the earliest stage at which its evidence broke down, with the evidence, the competing explanation the evidence does not exclude, and a confidence level.
+
+Three rows never produce an exceedance at all. The failure-prototype region on MetroPT and the empirical horizon risk on both datasets return zero exceedances, zero clusters, and zero episodes: no evidence survives the score and threshold layers, so no alarm policy could have recovered the failure. This is the layer at which the MetroPT non-detection reported above actually occurs.
+
+Zero exceedances is consistent with two different faults, and the counts alone cannot separate them. Either the score does not rank failure-proximal states above normal ones, or it does and the threshold discarded that ranking. We separate them with the warning-window rank separation: the probability that a sample drawn from the declared horizon before onset outranks a sample drawn from the rest of the split, where 0.5 is chance. The distinction matters because the repairs differ: a score failure needs a different observable, a threshold failure needs recalibration on a score that already carries the signal.
+
+Applied to every row, the separation reveals a difference between the two datasets that the event-level metrics conceal. On MetroPT the registered recurrence score has a warning-window rank separation of \(0.45\): the score ranks samples in the hour before onset \emph{below} the rest of the test split. Sixteen of the nineteen MetroPT methods fall below the \(0.55\) floor, including the engineering threshold, the classical peaks-over-threshold fit, Isolation Forest and the rare-state region, most clustered near \(0.45\). On MetroPT2 the same registered score reaches \(0.86\), and every threshold-family method on that dataset lies between \(0.86\) and \(0.93\).
+
+This changes how the MetroPT recall of \(1.0\) should be read. That method raises 2{,}631 alarm episodes over 24.9 operating days against a matching window of one hour before onset plus the five-minute tolerance. Under a Poisson model with its own episode rate, a detector alarming that often matches the failure with probability \(0.99\) while carrying no information whatsoever. The corresponding figure on MetroPT2 is \(0.90\). A recall of one is therefore not evidence of early warning on either dataset, and on MetroPT the separation confirms that the score has none to give: the match is what an equally busy random detector produces.
+
+We record this as a score failure rather than an alarm-burden failure, because it is the earliest stage that broke and it implies a different repair. No threshold and no alarm policy can recover ordering information a score does not carry, so the response is a different observable, not a recalibration. Nineteen of the 38 rows fall in this class, sixteen of them with separation below chance and therefore at high confidence.
+
+The remaining rows separate by dataset. Two produce no exceedance despite adequate separation and are threshold failures: the failure-prototype region on MetroPT, whose threshold sits well above the score's own 95th percentile, and the empirical horizon risk on MetroPT2, which separates at \(0.87\) and admits nothing. The same empirical horizon risk on MetroPT also produces no exceedance, but separates at \(0.44\), so there is no ranking for a threshold to have discarded and it is recorded as a score failure; the two datasets place the same method at different layers. One row is an event-matching failure: the SPOT-style baseline on MetroPT raises 29 episodes with separation \(0.81\) and matches none of them, so its score ranks the window correctly but its alarms fall elsewhere. The other sixteen, almost all on MetroPT2, separate well and fail on burden, and it is only these that the alarm-conversion discussion applies to.
+
+Among those sixteen, the registered score reaches the failure with 27{,}018 exceedances condensing to 1{,}302 clusters and 852 episodes on MetroPT2, one matching and 848 false. Declustering changes where the reduction happens without changing the outcome: the fixed-run, Ferro--Segers, and K-gaps policies share the same exceedances and clusters and differ only in the merge. The failure-prototype region on MetroPT2 is the clearest case of the burden asymmetry discussed above: 157 episodes, the fewest of any detecting method on that dataset, but 242{,}258 samples under warning, behind only the engineering threshold and the linear autoencoder. Ranking the same method by episodes and by exposure therefore places it at opposite ends of the table.
+
+The negative-control region is the check on this procedure. It has separation \(0.47\) on MetroPT and \(0.13\) on MetroPT2, is classified as a score failure on both, and matches nothing; a control constructed to carry no failure information is scored as carrying none.
+
+
+\subsection{Method-specific failure layers}
+\label{sec:root-cause}
+
+Table~\ref{tab:root-cause} states the failure layer for each dataset and method, together with the evidence, the competing explanation that evidence does not exclude, and a confidence level. It covers the registered recurrence score, the engineering threshold, the classical peaks-over-threshold fit, Isolation Forest, both target regions, and the best-performing baseline outside those families, selected on event utility from the benchmark rather than named in advance.
+
+Two properties of this table are the point of it. The first is that a dataset does not have a failure layer; a dataset-method pair does. On MetroPT the failure-prototype region and the registered recurrence score fail at opposite ends of the pipeline, the first before any alarm exists and the second only after alarm conversion, and a single explanation attached to MetroPT would be wrong for one of them. The second is that confidence varies with what the evidence can support. A zero-exceedance verdict is structural and rests on nothing but counts; a burden verdict is medium confidence because a different threshold or alarm policy is not excluded; and a method that matches with acceptable precision is recorded as insufficient independent evidence at low confidence, because one held-out failure cannot distinguish a working detector from a fortunate one.
+
+The competing-explanation column is deliberately populated for every row. None of these verdicts is a causal proof, and for the non-event datasets the entry states explicitly that an estimand mismatch is not evidence that the method fails on those units.
+
+\input{../reports/paper/latex/root_cause_summary.tex}
+
 \subsection{Timeline reconciliation}
 
-The event timeline in Figure~\ref{fig:timeline} is generated from the MetroPT held-out test failure. It is a local explanation of one failure window, not a substitute for global false-alarm burden. The global alarm counts remain those in the event-level tables.
+Figures~\ref{fig:timeline-metropt} and~\ref{fig:timeline-metropt2} show each held-out failure at two scales. The upper panels cover the full test split, so every alarm episode the method raised is visible at once; the lower panels expand the failure window itself. Both scales are drawn from the same per-sample alarm series, and the shaded band in the upper panels marks the window the lower panels expand.
 
-\begin{figure}[t]
+The two scales are shown together because either alone misleads. The local window around the MetroPT failure contains 23 alarm episodes, one of which matches the failure with a lead time of 0.93 hours. Read on its own that window describes a usable detector. Over the full test split the same configuration raises 2{,}631 episodes across 24.9 operating days, of which 2{,}627 are false, which is 105.3 false alarms per operating day. MetroPT2 behaves the same way: 19 episodes in the plotted window against 852 over 16.5 days, 848 of them false, at 51.5 false alarms per operating day. The local view is a correct picture of the moment of detection and a misleading picture of the method.
+
+The local windows also show that proximity is not usefulness. Of the 23 MetroPT episodes inside the plotted window, 19 fall outside the warning horizon and count as false alarms, and only one is the matched alarm; the remaining three are duplicates inside the same window. An alarm raised during the failure interval is not an early warning, so the matching window is the declared horizon before onset rather than the interval itself.
+
+The counts in both figures are reconciled against the event-level tables rather than recomputed for the figure: the binned episode counts sum to the global total, the local window is a strict subset of the global series, the plotted threshold is the frozen test threshold, and the false-alarm rate matches the rate in Table~\ref{tab:event-benchmark-compact}. These checks are enforced in the test suite, so a figure that drifts from the tables fails the build rather than reaching a reader.
+
+\input{../reports/paper/latex/timeline_caption_metropt.tex}
+\input{../reports/paper/latex/timeline_caption_metropt2.tex}
+
+\begin{figure}[p]
   \centering
-  \includegraphics[width=0.95\linewidth]{../reports/paper/figures/real_event_timeline.png}
-  \caption{Traceable MetroPT held-out failure timeline. The x-axis is elapsed hours from the registered test failure onset; the panels show the fitted score threshold, alarm flags after thresholding, and labelled failure interval.}
-  \label{fig:timeline}
+  \includegraphics[width=0.96\linewidth]{../reports/paper/figures/timeline_metropt.png}
+  \caption{\timelinecaptionmetropt}
+  \label{fig:timeline-metropt}
 \end{figure}
 
-\subsection{Supplementary non-event stress tests}
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.96\linewidth]{../reports/paper/figures/timeline_metropt2.png}
+  \caption{\timelinecaptionmetroptII}
+  \label{fig:timeline-metropt2}
+\end{figure}
 
-Hydraulic Systems, SCANIA Component X, and SECOM are reported separately in Table~\ref{tab:non-event-results} because their independent units are cycles, vehicles, and wafers rather than compressor failure episodes. All three have \(F_1=0\) under the conservative high-quantile diagnostic. These are not hidden failures. They are evidence that a simple extreme-score adapter does not transfer across laboratory cycle states, vehicle-level repair risk, and wafer-level yield labels without changing the estimand and evaluation design. Table~\ref{tab:root-cause} summarizes the most plausible explanations under the current evidence.
+\subsection{External estimands}
 
-\input{../reports/paper/latex/industrial_non_event_results.tex}
-\input{../reports/paper/latex/root_cause_summary.tex}
+SCANIA Component X supports a limitation the compressor datasets cannot express. Its independent unit is a vehicle and its label is a component repair, so the quantity a detector would estimate there is fleet-level repair risk rather than the onset of one machine's failure episode. Under the conservative high-quantile diagnostic it attains \(F_1 = 0\), and that number is uninformative about the method: no alarm policy on vehicle-level repair risk answers the question the held-out compressor events answer. Table~\ref{tab:root-cause} therefore records an estimand mismatch, with the competing explanation stating that this is not evidence the method fails on those units.
+
+Hydraulic Systems and SECOM carry the same mismatch for laboratory cycle states and wafer yield labels respectively. All three are reported in Supplementary Section~\ref{X-supp:realdata} rather than the main text, because a stress test whose estimand differs from the primary one cannot strengthen or weaken the primary claim.

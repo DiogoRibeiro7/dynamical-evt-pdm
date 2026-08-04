@@ -6,7 +6,7 @@ import hashlib
 import json
 import subprocess
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -53,6 +53,13 @@ class PaperAssetConfig:
     )
     simulation_config_path: Path = Path("configs/simulation/cyclic_degradation.yaml")
     simulation_study_path: Path = Path("artifacts/simulation_study_broad.parquet")
+    #: Grids pooled for the estimator study. Missing grids are skipped, so a smoke run
+    #: still produces assets from whatever evidence is present locally.
+    simulation_grid_paths: tuple[Path, ...] = (
+        Path("artifacts/simulation_study_broad.parquet"),
+        Path("artifacts/simulation_study_high_rep.parquet"),
+        Path("artifacts/simulation_study_focused_coverage.parquet"),
+    )
     protocol_config_path: Path = Path("configs/evaluation/base.yaml")
     experiment_manifest_path: Path = Path("artifacts/experiment_matrix/experiment_manifest.json")
     real_data_matrix_root: Path = Path("artifacts/real_data_matrix")
@@ -165,6 +172,16 @@ def build_paper_assets(config: PaperAssetConfig) -> PaperAssetManifest:
     generated += _timed_asset(
         "simulation_bias_rmse",
         lambda: _simulation_bias_assets(config, figures, tables),
+        benchmark_rows,
+    )
+    generated += _timed_asset(
+        "estimator_study",
+        lambda: _estimator_study_assets(config, output_root),
+        benchmark_rows,
+    )
+    generated += _timed_asset(
+        "event_benchmark",
+        lambda: _event_benchmark_assets(config, output_root),
         benchmark_rows,
     )
     generated += _timed_asset(
@@ -906,6 +923,153 @@ def _ablation_assets(
     return [csv_path, tex_path]
 
 
+#: Method whose rows the main event-level table reports.
+_REGISTERED_EVENT_METHOD = "dynamical_evt_robust_score"
+
+
+def _event_benchmark_assets(config: PaperAssetConfig, output_root: Path) -> list[Path]:
+    """Build the compact benchmark, both supplementary tables and the fairness audit."""
+
+    from dyn_evt_pdm.pipelines.event_benchmark_tables import write_benchmark_tables
+
+    path = config.real_data_matrix_root / "event_baseline_comparison.csv"
+    if not path.exists():
+        return []
+    frame = pd.read_csv(path)
+    if frame.empty:
+        return []
+    return write_benchmark_tables(frame, output_root)
+
+
+def _merge_registered_event_metrics(
+    config: PaperAssetConfig, summary: pd.DataFrame
+) -> pd.DataFrame:
+    """Overwrite the compressor summary metrics with the registered method's benchmark rows.
+
+    Anything downstream that describes the registered method must read the benchmark, not
+    the global-threshold summary path. Non-compressor rows are untouched, since the
+    benchmark only covers the event-level datasets.
+    """
+
+    benchmark_path = config.real_data_matrix_root / "event_baseline_comparison.csv"
+    if not benchmark_path.exists():
+        return summary
+    benchmark = pd.read_csv(benchmark_path)
+    registered = benchmark[benchmark["method"] == _REGISTERED_EVENT_METHOD]
+    if registered.empty:
+        return summary
+
+    updated = summary.copy()
+    for _index, row in registered.iterrows():
+        mask = updated["dataset_id"] == row["dataset_id"]
+        if not mask.any():
+            continue
+        updated.loc[mask, "predicted_events_or_units"] = row["predicted_alarm_events"]
+        updated.loc[mask, "precision"] = row["event_precision"]
+        updated.loc[mask, "recall"] = row["event_recall"]
+        updated.loc[mask, "f1"] = row["event_f1"]
+        updated.loc[mask, "false_alarm_events_per_day"] = row["false_alarm_events_per_day"]
+        updated.loc[mask, "median_warning_lead_time"] = row["median_warning_lead_time"]
+    return updated
+
+
+def _registered_event_level_frame(config: PaperAssetConfig, summary: pd.DataFrame) -> pd.DataFrame:
+    """Build the main event-level table from the benchmark, for the registered method.
+
+    This table previously came from ``industrial_results_summary.csv``, which evaluates a
+    plain robust score at a global empirical threshold and has never run the registered
+    method. While nine baselines were collapsed onto one computation the two agreed
+    numerically, so the discrepancy was invisible; separating the methods revealed that
+    the paper's principal event-level table reported the global empirical threshold while
+    the surrounding text attributed those numbers to the registered recurrence score.
+    Sourcing both from the benchmark removes the second code path.
+
+    Warning exposure is included because alarm burden is only interpretable when
+    interruption frequency and exposure are reported together.
+    """
+
+    benchmark_path = config.real_data_matrix_root / "event_baseline_comparison.csv"
+    datasets = ["metropt", "metropt2"]
+    if benchmark_path.exists():
+        benchmark = pd.read_csv(benchmark_path)
+        registered = benchmark[
+            (benchmark["method"] == _REGISTERED_EVENT_METHOD)
+            & (benchmark["dataset_id"].isin(datasets))
+        ].copy()
+        if not registered.empty:
+            registered = registered.sort_values("dataset_id")
+            exposure = (
+                registered["alarm_coverage_fraction"]
+                if "alarm_coverage_fraction" in registered.columns
+                else pd.Series([float("nan")] * len(registered), index=registered.index)
+            )
+            return pd.DataFrame(
+                {
+                    "Dataset": registered["dataset_id"].map(_dataset_label),
+                    "Failure": registered["dataset_id"].map(
+                        lambda value: f"{_dataset_label(value)} registered test failure"
+                    ),
+                    "Target": registered["target_events"].map(_format_count),
+                    "Alarms": registered["predicted_alarm_events"].map(_format_count),
+                    "Recall": registered["event_recall"].map(_format_metric),
+                    "Precision": registered["event_precision"].map(_format_metric),
+                    "FA/day": registered["false_alarm_events_per_day"].map(_format_metric),
+                    # The writer escapes LaTeX specials, so the percent sign is emitted
+                    # plain here; pre-escaping it produces a literal backslash.
+                    "Exposure %": exposure.map(
+                        lambda value: "" if pd.isna(value) else f"{float(value) * 100:.2f}"
+                    ),
+                    "Lead": registered["median_warning_lead_time"].map(_format_optional_int),
+                }
+            )
+
+    # Fallback keeps the build working where the benchmark artifact is absent, and says
+    # in the table which method it is actually reporting.
+    event_source = summary[summary["dataset_id"].isin(datasets)].copy()
+    return pd.DataFrame(
+        {
+            "Dataset": event_source["dataset_id"].map(_dataset_label),
+            "Failure": event_source["dataset_id"].map(
+                lambda value: f"{_dataset_label(value)} registered test failure"
+            ),
+            "Method": ["global empirical threshold"] * len(event_source),
+            "Target": event_source["target_events_or_units"].map(_format_count),
+            "Alarms": event_source["predicted_events_or_units"].map(_format_count),
+            "Recall": event_source["recall"].map(_format_metric),
+            "Precision": event_source["precision"].map(_format_metric),
+            "FA/day": event_source["false_alarm_events_per_day"].map(_format_metric),
+            "Lead": event_source["median_warning_lead_time"].map(_format_optional_int),
+        }
+    )
+
+
+def _estimator_study_assets(config: PaperAssetConfig, output_root: Path) -> list[Path]:
+    """Build the extremal-index estimator figures and tables from the available grids.
+
+    All present grids are pooled so the estimator comparison rests on every replicate
+    that exists locally, rather than on whichever grid happens to be regenerated last.
+    """
+
+    from dyn_evt_pdm.simulation.estimator_figures import build_estimator_figures
+    from dyn_evt_pdm.simulation.estimator_summary import summarise_estimator_performance
+    from dyn_evt_pdm.simulation.estimator_tables import build_estimator_tables
+
+    frames = [pd.read_parquet(path) for path in config.simulation_grid_paths if path.exists()]
+    if not frames:
+        return []
+    combined = pd.concat(frames, ignore_index=True)
+    if "reference_theta" not in combined.columns:
+        # Grids written before reference resolution existed carry no reference column;
+        # regenerating them is required before the estimator study can be reported.
+        return []
+
+    summary = summarise_estimator_performance(combined)
+    generated: list[Path] = []
+    generated.extend(build_estimator_figures(summary, output_root).as_tuple())
+    generated.extend(build_estimator_tables(summary, output_root).as_tuple())
+    return generated
+
+
 def _simulation_bias_assets(
     config: PaperAssetConfig,
     figures: Path,
@@ -956,6 +1120,10 @@ def _revision_summary_assets(
     generated += _event_baseline_comparison_assets(config, tables, latex)
     generated += _event_variant_comparison_assets(config, tables, latex)
     generated += _target_region_transferability_assets(config, tables, latex)
+    generated += _transfer_distance_figure(config, figures)
+    generated += _detection_aware_control_figure(config, figures)
+    generated += _detection_aware_control_table(config, tables, latex)
+    generated += _decomposition_assets(config, tables, latex)
     generated += _matched_negative_control_assets(config, tables, latex)
     generated += _metric_provenance_assets(config, figures, tables, latex)
     generated += _method_scope_assets(config, tables, latex)
@@ -1007,22 +1175,7 @@ def _industrial_compact_assets(
         return []
     source = pd.read_csv(path)
     generated: list[Path] = []
-    event_source = source[source["dataset_id"].isin(["metropt", "metropt2"])].copy()
-    event_frame = pd.DataFrame(
-        {
-            "Dataset": event_source["dataset_id"].map(_dataset_label),
-            "Failure": event_source["dataset_id"].map(
-                lambda value: f"{_dataset_label(value)} registered test failure"
-            ),
-            "Target": event_source["target_events_or_units"].map(_format_count),
-            "Alarms": event_source["predicted_events_or_units"].map(_format_count),
-            "Recall": event_source["recall"].map(_format_metric),
-            "Precision": event_source["precision"].map(_format_metric),
-            "FA/day": event_source["false_alarm_events_per_day"].map(_format_metric),
-            "Lead": event_source["median_warning_lead_time"].map(_format_optional_int),
-            "Limit": event_source["limitation"].map(_short_limitation),
-        }
-    )
+    event_frame = _registered_event_level_frame(config, source)
     event_csv = tables / "industrial_event_level_results.csv"
     event_tex = latex / "industrial_event_level_results.tex"
     event_frame.to_csv(event_csv, index=False)
@@ -1164,48 +1317,362 @@ def _metric_provenance_assets(
     return [csv_path, tex_path, figure_path]
 
 
+#: Rank separation below this is treated as a score that carries no warning signal.
+#: 0.5 is chance; the margin allows for the sampling noise of a single failure window.
+_SCORE_SEPARATION_FLOOR = 0.55
+
+#: Event precision below this makes a matched detection operationally unusable.
+_USABLE_PRECISION = 0.01
+
+
+@dataclass(frozen=True)
+class FailureVerdict:
+    """One method's failure layer, the evidence for it, and what it does not rule out."""
+
+    layer: str
+    evidence: str
+    alternative: str
+    confidence: str
+
+
+def classify_failure_layer(row: pd.Series) -> tuple[str, str]:
+    """Return the first stage at which this method's evidence broke down, and why.
+
+    Thin wrapper over :func:`classify_root_cause` kept for the decomposition table, which
+    prints only the layer name.
+    """
+    verdict = classify_root_cause(row)
+    return verdict.layer, verdict.evidence
+
+
+def classify_root_cause(row: pd.Series) -> FailureVerdict:
+    """Classify one dataset-method row into the earliest stage that failed.
+
+    The stages are checked in pipeline order, so the verdict names the earliest failure
+    rather than the last symptom. Each is a different repair: a score that does not
+    separate needs a different observable, a threshold that admits nothing needs
+    recalibration, alarms that never match need a different horizon, and a match buried
+    in false alarms needs a different alarm policy. A single dataset-level explanation
+    hides which one applies, and the layers differ by method on the same dataset.
+
+    Score and threshold failures are distinguished by rank separation rather than
+    assumed. Both produce zero exceedances, so the counts alone cannot tell a score that
+    carries no warning information from a threshold that discarded information the score
+    did carry.
+    """
+
+    exceedances = float(row.get("threshold_exceedances_samples", 0) or 0)
+    clusters = float(row.get("extreme_clusters_count", 0) or 0)
+    episodes = float(row.get("alarm_episodes_count", 0) or 0)
+    matched = float(row.get("matched_alarm_episodes_count", 0) or 0)
+    failures = float(row.get("labelled_failure_events_count", 0) or 0)
+    false_alarms = float(row.get("false_alarm_episodes_count", 0) or 0)
+    precision = float(row.get("event_precision", 0) or 0)
+    separation = float(row.get("score_separation_auc", float("nan")) or float("nan"))
+
+    if failures == 0:
+        return FailureVerdict(
+            layer="insufficient independent evidence",
+            evidence="no labelled failure in the evaluated split",
+            alternative="any layer; nothing is estimable without a labelled event",
+            confidence="high",
+        )
+
+    # Checked before the counts, because a score that does not rank the warning window
+    # above the rest of the split has already failed: no threshold or alarm policy can
+    # recover ordering information the score does not carry. A method in this state can
+    # still match a failure, but only by alarming often enough that one episode lands in
+    # the window by chance, which is not early warning.
+    chance = float(row.get("chance_match_probability", float("nan")) or float("nan"))
+    chance_text = "" if not np.isfinite(chance) else f", chance match {chance:.2f}"
+
+    if np.isfinite(separation) and separation < _SCORE_SEPARATION_FLOOR:
+        below_chance = separation < 0.5
+        qualifier = "below chance" if below_chance else "at chance"
+        return FailureVerdict(
+            layer="score failure",
+            evidence=(
+                f"separation {separation:.2f} ({qualifier}); "
+                + (
+                    f"match among {episodes:,.0f} episodes incidental{chance_text}"
+                    if episodes > 0
+                    else "no episodes raised"
+                )
+            ),
+            alternative="a different lead time may separate; the horizon may be mis-specified",
+            confidence="high" if below_chance else "medium",
+        )
+
+    if exceedances == 0:
+        if not np.isfinite(separation):
+            return FailureVerdict(
+                layer="score failure",
+                evidence="no exceedance; separation not computable",
+                alternative="a different observable may separate",
+                confidence="low",
+            )
+        return FailureVerdict(
+            layer="threshold failure",
+            evidence=(
+                f"separation {separation:.2f} but no exceedance; the threshold discarded "
+                "the ranking"
+            ),
+            alternative="no threshold may separate and control burden simultaneously",
+            confidence="medium",
+        )
+
+    if clusters == 0:
+        return FailureVerdict(
+            layer="extreme-cluster failure",
+            evidence=f"{exceedances:,.0f} exceedances formed no cluster",
+            alternative="the run length may be too long for this exceedance pattern",
+            confidence="high",
+        )
+
+    if episodes == 0:
+        return FailureVerdict(
+            layer="alarm-merging failure",
+            evidence=f"{clusters:,.0f} clusters produced no episode",
+            alternative="the merge gap may absorb every cluster",
+            confidence="high",
+        )
+
+    if matched == 0:
+        return FailureVerdict(
+            layer="event-matching failure",
+            evidence=(
+                f"separation {separation:.2f} but none of {episodes:,.0f} episodes fell in "
+                "the window"
+            ),
+            alternative="a longer horizon may capture alarms raised earlier",
+            confidence="medium",
+        )
+
+    if precision < _USABLE_PRECISION:
+        return FailureVerdict(
+            layer="no operationally acceptable result",
+            evidence=(
+                f"separation {separation:.2f}; matched, but {false_alarms:,.0f} false "
+                f"episodes give precision {precision:.4f}{chance_text}"
+            ),
+            alternative="a stricter threshold or alarm policy may cut burden without losing it",
+            confidence="medium",
+        )
+
+    return FailureVerdict(
+        layer="insufficient independent evidence",
+        evidence=(f"matched at precision {precision:.3f}, on {failures:.0f} held-out failure"),
+        alternative="the result may not survive on failures not represented here",
+        confidence="low",
+    )
+
+
+def _decomposition_assets(config: PaperAssetConfig, tables: Path, latex: Path) -> list[Path]:
+    """Write the stage-by-stage decomposition table with its root-cause classification."""
+
+    path = config.real_data_matrix_root / "score_threshold_alarm_decomposition.csv"
+    if not path.exists():
+        return []
+    source = pd.read_csv(path)
+    if source.empty or "test_observations_samples" not in source.columns:
+        return []
+
+    layers = [classify_failure_layer(row) for _index, row in source.iterrows()]
+    frame = pd.DataFrame(
+        {
+            "Data": source["dataset_id"].map(_dataset_label),
+            "Method": source["method"].map(_event_method_label),
+            "Obs.": source["test_observations_samples"].map(_format_count),
+            "Exceed.": source["threshold_exceedances_samples"].map(_format_count),
+            "Clusters": source["extreme_clusters_count"].map(_format_count),
+            "Episodes": source["alarm_episodes_count"].map(_format_count),
+            "Matched": source["matched_alarm_episodes_count"].map(_format_count),
+            "False": source["false_alarm_episodes_count"].map(_format_count),
+            "Dupl.": source["duplicate_alarm_episodes_count"].map(_format_count),
+            "Failure layer": [layer for layer, _reason in layers],
+        }
+    )
+    csv_path = tables / "score_alarm_decomposition.csv"
+    tex_path = latex / "score_alarm_decomposition.tex"
+    # The CSV keeps every column for audit; the printed table drops the two that carry
+    # no per-method information. Observations are constant within a dataset and
+    # duplicates never exceed single digits, and at ten columns the method names
+    # collided with the counts.
+    frame.to_csv(csv_path, index=False)
+    observations = {
+        _dataset_label(dataset): _format_count(group["test_observations_samples"].iloc[0])
+        for dataset, group in source.groupby("dataset_id")
+    }
+    observed = "; ".join(f"{name} {count}" for name, count in sorted(observations.items()))
+    printed = frame.drop(columns=["Obs.", "Dupl."])
+    # "failure" is already in the column header, and repeating it wrapped every cell
+    # onto three lines.
+    printed["Failure layer"] = printed["Failure layer"].str.replace(" failure", "", regex=False)
+    _write_latex_table(
+        printed,
+        tex_path,
+        caption=(
+            "Score, threshold, cluster and alarm decomposition per method. Exceedances "
+            "are counts of samples, clusters are counts of extreme clusters, and the "
+            "remaining columns are counts of alarm episodes; the columns are therefore "
+            "not comparable across stages. Test observations are constant within a "
+            f"dataset ({observed}) and are omitted. Labelled failures are ground truth "
+            "and are not part of this detector flow. The failure layer names the "
+            "earliest stage at which the method's evidence broke down."
+        ),
+        label="tab:score-alarm-decomposition",
+        # Method names and the failure-layer phrase need room; the counts do not.
+        column_weights=(0.95, 1.5, 0.9, 0.85, 0.85, 0.8, 0.8, 1.35),
+        # 38 rows do not fit a float, and as a table environment the last rows ran off
+        # the bottom of the page.
+        long=True,
+    )
+    return [csv_path, tex_path]
+
+
+#: Horizontal separation between the matched-alarm stage and the ground-truth marker.
+_GROUND_TRUTH_OFFSET = 0.22
+
+#: Detector-track stages, with the unit each count is measured in.
+_DECOMPOSITION_STAGES: tuple[tuple[str, str, str], ...] = (
+    ("test_observations_samples", "Test\nobservations", "samples"),
+    ("threshold_exceedances_samples", "Threshold\nexceedances", "samples"),
+    ("extreme_clusters_count", "Extreme\nclusters", "clusters"),
+    ("alarm_episodes_count", "Alarm\nepisodes", "episodes"),
+    ("matched_alarm_episodes_count", "Matched\nalarms", "episodes"),
+)
+
+
 def _score_alarm_flow_figure(source: pd.DataFrame, figure_path: Path) -> None:
-    required = {"dataset_id", "method", "point_exceedances", "alarm_events", "target_events"}
+    """Draw the decomposition as two tracks that are never mixed.
+
+    The detector track runs observations to matched alarms. Labelled failures are ground
+    truth and sit on their own track, connected to the matched alarms rather than placed
+    at the end of the detector flow. The previous version put labelled failure samples at
+    the start and labelled target events at the end of a single monotone flow, which
+    reads as a derivation from failures to failures and is not what the pipeline computes.
+    """
+
+    required = {name for name, _label, _unit in _DECOMPOSITION_STAGES}
     if source.empty or not required.issubset(source.columns):
         figure, axis = plt.subplots(figsize=(6.0, 3.0))
-        axis.text(0.5, 0.5, "Decomposition artifact unavailable", ha="center", va="center")
+        axis.text(
+            0.5,
+            0.5,
+            "Decomposition artifact predates the two-track schema; regenerate it",
+            ha="center",
+            va="center",
+        )
         axis.axis("off")
         _save_figure(figure, figure_path)
         return
+
     selected = source.loc[
         source["method"].isin(["dynamical_evt_robust_score", "failure_prototype_region"])
     ].copy()
     if selected.empty:
         selected = source.head(4).copy()
-    selected["label"] = (
-        selected["dataset_id"].map(_dataset_label)
-        + "\n"
-        + selected["method"].map(_event_method_label)
-    )
-    stages = ["Failure\npoints", "Threshold\nexceedances", "Alarm\nepisodes", "Target\nevents"]
+
     figure, axes = plt.subplots(
         nrows=max(1, len(selected)),
         ncols=1,
-        figsize=(7.0, max(2.8, 1.7 * len(selected))),
+        figsize=(9.0, max(3.0, 1.7 * len(selected))),
         squeeze=False,
     )
-    for axis, row in zip(axes[:, 0], selected.itertuples(index=False), strict=False):
-        values = [
-            max(1.0, float(getattr(row, "target_points", 0) or 0)),
-            float(getattr(row, "point_exceedances", 0) or 0),
-            float(getattr(row, "alarm_events", 0) or 0),
-            float(getattr(row, "target_events", 0) or 0),
-        ]
-        axis.plot(np.arange(len(stages)), values, color="#3B6EA8", marker="o", linewidth=2)
-        axis.fill_between(np.arange(len(stages)), values, color="#B9D6F2", alpha=0.35)
+    positions = np.arange(len(_DECOMPOSITION_STAGES), dtype=float)
+    for axis, (_index, row) in zip(axes[:, 0], selected.iterrows(), strict=False):
+        values = [float(row.get(name, 0) or 0) for name, _label, _unit in _DECOMPOSITION_STAGES]
+        axis.plot(positions, np.maximum(values, 0.5), color="#0072B2", marker="o", linewidth=2)
         for index, value in enumerate(values):
-            axis.text(index, value, _format_count(value), ha="center", va="bottom", fontsize=8)
+            unit = _DECOMPOSITION_STAGES[index][2]
+            # Zero is annotated explicitly: on a log axis it is otherwise invisible and
+            # reads as missing data rather than as a detector that produced nothing.
+            text = f"0 {unit}" if value == 0 else f"{_format_count(value)} {unit}"
+            # The final stage is right-aligned so it clears the ground-truth marker,
+            # which sits just to its right.
+            last = index == len(_DECOMPOSITION_STAGES) - 1
+            axis.annotate(
+                text,
+                xy=(index, max(value, 0.5)),
+                xytext=(-4, 7) if last else (0, 7),
+                textcoords="offset points",
+                ha="right" if last else "center",
+                fontsize=7,
+            )
+
+        failures = float(row.get("labelled_failure_events_count", 0) or 0)
+        matched = float(row.get("matched_alarm_episodes_count", 0) or 0)
+        ground_truth_y = max(failures, 0.5)
+        # Offset in x so the ground-truth marker reads as its own track rather than as
+        # another point on the detector line; sharing the x position let the two
+        # markers and their labels overplot whenever matched alarms was small.
+        ground_truth_x = positions[-1] + _GROUND_TRUTH_OFFSET
+        axis.scatter(
+            [ground_truth_x],
+            [ground_truth_y],
+            marker="s",
+            s=70,
+            color="#D55E00",
+            zorder=5,
+            label="labelled failures (ground truth)",
+        )
+        # Labelled to the right rather than below: below the marker the text fell off
+        # the bottom of the axes whenever the matched count sat on the floor.
+        axis.annotate(
+            f"{_format_count(failures)} events",
+            xy=(ground_truth_x, ground_truth_y),
+            xytext=(9, 0),
+            textcoords="offset points",
+            ha="left",
+            va="center",
+            fontsize=7,
+            color="#D55E00",
+        )
+        # The only link between the two tracks is the matching step.
+        axis.annotate(
+            "",
+            xy=(ground_truth_x, ground_truth_y),
+            xytext=(positions[-1], max(matched, 0.5)),
+            arrowprops={"arrowstyle": "<->", "color": "#888888", "linewidth": 1.0},
+        )
+
+        false_alarms = float(row.get("false_alarm_episodes_count", 0) or 0)
+        duplicates = float(row.get("duplicate_alarm_episodes_count", 0) or 0)
+        exposure = float(row.get("time_under_warning_samples", 0) or 0)
+        # Below the axis rather than inside it. These three numbers are properties of
+        # the whole track, not of any stage, and every in-axes position collided with
+        # some panel's track: the shapes differ too much across methods to place text
+        # among them.
+        axis.set_xlabel(
+            f"false alarms {_format_count(false_alarms)} episodes    "
+            f"duplicates {_format_count(duplicates)} episodes    "
+            f"time under warning {_format_count(exposure)} samples",
+            fontsize=6.5,
+            color="#555555",
+        )
+
         axis.set_yscale("symlog", linthresh=1.0)
-        axis.set_xticks(np.arange(len(stages)))
-        axis.set_xticklabels(stages, fontsize=8)
-        axis.set_ylabel(str(getattr(row, "label", "")), rotation=0, ha="right", va="center")
+        # Every decade collides at this panel height; the stage labels carry the exact
+        # counts, so the axis only has to convey the order of magnitude.
+        axis.set_yticks([1.0, 1e2, 1e4, 1e6])
+        axis.tick_params(axis="y", labelsize=7)
+        axis.set_xticks(positions)
+        axis.set_xticklabels([label for _name, label, _unit in _DECOMPOSITION_STAGES], fontsize=7.5)
+        axis.set_xlim(-0.35, len(_DECOMPOSITION_STAGES) - 1 + _GROUND_TRUTH_OFFSET + 0.75)
+        label = f"{_dataset_label(row['dataset_id'])}\n{_event_method_label(row['method'])}"
+        axis.set_ylabel(label, rotation=0, ha="right", va="center", fontsize=8)
         axis.grid(axis="y", alpha=0.25)
-    axes[0, 0].set_title("Score-threshold-alarm decomposition counts")
+        for spine in ("top", "right"):
+            axis.spines[spine].set_visible(False)
+
+    axes[0, 0].set_title(
+        "Detector evidence (circles) and labelled failures (square)\n"
+        "counts are not comparable across stages",
+        fontsize=9,
+    )
+    # Upper right: the detector track descends left to right in every panel, so this
+    # corner is empty, and the lower left now carries the burden annotation.
+    axes[0, 0].legend(frameon=False, fontsize=7, loc="upper right")
     figure.tight_layout()
     _save_figure(figure, figure_path)
 
@@ -1301,30 +1768,355 @@ def _target_region_transferability_assets(
     if not path.exists():
         return []
     source = pd.read_csv(path)
-    if source.empty:
+    if source.empty or "protocol" not in source.columns:
         return []
-    source = source.loc[source["method"].isin(["failure_prototype_region", "rare_state_region"])]
+
+    protocol_labels = {
+        "direct": "Direct",
+        "recalibrated_threshold": "Threshold recal.",
+        "recalibrated_scaling": "Scaling recal.",
+        "destination_refit": "Destination refit",
+    }
     frame = pd.DataFrame(
         {
-            "Source": source["source_dataset_id"].map(_dataset_label),
-            "Target": source["target_dataset_id"].map(_dataset_label),
-            "Region": source["method"].map(_event_method_label),
+            "Source": source["source"].map(_dataset_label),
+            "Dest.": source["destination"].map(_dataset_label),
+            "Protocol": source["protocol"].map(
+                lambda value: protocol_labels.get(str(value), str(value))
+            ),
+            "Scaling": source["scaling_fitted_on"].astype(str),
+            "Threshold": source["threshold_fitted_on"].astype(str),
+            "Occup.": source["region_occupancy"].map(_format_metric),
             "Recall": source["event_recall"].map(_format_metric),
             "Precision": source["event_precision"].map(_format_metric),
             "FA/day": source["false_alarm_events_per_day"].map(_format_metric),
-            "Transfer": source["transfer_type"].astype(str),
+            "Degrad.": source.get("transfer_degradation_precision", pd.Series(dtype=float)).map(
+                _format_metric
+            )
+            if "transfer_degradation_precision" in source.columns
+            else "",
         }
     )
     csv_path = tables / "target_region_transferability.csv"
     tex_path = latex / "target_region_transferability.tex"
     frame.to_csv(csv_path, index=False)
+    excluded = (
+        str(source["excluded_features"].dropna().iloc[0])
+        if "excluded_features" in source.columns and source["excluded_features"].notna().any()
+        else ""
+    )
+    feature_set = (
+        str(source["feature_set"].dropna().iloc[0])
+        if "feature_set" in source.columns and source["feature_set"].notna().any()
+        else ""
+    )
     _write_latex_table(
         frame,
         tex_path,
-        caption="Target-region behaviour across MetroPT and MetroPT2 held-out event splits.",
+        caption=(
+            "Cross-dataset target-region transfer. Each row applies a region fitted on "
+            "the source to the destination's held-out test split; the scaling and "
+            "threshold columns state what was frozen and what was refitted. Degradation "
+            "is event precision relative to the destination refit, so a negative value "
+            "means the transferred region outperformed a region fitted on the "
+            "destination itself. "
+            + (f"Transfer runs on the {feature_set}. " if feature_set else "")
+            + (f"Excluded as incompatible: {excluded.replace('_', ' ')}." if excluded else "")
+        ),
         label="tab:target-region-transferability",
+        # The protocol column holds "destination refit"; at equal widths that word
+        # overflowed into the next column.
+        column_weights=(0.9, 0.9, 1.5, 1.0, 1.1, 0.9, 0.9, 1.0, 0.9, 0.9),
     )
     return [csv_path, tex_path]
+
+
+def _detection_aware_control_table(
+    config: PaperAssetConfig, tables: Path, latex: Path
+) -> list[Path]:
+    """Write the detection-aware control comparison table.
+
+    The control detection rate is a column rather than a footnote: a favourable
+    percentile means nothing without knowing whether the controls found the failure.
+    """
+
+    path = config.real_data_matrix_root / "detection_aware_controls.csv"
+    if not path.exists():
+        return []
+    source = pd.read_csv(path)
+    if source.empty:
+        return []
+
+    condition_labels = {
+        "all_draws": "All draws",
+        "detecting_draws": "Detecting only",
+        "recall_matched": "Recall matched",
+        "occupancy_matched": "Occupancy matched",
+    }
+    frame = pd.DataFrame(
+        {
+            "Data": source["dataset_id"].map(_dataset_label),
+            "Control family": source["control_family"].map(lambda v: str(v).replace("_", " ")),
+            "Condition": source["condition"].map(lambda v: condition_labels.get(str(v), str(v))),
+            "Draws": source["control_draws"],
+            "Ctrl det. rate": source["control_detection_rate"].map(_format_metric),
+            "Obs. detected": source["observed_detected"].map(
+                lambda value: "yes" if bool(value) else "no"
+            ),
+            "Obs. utility": source["observed_utility"].map(_format_metric),
+            "Ctrl median": source["control_utility_median"].map(_format_metric),
+            "Percentile": source["observed_percentile"].map(_format_metric),
+        }
+    )
+    csv_path = tables / "detection_aware_controls.csv"
+    tex_path = latex / "detection_aware_controls.tex"
+    frame.to_csv(csv_path, index=False)
+    _write_latex_table(
+        frame,
+        tex_path,
+        caption=(
+            "Detection-aware matched controls. Every comparison reports the share of "
+            "control draws that detected the failure, because a burden advantage means "
+            "nothing if the observed region did not detect while the controls did. "
+            "Utility is the predeclared joint utility, which charges false alarms per "
+            "operating day and warning exposure separately and pays a capped early-warning "
+            "reward only when the failure was detected."
+        ),
+        label="tab:detection-aware-controls",
+        # Six families times four conditions on two datasets does not fit a float; as a
+        # table environment it overran the page and dropped its last rows silently.
+        # The dataset column must fit "MetroPT2" unbroken: it has no hyphenation point,
+        # so a narrower column pushes it into the neighbouring cell.
+        column_weights=(1.25, 1.35, 1.25, 0.6, 0.9, 0.9, 0.9, 0.9, 0.95),
+        long=True,
+    )
+    return [csv_path, tex_path]
+
+
+def _detection_aware_control_figure(config: PaperAssetConfig, figures: Path) -> list[Path]:
+    """Plot control distributions for utility and, conditional on detection, burden.
+
+    The two burden panels are restricted to control draws that detect the failure. An
+    unconditioned burden distribution flatters any region that does not detect, since a
+    region raising no alarms has the best possible burden and the worst possible outcome.
+    """
+
+    path = config.real_data_matrix_root / "matched_negative_control_draws.csv"
+    if not path.exists():
+        return []
+    draws = pd.read_csv(path)
+    if draws.empty or "detected" not in draws.columns:
+        return []
+
+    baseline_path = config.real_data_matrix_root / "event_baseline_comparison.csv"
+    observed = pd.read_csv(baseline_path) if baseline_path.exists() else pd.DataFrame()
+
+    # The observed joint utility must come from the detection-aware summary, which
+    # computes it under the same predeclared weights as the control draws. The baseline
+    # table's event_utility is a different quantity, and marking it on a joint-utility
+    # histogram would compare two scales against each other.
+    summary_path = config.real_data_matrix_root / "detection_aware_controls.csv"
+    observed_utility_by_dataset: dict[str, float] = {}
+    if summary_path.exists():
+        summary = pd.read_csv(summary_path)
+        for dataset_id, group in summary.groupby("dataset_id"):
+            values = pd.to_numeric(group["observed_utility"], errors="coerce").dropna()
+            if not values.empty:
+                observed_utility_by_dataset[str(dataset_id)] = float(values.iloc[0])
+
+    datasets = sorted(draws["dataset_id"].unique())
+    panels = (
+        # The draws column already holds the predeclared joint utility; the observed
+        # marker is read from the detection-aware summary so both use the same weights.
+        ("event_utility", "Joint utility", False),
+        ("false_alarm_events_per_day", "False alarms per day", True),
+        ("median_warning_lead_time", "Median lead time (samples)", True),
+    )
+    figure, axes = plt.subplots(
+        len(datasets), len(panels), figsize=(4.6 * len(panels), 3.6 * len(datasets)), squeeze=False
+    )
+    for row, dataset in enumerate(datasets):
+        dataset_draws = draws[draws["dataset_id"] == dataset]
+        observed_row = observed[
+            (observed["dataset_id"] == dataset) & (observed["method"] == "failure_prototype_region")
+        ]
+        for column, (metric, label, detecting_only) in enumerate(panels):
+            axis = axes[row][column]
+            selected = (
+                dataset_draws[dataset_draws["detected"].astype(bool)]
+                if detecting_only
+                else dataset_draws
+            )
+            values = pd.to_numeric(selected.get(metric), errors="coerce").dropna().to_numpy()
+            if values.size == 0:
+                axis.annotate(
+                    "no control draw detects the failure"
+                    if detecting_only
+                    else "no control draw available",
+                    xy=(0.5, 0.5),
+                    xycoords="axes fraction",
+                    ha="center",
+                    fontsize=8,
+                    color="#666666",
+                )
+            else:
+                axis.hist(values, bins=40, color="#56B4E9", edgecolor="none", alpha=0.85)
+                # On the utility panel the detecting subset is overlaid, because the
+                # conclusion rests on that subset. Showing only the pooled distribution
+                # would put the observed marker near its upper end while the observed
+                # region actually sits below the median of controls that detect.
+                if not detecting_only and "detected" in dataset_draws.columns:
+                    detecting_values = (
+                        pd.to_numeric(
+                            dataset_draws[dataset_draws["detected"].astype(bool)].get(metric),
+                            errors="coerce",
+                        )
+                        .dropna()
+                        .to_numpy()
+                    )
+                    if detecting_values.size:
+                        axis.hist(
+                            detecting_values,
+                            bins=40,
+                            color="#E69F00",
+                            edgecolor="none",
+                            alpha=0.85,
+                            label="detecting draws",
+                        )
+            observed_value: float | None = None
+            if metric == "event_utility":
+                observed_value = observed_utility_by_dataset.get(str(dataset))
+            elif not observed_row.empty and metric in observed_row.columns:
+                candidate = pd.to_numeric(observed_row[metric], errors="coerce").iloc[0]
+                observed_value = float(candidate) if pd.notna(candidate) else None
+            if observed_value is not None:
+                axis.axvline(observed_value, color="#D55E00", linewidth=2.0, label="observed")
+            if column == 0 and axis.get_legend_handles_labels()[0]:
+                axis.legend(frameon=False, fontsize=7)
+            title = f"{_dataset_label(dataset)}: {label}"
+            if detecting_only:
+                title += " (detecting draws)"
+            axis.set_title(title, fontsize=9)
+            axis.set_xlabel(label)
+            axis.set_ylabel("Control draws" if column == 0 else "")
+            axis.grid(True, alpha=0.25, linewidth=0.6)
+            axis.set_axisbelow(True)
+            for spine in ("top", "right"):
+                axis.spines[spine].set_visible(False)
+
+    figure_path = figures / "detection_aware_controls.png"
+    _save_figure(figure, figure_path)
+    return [figure_path]
+
+
+def _transfer_distance_figure(config: PaperAssetConfig, figures: Path) -> list[Path]:
+    """Plot the distance distributions that decide whether a transferred region fires.
+
+    Three populations are shown against the frozen threshold: the source's own training
+    distances, the destination's normal operation, and the destination's failure states.
+    A transfer succeeds only when the destination's failure sits inside the threshold
+    while its normal operation sits outside; the figure shows directly which of those
+    two conditions fails.
+    """
+
+    path = config.real_data_matrix_root / "transfer_distance_samples.csv"
+    if not path.exists():
+        return []
+    samples = pd.read_csv(path)
+    if samples.empty:
+        return []
+
+    pairs = samples[["source", "destination"]].drop_duplicates().to_dict("records")
+    if not pairs:
+        return []
+
+    colours = {
+        "source_train": "#0072B2",
+        "destination_normal": "#E69F00",
+        "destination_failure": "#D55E00",
+    }
+    labels = {
+        "source_train": "Source training",
+        "destination_normal": "Destination normal",
+        "destination_failure": "Destination failure",
+    }
+
+    figure, axes = plt.subplots(1, len(pairs), figsize=(6.0 * len(pairs), 4.0), squeeze=False)
+    for column, pair in enumerate(pairs):
+        axis = axes[0][column]
+        subset = samples[
+            (samples["source"] == pair["source"]) & (samples["destination"] == pair["destination"])
+        ]
+        finite = subset["distance"].to_numpy(dtype=float)
+        finite = finite[np.isfinite(finite)]
+        if finite.size == 0:
+            continue
+        threshold_value = float(subset["threshold"].iloc[0])
+        # The distance distribution is extremely heavy-tailed: almost all mass sits near
+        # zero while the top percentile reaches two orders of magnitude further, so a
+        # percentile-based range renders every population as one spike. The figure exists
+        # to show where the frozen threshold falls between the populations, so the range
+        # is set by the threshold and the tail is reported as an overflow share instead.
+        upper = max(threshold_value * 6.0, float(np.quantile(finite, 0.50)) * 2.0, 1e-6)
+        bins = np.linspace(0.0, upper, 60)
+        overflow: list[str] = []
+        for population, colour in colours.items():
+            values = subset.loc[subset["population"] == population, "distance"].to_numpy(
+                dtype=float
+            )
+            values = values[np.isfinite(values)]
+            if values.size == 0:
+                continue
+            beyond = float(np.mean(values > upper))
+            if beyond > 0.005:
+                overflow.append(f"{labels[population]}: {beyond * 100:.0f}% beyond axis")
+            axis.hist(
+                values,
+                bins=bins,
+                density=True,
+                histtype="step",
+                linewidth=2.0,
+                color=colour,
+                label=labels[population],
+            )
+        axis.axvline(threshold_value, color="#444444", linestyle="--", linewidth=1.4)
+        axis.set_xlim(0.0, upper)
+        axis.annotate(
+            "frozen threshold",
+            xy=(threshold_value, axis.get_ylim()[1]),
+            xytext=(5, -12),
+            textcoords="offset points",
+            fontsize=8,
+            color="#444444",
+        )
+        # The axis is truncated, so the share falling outside it is stated rather than
+        # left to look like absent mass.
+        if overflow:
+            axis.annotate(
+                "\n".join(overflow),
+                xy=(0.97, 0.55),
+                xycoords="axes fraction",
+                ha="right",
+                fontsize=7,
+                color="#666666",
+            )
+        axis.set_title(
+            f"{_dataset_label(pair['source'])} region applied to "
+            f"{_dataset_label(pair['destination'])}",
+            fontsize=9,
+        )
+        axis.set_xlabel("Distance to nearest failure prototype (standardised)")
+        axis.set_ylabel("Density" if column == 0 else "")
+        axis.grid(True, alpha=0.25, linewidth=0.6)
+        axis.set_axisbelow(True)
+        for spine in ("top", "right"):
+            axis.spines[spine].set_visible(False)
+        if column == 0:
+            axis.legend(frameon=False, fontsize=8, loc="upper right")
+
+    figure_path = figures / "transfer_distance_distributions.png"
+    _save_figure(figure, figure_path)
+    return [figure_path]
 
 
 def _matched_negative_control_assets(
@@ -1460,8 +2252,73 @@ def _timeline_traceability_assets(
     latex: Path,
 ) -> list[Path]:
     trace_path = config.real_data_matrix_root / "event_timeline_trace.csv"
+    overview_path = config.real_data_matrix_root / "event_timeline_overview.csv"
+    metadata_path = config.real_data_matrix_root / "event_timeline_metadata.csv"
     generated: list[Path] = []
-    if trace_path.exists():
+    frame = _representative_timeline_frame()
+    if trace_path.exists() and overview_path.exists() and metadata_path.exists():
+        trace = pd.read_csv(trace_path)
+        overview = pd.read_csv(overview_path)
+        metadata = pd.read_csv(metadata_path)
+        rows = []
+        for dataset_id in metadata["dataset_id"].unique():
+            dataset_metadata = metadata[metadata["dataset_id"] == dataset_id]
+            if dataset_metadata.empty:
+                continue
+            # The overview carries every method for the supplement, so the main figure
+            # has to select its own method as well as its dataset.
+            method = dataset_metadata.iloc[0]["method"]
+            dataset_trace = trace[trace["dataset_id"] == dataset_id]
+            dataset_overview = overview[
+                (overview["dataset_id"] == dataset_id) & (overview["method"] == method)
+            ]
+            if dataset_trace.empty or dataset_overview.empty or dataset_metadata.empty:
+                continue
+            figure_path = figures / f"timeline_{dataset_id}.png"
+            _two_scale_timeline_figure(
+                dataset_overview,
+                dataset_trace,
+                dataset_metadata.iloc[0],
+                figure_path,
+            )
+            generated.append(figure_path)
+            # The caption defines a macro rather than holding bare text: \input inside a
+            # \caption argument is a moving argument and makes hyperref abort the build.
+            caption_path = latex / f"timeline_caption_{dataset_id}.tex"
+            caption_path.write_text(
+                f"\\newcommand{{{_timeline_caption_macro(dataset_id)}}}{{%\n"
+                f"{_timeline_caption(dataset_metadata.iloc[0])}%\n}}\n",
+                encoding="utf-8",
+            )
+            generated.append(caption_path)
+            rows.append(
+                {
+                    "Figure": figure_path.name,
+                    "Source": f"{_dataset_label(dataset_id)} held-out test failure",
+                    "Status": "traceable",
+                    "Scales": "global and local",
+                    "Use": "burden and timing audit",
+                }
+            )
+        for dataset_id in metadata["dataset_id"].unique():
+            dataset_overview = overview[overview["dataset_id"] == dataset_id]
+            if dataset_overview["method"].nunique() <= 1:
+                continue
+            figure_path = figures / f"timeline_all_methods_{dataset_id}.png"
+            _all_method_timeline_figure(dataset_overview, dataset_id, figure_path)
+            generated.append(figure_path)
+            rows.append(
+                {
+                    "Figure": figure_path.name,
+                    "Source": f"{_dataset_label(dataset_id)} held-out test failure",
+                    "Status": "traceable",
+                    "Scales": "global, every method",
+                    "Use": "supplementary burden comparison",
+                }
+            )
+        if rows:
+            frame = pd.DataFrame(rows)
+    elif trace_path.exists():
         trace = pd.read_csv(trace_path)
         if not trace.empty:
             figure_path = figures / "real_event_timeline.png"
@@ -1472,16 +2329,12 @@ def _timeline_traceability_assets(
                     {
                         "Figure": "real_event_timeline.png",
                         "Source": "MetroPT test event",
-                        "Status": "traceable",
-                        "Missing": "none",
+                        "Status": "local only",
+                        "Scales": "local",
                         "Use": "empirical timing audit",
                     }
                 ]
             )
-        else:
-            frame = _representative_timeline_frame()
-    else:
-        frame = _representative_timeline_frame()
     csv_path = tables / "timeline_traceability.csv"
     tex_path = latex / "timeline_traceability.tex"
     frame.to_csv(csv_path, index=False)
@@ -1502,12 +2355,325 @@ def _representative_timeline_frame() -> pd.DataFrame:
                 "Figure": "event_timeline.png",
                 "Source": "synthetic cyclic input",
                 "Status": "representative",
-                "Missing": "MetroPT real timeline",
+                "Scales": "local",
                 "Use": "timing audit only",
             }
         ]
     )
     return frame
+
+
+def _two_scale_timeline_figure(
+    overview: pd.DataFrame,
+    trace: pd.DataFrame,
+    metadata: pd.Series,
+    figure_path: Path,
+) -> None:
+    """Draw the full test split above the failure window, on one figure.
+
+    The local window alone is not honest about burden: it shows the alarms nearest the
+    failure and none of the thousands elsewhere. Putting the global density directly
+    above it means the reader cannot see the matched alarm without also seeing how many
+    other episodes the method raised over the same test split.
+    """
+
+    figure, axes = plt.subplots(
+        5,
+        1,
+        figsize=(8.6, 7.6),
+        gridspec_kw={"height_ratios": [1.15, 0.75, 1.4, 0.62, 0.62]},
+    )
+
+    # --- Global scale -------------------------------------------------------
+    days = pd.to_numeric(overview["bin_start_day"], errors="coerce").to_numpy(dtype=float)
+    episodes = pd.to_numeric(overview["alarm_episodes"], errors="coerce").to_numpy(dtype=float)
+    exposure = pd.to_numeric(overview["time_under_warning_samples"], errors="coerce").to_numpy(
+        dtype=float
+    )
+    bin_width = float(np.median(np.diff(days))) if days.size > 1 else 1.0
+
+    axes[0].bar(days, episodes, width=bin_width * 0.9, color="#0072B2", align="edge")
+    axes[0].set_ylabel("alarm episodes\nper bin", fontsize=8)
+    axes[0].set_title(
+        f"Full test split: {int(metadata['global_alarm_episodes']):,} alarm episodes over "
+        f"{float(metadata['test_duration_days']):.1f} operating days",
+        fontsize=9,
+    )
+
+    axes[1].fill_between(days, 0.0, exposure, step="post", color="#56B4E9", alpha=0.85)
+    axes[1].set_ylabel("samples under\nwarning per bin", fontsize=8)
+    axes[1].set_xlabel("Operating days from start of test split", fontsize=8)
+
+    failure_days = overview.loc[overview["contains_failure_onset"].astype(bool), "bin_start_day"]
+    reset_days = overview.loc[overview["contains_maintenance_reset"].astype(bool), "bin_start_day"]
+    for axis in axes[:2]:
+        for position, day in enumerate(failure_days):
+            axis.axvline(
+                float(day),
+                color="#D55E00",
+                linewidth=1.4,
+                label="labelled failure" if position == 0 else None,
+            )
+        for position, day in enumerate(reset_days):
+            axis.axvline(
+                float(day),
+                color="#009E73",
+                linewidth=1.2,
+                linestyle=":",
+                label="return to service" if position == 0 else None,
+            )
+        axis.grid(axis="y", alpha=0.25)
+        for spine in ("top", "right"):
+            axis.spines[spine].set_visible(False)
+    axes[0].legend(frameon=False, fontsize=7, loc="upper right")
+
+    # The local window drawn on the global axis, so the zoom is locatable.
+    window_start = float(trace["test_index"].min()) / float(metadata["test_duration_samples"])
+    window_end = float(trace["test_index"].max()) / float(metadata["test_duration_samples"])
+    span = float(metadata["test_duration_days"])
+    for axis in axes[:2]:
+        axis.axvspan(
+            window_start * span,
+            max(window_end * span, window_start * span + bin_width),
+            color="#999999",
+            alpha=0.35,
+            zorder=0,
+        )
+
+    # --- Local scale --------------------------------------------------------
+    hours = pd.to_numeric(trace["elapsed_hours"], errors="coerce").to_numpy(dtype=float)
+    score = pd.to_numeric(trace["score"], errors="coerce").to_numpy(dtype=float)
+    threshold = float(metadata["threshold_value"])
+
+    axes[2].plot(hours, score, color="#0072B2", linewidth=0.8, label="score")
+    axes[2].axhline(
+        threshold,
+        color="#D55E00",
+        linewidth=1.0,
+        linestyle="--",
+        label=f"frozen threshold {threshold:,.1f}",
+    )
+    exceed = trace["is_exceedance"].astype(bool).to_numpy()
+    if exceed.any():
+        axes[2].scatter(
+            hours[exceed],
+            score[exceed],
+            s=4,
+            color="#D55E00",
+            zorder=3,
+            label="exceedance",
+        )
+    axes[2].set_ylabel("score", fontsize=8)
+    axes[2].set_yscale("symlog", linthresh=1.0)
+    axes[2].legend(frameon=False, fontsize=7, loc="upper left", ncol=3)
+    axes[2].set_title(
+        f"Failure window: {int(metadata['local_alarm_episodes'])} of those episodes fall here",
+        fontsize=9,
+    )
+
+    regimes = pd.to_numeric(trace["regime_id"], errors="coerce").to_numpy(dtype=float)
+    axes[3].step(hours, regimes, where="post", color="#333333", linewidth=0.8)
+    axes[3].set_ylabel("operating\nregime", fontsize=8)
+
+    # Alarm episodes get a minimum drawn width: after declustering an episode is often a
+    # single sample, which is invisible across a window of tens of thousands, and an
+    # empty band would read as "no alarms" in exactly the panel meant to show them.
+    _timeline_band(
+        axes[4],
+        hours,
+        trace["alarm_episode_id"].to_numpy() >= 0,
+        0.62,
+        "#0072B2",
+        min_width=0.02 * float(hours.max() - hours.min()),
+    )
+    _timeline_band(
+        axes[4], hours, trace["in_warning_window"].astype(bool).to_numpy(), 0.38, "#999999"
+    )
+    _timeline_band(axes[4], hours, trace["is_failure"].astype(bool).to_numpy(), 0.14, "#D55E00")
+    axes[4].set_yticks([0.14, 0.38, 0.62])
+    axes[4].set_yticklabels(["failure", "warning window", "alarm episode"], fontsize=7)
+    axes[4].set_ylim(0.0, 0.8)
+    axes[4].set_xlabel("Elapsed hours from held-out failure onset", fontsize=8)
+
+    resets = trace["is_maintenance_reset"].astype(bool).to_numpy()
+    for axis in axes[2:]:
+        axis.axvline(0.0, color="#D55E00", linewidth=1.0)
+        if resets.any():
+            axis.axvline(float(hours[resets][0]), color="#009E73", linewidth=1.0, linestyle=":")
+        axis.grid(axis="x", alpha=0.2)
+        for spine in ("top", "right"):
+            axis.spines[spine].set_visible(False)
+
+    figure.tight_layout()
+    _save_figure(figure, figure_path)
+
+
+def _all_method_timeline_figure(
+    overview: pd.DataFrame,
+    dataset_id: str,
+    figure_path: Path,
+) -> None:
+    """One global alarm-density strip per method, on a shared scale.
+
+    The main-paper timeline shows one method. This shows every method in the comparison
+    over the same test split, which is what makes the burden claims comparable: a method
+    that alarms continuously and one that alarms in bursts can share an episode count.
+    """
+
+    methods = sorted(overview["method"].unique(), key=_event_method_label)
+    figure, axes = plt.subplots(
+        nrows=len(methods),
+        ncols=1,
+        figsize=(7.6, max(3.0, 0.52 * len(methods))),
+        sharex=True,
+        squeeze=False,
+    )
+    peak = float(overview["alarm_episodes"].max()) or 1.0
+    for axis, method in zip(axes[:, 0], methods, strict=True):
+        rows = overview[overview["method"] == method]
+        days = pd.to_numeric(rows["bin_start_day"], errors="coerce").to_numpy(dtype=float)
+        episodes = pd.to_numeric(rows["alarm_episodes"], errors="coerce").to_numpy(dtype=float)
+        width = float(np.median(np.diff(days))) if days.size > 1 else 1.0
+        axis.bar(days, episodes, width=width, color="#0072B2", align="edge")
+        # A shared y-limit is the point: per-panel scaling would make a method with two
+        # episodes per bin look like one with twenty.
+        axis.set_ylim(0.0, peak)
+        axis.set_ylabel(
+            _event_method_label(method), rotation=0, ha="right", va="center", fontsize=7
+        )
+        axis.set_yticks([])
+        failures = rows.loc[rows["contains_failure_onset"].astype(bool), "bin_start_day"]
+        for day in failures:
+            axis.axvline(float(day), color="#D55E00", linewidth=1.0)
+        axis.tick_params(axis="x", labelsize=7)
+        for spine in ("top", "right", "left"):
+            axis.spines[spine].set_visible(False)
+        # Outside the axes: inside, the total sat on top of the taller panels' bars.
+        axis.annotate(
+            f"{int(rows['alarm_episodes'].sum()):,}",
+            xy=(1.01, 0.5),
+            xycoords="axes fraction",
+            ha="left",
+            va="center",
+            fontsize=6.5,
+            color="#555555",
+        )
+
+    axes[0, 0].set_title(
+        f"{_dataset_label(dataset_id)}: alarm episodes per bin over the full test split, "
+        f"shared vertical scale (peak {int(peak)}); totals at right",
+        fontsize=8.5,
+    )
+    axes[-1, 0].set_xlabel("Operating days from start of test split", fontsize=8)
+    figure.tight_layout()
+    _save_figure(figure, figure_path)
+
+
+def _timeline_band(
+    axis: Axes,
+    hours: np.ndarray[Any, Any],
+    flags: np.ndarray[Any, Any],
+    level: float,
+    colour: str,
+    min_width: float = 0.0,
+) -> None:
+    """Draw one boolean channel as a band at a fixed height.
+
+    ``min_width`` widens each contiguous run to at least that many x-units, for channels
+    whose true runs are a handful of samples and would otherwise render as nothing.
+    """
+    values = np.asarray(flags, dtype=bool)
+    if min_width <= 0.0:
+        axis.fill_between(
+            hours,
+            level - 0.09,
+            level + 0.09,
+            where=values,
+            color=colour,
+            step="post",
+            linewidth=0.0,
+        )
+        return
+
+    padded = np.pad(values.astype(np.int8), (1, 1))
+    changes = np.diff(padded)
+    starts = np.flatnonzero(changes == 1)
+    ends = np.flatnonzero(changes == -1) - 1
+    for start, end in zip(starts, ends, strict=True):
+        left = float(hours[min(start, len(hours) - 1)])
+        right = float(hours[min(end, len(hours) - 1)])
+        if right - left < min_width:
+            right = left + min_width
+        axis.fill_between(
+            [left, right],
+            level - 0.09,
+            level + 0.09,
+            color=colour,
+            linewidth=0.0,
+        )
+
+
+#: Digits are not letters in TeX control sequences, so dataset ids are romanised.
+_ROMAN_DIGITS = {
+    "0": "O",
+    "1": "I",
+    "2": "II",
+    "3": "III",
+    "4": "IV",
+    "5": "V",
+    "6": "VI",
+    "7": "VII",
+    "8": "VIII",
+    "9": "IX",
+}
+
+
+def _timeline_caption_macro(dataset_id: str) -> str:
+    """Return a TeX-legal control sequence name for one dataset's caption."""
+    letters = "".join(
+        _ROMAN_DIGITS.get(character, character) for character in dataset_id if character.isalnum()
+    )
+    return f"\\timelinecaption{letters}"
+
+
+def _timeline_caption(metadata: pd.Series) -> str:
+    """State every configuration field, so the figure identifies what produced it."""
+    lead = metadata.get("lead_time_hours", "")
+    lead_text = (
+        "No alarm matched the failure"
+        if lead == "" or pd.isna(lead)
+        else f"The matched alarm leads the failure by {float(lead):.2f} h"
+    )
+    resets = int(metadata["maintenance_resets_recorded"])
+    reset_text = (
+        "the end of the single labelled failure interval"
+        if resets == 1
+        else f"the ends of the {resets} labelled failure intervals"
+    )
+    # Only the interpolated values are escaped; the template carries deliberate LaTeX
+    # such as the percent sign, which a blanket escape would turn into literal text.
+    failure_id = _latex_escape(str(metadata["failure_id"]))
+    variant = _latex_escape(str(metadata["target_region_variant"]))
+    return (
+        f"Global and local views of the {_dataset_label(metadata['dataset_id'])} held-out "
+        f"failure {failure_id} under the {_event_method_label(metadata['method'])} "
+        f"method ({variant} score). "
+        f"Threshold quantile {float(metadata['threshold_quantile']):.3f} gives a frozen test "
+        f"threshold of {float(metadata['threshold_value']):,.1f}; declustering run length "
+        f"{int(metadata['run_length'])} samples, merge gap {int(metadata['merge_gap'])} samples, "
+        f"warning horizon {float(metadata['warning_horizon_hours']):.1f} h. "
+        f"The test split runs {float(metadata['test_duration_days']):.1f} operating days "
+        f"({int(metadata['test_duration_samples']):,} samples). "
+        f"Globally the method raises {int(metadata['global_alarm_episodes']):,} alarm episodes, "
+        f"of which {int(metadata['global_false_alarm_episodes']):,} are false, at "
+        f"{float(metadata['false_alarms_per_operating_day']):.2f} false alarms per operating day; "
+        f"{int(metadata['local_alarm_episodes'])} episodes fall inside the plotted failure window "
+        f"and {int(metadata['local_false_alarm_episodes'])} of those are false. "
+        f"{lead_text}. Time under warning is "
+        f"{int(metadata['time_under_warning_samples']):,} samples "
+        f"({100.0 * float(metadata['time_under_warning_fraction']):.2f}\\% of the split). "
+        f"The only maintenance boundary the processed data records is {reset_text}."
+    )
 
 
 def _real_event_timeline_figure(trace: pd.DataFrame, figure_path: Path) -> None:
@@ -1590,34 +2756,166 @@ def _root_cause_assets(
     path = config.real_data_matrix_root / "industrial_results_summary.csv"
     if not path.exists():
         return []
-    source = pd.read_csv(path)
-    explanations = {
-        "metropt": "alarm-conversion burden with one held-out failure",
-        "metropt2": "alarm-conversion burden with one held-out failure",
-        "scania_component_x": "vehicle-level repair-risk estimand mismatch",
-        "hydraulic_systems": "cycle-state target is not a field event onset",
-        "secom": "yield-failure target and missingness differ from maintenance events",
-    }
-    frame = pd.DataFrame(
-        {
-            "Dataset": source["dataset_id"].map(_dataset_label),
-            "Primary explanation": source["dataset_id"].map(explanations),
-            "Evidence": source.apply(_root_cause_evidence, axis=1),
-            "Evidence status": source["dataset_id"].map(_root_cause_status),
-            "Competing explanation": source["dataset_id"].map(_root_cause_alternative),
-            "Confidence": source["dataset_id"].map(_root_cause_confidence),
-        }
-    )
+    rows = _method_root_cause_rows(config) + _non_event_root_cause_rows(config, path)
+    if not rows:
+        return []
+    frame = pd.DataFrame(rows)
+
     csv_path = tables / "root_cause_summary.csv"
     tex_path = latex / "root_cause_summary.tex"
     frame.to_csv(csv_path, index=False)
     _write_latex_table(
         frame,
         tex_path,
-        caption="Most plausible explanations under the current evidence.",
+        caption=(
+            "Failure layer per dataset and method. The layer is the earliest stage at "
+            "which that method's evidence broke down, taken from the score, threshold, "
+            "cluster and alarm decomposition; it is not a dataset-level property, and "
+            "methods on the same dataset fail at different stages. Score and threshold "
+            "failures are separated by the warning-window rank separation, which is the "
+            "probability that a sample in the horizon before onset outranks one outside "
+            "it; 0.5 is chance. The competing explanation is what the evidence does not "
+            "exclude."
+        ),
         label="tab:root-cause",
+        column_weights=(0.8, 0.9, 0.95, 1.55, 0.98, 0.82),
+        long=True,
     )
     return [csv_path, tex_path]
+
+
+#: Methods the root-cause table must cover: the registered score, the strongest simple
+#: policy, a classical EVT fit, a learned detector, both target regions, and the best
+#: full-family baseline, which is selected from the benchmark rather than declared.
+_ROOT_CAUSE_METHODS = (
+    "dynamical_evt_robust_score",
+    "engineering_threshold",
+    "classical_pot_gpd",
+    "isolation_forest",
+    "failure_prototype_region",
+    "rare_state_region",
+)
+
+
+def _best_full_family_baseline(baselines: pd.DataFrame, dataset_id: str) -> str | None:
+    """Return the best-performing baseline outside the target-region families.
+
+    Selected on event utility rather than named in advance, so the table compares the
+    proposed method against the strongest competitor the benchmark actually produced.
+    """
+    candidates = baselines[
+        (baselines["dataset_id"] == dataset_id)
+        & (~baselines["method"].isin(_ROOT_CAUSE_METHODS))
+        & (baselines["method"] != "negative_control_region")
+    ]
+    if candidates.empty:
+        return None
+    ranked = candidates.sort_values(
+        ["event_f1", "false_alarm_events_per_day"], ascending=[False, True]
+    )
+    return str(ranked.iloc[0]["method"])
+
+
+def _method_root_cause_rows(config: PaperAssetConfig) -> list[dict[str, object]]:
+    """Method-specific root-cause rows for the compressor datasets."""
+    decomposition_path = config.real_data_matrix_root / "score_threshold_alarm_decomposition.csv"
+    baseline_path = config.real_data_matrix_root / "event_baseline_comparison.csv"
+    if not decomposition_path.exists() or not baseline_path.exists():
+        return []
+    decomposition = pd.read_csv(decomposition_path)
+    baselines = pd.read_csv(baseline_path)
+    if "score_separation_auc" not in decomposition.columns:
+        return []
+
+    rows: list[dict[str, object]] = []
+    for dataset_id in decomposition["dataset_id"].unique():
+        wanted = list(_ROOT_CAUSE_METHODS)
+        best = _best_full_family_baseline(baselines, dataset_id)
+        if best is not None and best not in wanted:
+            wanted.append(best)
+        for method in wanted:
+            entry = decomposition[
+                (decomposition["dataset_id"] == dataset_id) & (decomposition["method"] == method)
+            ]
+            if entry.empty:
+                continue
+            row = entry.iloc[0]
+            verdict = classify_root_cause(row)
+            baseline_row = baselines[
+                (baselines["dataset_id"] == dataset_id) & (baselines["method"] == method)
+            ]
+            per_day = (
+                float(baseline_row["false_alarm_events_per_day"].iloc[0])
+                if not baseline_row.empty
+                else float("nan")
+            )
+            rows.append(
+                {
+                    "Dataset": _dataset_label(dataset_id),
+                    "Method": _event_method_label(method)
+                    + (" (best baseline)" if method == best else ""),
+                    "Primary failure layer": verdict.layer,
+                    "Supporting evidence": (
+                        f"{verdict.evidence}; {per_day:,.1f} FA/day; {_exposure_text(row)}"
+                    ),
+                    "Alternative not excluded": verdict.alternative,
+                    "Confidence": verdict.confidence,
+                }
+            )
+    return rows
+
+
+def _exposure_text(row: pd.Series) -> str:
+    """Warning exposure as a share of the split.
+
+    The percent sign is emitted plain: the table writer escapes LaTeX specials, and
+    pre-escaping it produces a literal backslash in the rendered cell.
+    """
+    exposure = float(row.get("time_under_warning_samples", 0) or 0)
+    total = float(row.get("test_observations_samples", 0) or 0)
+    if total <= 0:
+        return "exposure unknown"
+    return f"{100.0 * exposure / total:.2f}% exposure"
+
+
+def _non_event_root_cause_rows(
+    config: PaperAssetConfig, summary_path: Path
+) -> list[dict[str, object]]:
+    """Estimand-mismatch rows for the datasets whose units are not failure episodes.
+
+    These are not method failures. Their independent units are cycles, vehicles and
+    wafers, so no alarm policy on them answers the question the compressor datasets
+    answer, and giving them a pipeline-stage layer would misattribute a design mismatch
+    to the detector.
+    """
+    source = pd.read_csv(summary_path)
+    source = _merge_registered_event_metrics(config, source)
+    explanations = {
+        "scania_component_x": (
+            "vehicle-level repair risk is not a compressor failure-episode onset"
+        ),
+        "hydraulic_systems": ("laboratory cycle states are not field failure-event onsets"),
+        "secom": "wafer yield labels are quality outcomes, not maintenance repair events",
+    }
+    rows: list[dict[str, object]] = []
+    for _index, row in source.iterrows():
+        dataset_id = str(row["dataset_id"])
+        if dataset_id not in explanations:
+            continue
+        rows.append(
+            {
+                "Dataset": _dataset_label(dataset_id),
+                "Method": "high-quantile diagnostic",
+                "Primary failure layer": "estimand mismatch",
+                "Supporting evidence": (f"{explanations[dataset_id]}; {_root_cause_evidence(row)}"),
+                "Alternative not excluded": (
+                    "a redesigned target and evaluation on these units might succeed; "
+                    "this is not evidence that the method fails on them"
+                ),
+                "Confidence": "high",
+            }
+        )
+    return rows
 
 
 def _range_text(values: pd.Series) -> str:
@@ -1897,24 +3195,115 @@ def _require_columns(frame: pd.DataFrame, columns: tuple[str, ...]) -> None:
         raise ValueError(f"missing required columns: {missing}")
 
 
-def _write_latex_table(frame: pd.DataFrame, path: Path, *, caption: str, label: str) -> None:
+#: Data rows above which a table is emitted as a breakable ``longtable``. Set from the
+#: smallest table observed to overrun a page: the 19-row method-provenance table, whose
+#: text cells wrap. Row count alone does not determine height, so this is deliberately
+#: below the largest table that happens to fit.
+_MAX_FLOAT_TABLE_ROWS = 15
+
+
+def _write_latex_table(
+    frame: pd.DataFrame,
+    path: Path,
+    *,
+    caption: str,
+    label: str,
+    column_weights: Sequence[float] | None = None,
+    long: bool | None = None,
+) -> None:
+    r"""Write ``frame`` as a full-width table.
+
+    ``column_weights`` optionally reweights the equal-width default, which crowds
+    tables that mix long method names with short counts. Weights must sum to the
+    column count.
+
+    ``long`` emits a ``longtable`` instead of a ``tabularx`` float. Left unset, it is
+    chosen from the row count: a float that overruns the page does not error, it warns
+    and lets the surplus rows fall off the bottom, so they disappear from the PDF while
+    the source and the CSV still list them. Deciding here rather than at each call site
+    means a table that grows past the limit cannot silently start dropping rows.
+    """
     columns = [str(column) for column in frame.columns]
-    column_spec = " ".join([r">{\raggedright\arraybackslash}X" for _column in columns])
-    lines = [
-        "\\begin{table}[!htbp]",
-        "\\centering",
-        "\\small",
-        f"\\caption{{{_latex_escape(caption)}}}",
-        f"\\label{{{_latex_escape(label)}}}",
-        "\\begin{tabularx}{\\textwidth}{" + column_spec + "}",
-        "\\toprule",
-        " & ".join(_latex_escape(_pretty_column_header(column)) for column in columns) + " \\\\",
-        "\\midrule",
-    ]
+    if column_weights is not None:
+        if len(column_weights) != len(columns):
+            raise ValueError(
+                f"column_weights has {len(column_weights)} entries for {len(columns)} columns"
+            )
+        total = sum(column_weights)
+        if abs(total - len(columns)) > 1e-6:
+            raise ValueError(f"column_weights must sum to {len(columns)}, got {total}")
+    weights = list(column_weights or [1.0] * len(columns))
+    header = (
+        " & ".join(_latex_escape(_pretty_column_header(column)) for column in columns) + " \\\\"
+    )
+    body = []
     for _index, row in frame.iterrows():
         values = [_latex_escape(_format_latex_value(row[column])) for column in frame.columns]
-        lines.append(" & ".join(values) + " \\\\")
-    lines.extend(["\\bottomrule", "\\end{tabularx}", "\\end{table}", ""])
+        body.append(" & ".join(values) + " \\\\")
+
+    if long is None:
+        long = len(frame) > _MAX_FLOAT_TABLE_ROWS
+
+    if not long:
+        column_spec = " ".join(
+            rf">{{\hsize={weight}\hsize\raggedright\arraybackslash}}X"
+            if column_weights is not None
+            else r">{\raggedright\arraybackslash}X"
+            for weight in weights
+        )
+        lines = [
+            "\\begin{table}[!htbp]",
+            "\\centering",
+            "\\small",
+            f"\\caption{{{_latex_escape(caption)}}}",
+            f"\\label{{{_latex_escape(label)}}}",
+            "\\begin{tabularx}{\\textwidth}{" + column_spec + "}",
+            "\\toprule",
+            header,
+            "\\midrule",
+            *body,
+            "\\bottomrule",
+            "\\end{tabularx}",
+            "\\end{table}",
+            "",
+        ]
+        path.write_text("\n".join(lines), encoding="utf-8")
+        return
+
+    # longtable has no X column, so the widths are resolved against a length that
+    # subtracts the inter-column glue from the text width.
+    count = len(columns)
+    span = rf"\dimexpr\textwidth-{2 * count}\tabcolsep\relax"
+    column_spec = " ".join(
+        rf">{{\raggedright\arraybackslash}}p{{{weight / count:.4f}{span}}}" for weight in weights
+    )
+    lines = [
+        "\\begingroup",
+        "\\small",
+        # longtable captions default to 4in, which reads as a mistake next to a
+        # full-width table.
+        "\\setlength{\\LTcapwidth}{\\textwidth}",
+        "\\begin{longtable}{" + column_spec + "}",
+        f"\\caption{{{_latex_escape(caption)}}}",
+        f"\\label{{{_latex_escape(label)}}}\\\\",
+        "\\toprule",
+        header,
+        "\\midrule",
+        "\\endfirsthead",
+        "\\toprule",
+        header,
+        "\\midrule",
+        "\\endhead",
+        "\\midrule",
+        rf"\multicolumn{{{count}}}{{r}}{{\small\itshape continued on next page}}\\",
+        "\\endfoot",
+        "\\bottomrule",
+        "\\endlastfoot",
+        *body,
+        "\\end{longtable}",
+        "\\endgroup",
+        "",
+    ]
     path.write_text("\n".join(lines), encoding="utf-8")
 
 

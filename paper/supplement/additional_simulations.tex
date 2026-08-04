@@ -5,6 +5,27 @@ The simulation registry includes independent, periodic, noisy, mixture, missingn
 
 The generated simulation asset used in the main paper is the reproducibility-scale artifact. It is sufficient for build validation, but it is not a replacement for the full registered experiment matrix. The supplement therefore treats simulation results as evidence about the implemented pipeline and estimator sensitivity, not as an exhaustive finite-sample theory.
 
+\subsection{Reference availability}
+\label{supp:reference-availability}
+
+Table~\ref{tab:estimator-reference-regimes} records, for every simulated family, how many configurations carry a reference extremal index, whether that reference is theoretical or numerical, and which clustering regime it falls in. Three families --- noisy periodic dynamics, persistent shift, and regime mixture --- have no established reference at any configuration: the two long-run estimates used to fix a numerical value disagree beyond the accepted tolerance, with discrepancies from \(0.15\) to \(0.60\) and no plateau in the block-based family. These are mixture and non-stationary processes for which a single extremal index is arguably not well defined, and they are reported as non-identifiable rather than assigned a value that one declustering convention happens to produce.
+
+\input{../../reports/paper/latex/estimator_full_grid.tex}
+
+The complete estimator grid, carrying all thirteen reported quantities for every configuration and estimator, is distributed as \texttt{estimator\_full\_grid.csv} in the reproducibility package. Every value in the main-paper table is recomputable from it.
+
+\subsection{Sensitivity to perturbations}
+\label{supp:simulation-sensitivity}
+
+Figure~\ref{fig:supp-estimator-sensitivity} reports mean estimates under noise, missingness, and regime mixture. Added noise moves every estimator towards independence, which is the expected direction: perturbation breaks the deterministic recurrence that produces clustering, and the numerically established references for the noisy families sit between \(0.94\) and \(0.98\) accordingly. This is also why the high-replication grid, which runs at a single non-zero noise level, is reported in the main paper as evidence about near-independent processes.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\linewidth]{../../reports/paper/figures/estimator_sensitivity.png}
+  \caption{Estimator sensitivity to noise scale, missing rate, and regime mixture. The regime-mixture panel contrasts families rather than sweeping a parameter, since mixture is a property of the process and not a tuning knob.}
+  \label{fig:supp-estimator-sensitivity}
+\end{figure}
+
 \begin{figure}[h]
   \centering
   \includegraphics[width=0.78\linewidth]{../../reports/paper/figures/simulation_bias_rmse.png}

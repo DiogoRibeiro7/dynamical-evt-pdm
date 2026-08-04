@@ -8,6 +8,8 @@ experiment:
   thresholds: [0.95, 0.98, 0.99]
   run_lengths: [0, 5, 10]
   repetitions: 10
+  bootstrap_resamples: 200
+  bootstrap_level: 0.95
   estimands:
     - extremal_index
     - mean_cluster_size

@@ -1,8 +1,28 @@
 \section{Simulation Study}
 \label{sec:simulation}
 
-The simulation layer is designed to falsify overconfident interpretations before industrial data are used. The registered systems include independent extremes, periodic dynamics, noisy periodic dynamics, regime mixtures, missingness perturbations, and degradation-like cyclic trajectories. Each simulation cell records its configuration, random seed, threshold grid, run-length grid, estimator status, and raw outputs sufficient to regenerate the paper assets.
+The simulation layer is designed to falsify overconfident interpretations before industrial data are used. The registered systems include independent extremes, periodic dynamics, noisy periodic dynamics, regime mixtures, missingness perturbations, smoothing and downsampling perturbations, and degradation-like cyclic trajectories. Each simulation cell records its configuration, random seed, threshold grid, run-length grid, estimator status, and raw outputs sufficient to regenerate the paper assets.
 
-The main estimands are finite-sample bias and root mean squared error for extremal-index estimators, coverage or failure status where intervals are available, and recovery of clustered episodes. The simulation artifacts deliberately preserve estimator failures. A failed fit is treated as a terminal experiment outcome rather than an infrastructure error, because failure regions are part of the statistical evidence.
+\subsection{Estimators under comparison}
 
-The current generated recovery table and figure are interpreted in Section~\ref{sec:results} as bounded finite-sample diagnostics. They show recovery error, Monte Carlo standard error, and estimator failure status under registered settings. They support claims about the tested process families and grids, but they do not support a statement that the same estimator is reliable for every industrial fault interval.
+Six estimators of the extremal index are compared: runs declustering, the Ferro--Segers intervals estimator, K-gaps, the reciprocal mean block-cluster size, the disjoint-blocks estimator, and a no-declustering reference fixed at \(\theta = 1\). The last is not a competitive estimator but a control: any procedure that cannot separate a clustered process from an independent one should be indistinguishable from it. The runs and K-gaps estimators are tuned by the declustering run length; the block-based estimators are tuned by the block size, which is set to \(\lceil \sqrt{n} \rceil\) so that the tuning parameter is declared rather than fitted.
+
+The reciprocal mean cluster size is computed over disjoint blocks rather than over runs-declustered clusters. This is deliberate. When clusters are taken from runs declustering they partition the exceedances exactly, so the reciprocal mean cluster size reduces algebraically to the runs estimator and carries no independent information; reporting the two as separate estimators would present one quantity twice.
+
+\subsection{Reference extremal indices}
+
+Bias, root mean squared error and coverage all require a reference value of \(\theta\). Closed-form references exist only for the independent systems and for the noiseless logistic map at its periodic target, where \(\theta = 1/2\). Every noisy configuration lies outside those cases, so references there are established numerically from a long realisation of \(4 \times 10^{5}\) samples.
+
+The numerical construction is deliberately conservative, because a reference obtained from one declustering rule is not independent of the estimators being judged: scoring against a runs-based reference would favour the runs estimator by construction. Two structurally different long-run estimates are therefore computed, one by runs declustering at a short run length and one by disjoint blocks at a block scaled to hold roughly one expected exceedance. A numerical reference is accepted only where the two agree within \(0.05\); otherwise the configuration is recorded as one where \(\theta\) could not be established, and it contributes no bias, RMSE or coverage evidence. Both long-run settings are calibrated against the two systems whose value theory already fixes, recovering \(0.495\) against a theoretical \(0.5\) and \(0.961\) against a theoretical \(1.0\).
+
+Theoretical and numerical references are never pooled within a reported row, and every table states which kind it used.
+
+\subsection{Interval estimation}
+
+None of the six estimators has a usable closed-form interval in this setting, so intervals are obtained by a circular block bootstrap over the exceedance indicator series. Resampling whole blocks preserves the short-range dependence that the extremal index measures; an independent bootstrap would destroy exactly the structure under study and return intervals centred on one. Resamples that fail to yield an admissible estimate are counted rather than discarded, so the reported resample success rate is honest.
+
+\subsection{What this grid can and cannot establish}
+
+The simulation evidence is not uniform across the clustering regimes, and the reported scope is limited accordingly. The high-replication grid runs at a single noise level, and at that noise level the numerically established references sit close to independence: of its nine referenced process families, eight have \(\theta \geq 0.9\). Its 500 replications per cell therefore buy precision about \emph{near-independent} processes. Clustered evidence does exist --- the cyclic degradation family is established between \(\theta = 0.049\) and \(\theta = 0.175\), and the smoothing family at \(\theta = 0.272\) --- but the strongly clustered cells carry far fewer replications, so their coverage estimates are correspondingly imprecise.
+
+Accordingly, this study reports the high-replication grid as evidence about near-independent processes, and treats the clustered cells as supporting rather than primary evidence. Estimator failures, non-estimable quantities and unestablished references are preserved in the artifacts as part of that scope statement rather than removed from it.

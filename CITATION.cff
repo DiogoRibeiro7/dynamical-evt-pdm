@@ -5,8 +5,8 @@ type: software
 authors:
   - family-names: "Ribeiro"
     given-names: "Diogo"
-version: 0.2.2
-date-released: 2026-07-28
+version: 0.3.0
+date-released: 2026-08-03
 license: BSD-3-Clause
 repository-code: "https://github.com/DiogoRibeiro7/dynamical-evt-pdm"
 abstract: "Reproducible negative-result dynamical extreme-value diagnostics, high-replication Monte Carlo artifacts, real-data acquisition scripts, event-level alarm evaluation, matched controls, and manuscript assets for predictive-maintenance research."

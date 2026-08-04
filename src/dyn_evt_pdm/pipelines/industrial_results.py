@@ -4,16 +4,53 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
+import tracemalloc
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
 
 import numpy as np
 import pandas as pd
+from scipy.stats import rankdata
 
 from dyn_evt_pdm.evaluation.events import EarlyWarningPolicy, flags_to_events
 from dyn_evt_pdm.evaluation.metrics import evaluate_event_predictions
-from dyn_evt_pdm.types import EventInterval
+from dyn_evt_pdm.evt.clusters import extract_clusters
+from dyn_evt_pdm.pipelines.cross_dataset_transfer import (
+    TransferResult,
+    TransferSplits,
+    assess_schema_compatibility,
+    fit_target_region,
+    run_transfer_protocols,
+    transfer_distance_samples,
+    transfer_results_frame,
+)
+from dyn_evt_pdm.pipelines.detection_aware_controls import (
+    add_detection_columns,
+    detection_aware_summary,
+    joint_utility,
+    utility_sensitivity,
+)
+from dyn_evt_pdm.pipelines.event_method_impl import (
+    apply_regime_thresholds,
+    best_single_sensor_index,
+    declustered_flags,
+    derived_run_length,
+    fit_isolation_forest,
+    gpd_return_level,
+    isolation_forest_score,
+    regime_conditioned_thresholds,
+    single_sensor_score,
+)
+from dyn_evt_pdm.pipelines.event_method_specs import SPECS_BY_NAME, method_merge_gap
+from dyn_evt_pdm.pipelines.event_timeline import (
+    TimelineInputs,
+    build_global_overview,
+    build_local_trace,
+    build_timeline_metadata,
+)
+from dyn_evt_pdm.types import BoolArray, EventInterval
 
 IndustrialResultStatus = Literal["succeeded", "not_estimable", "failed"]
 
@@ -53,6 +90,15 @@ EVENT_BASELINE_METHODS = (
     "failure_prototype_region",
     "rare_state_region",
 )
+#: Highest training exceedance rate a threshold may imply before it is treated as
+#: degenerate. Above this the detector is effectively always on, and episode-level
+#: precision and recall stop measuring detection.
+_MAX_TRAIN_EXCEEDANCE_RATE = 0.5
+
+#: Share of the test period under warning above which a detector is treated as always
+#: on. Episode-level precision and recall stop measuring detection at that point.
+_MAX_ALARM_COVERAGE_FRACTION = 0.5
+
 TARGET_REGION_METHODS = ("failure_prototype_region", "rare_state_region")
 EVENT_CONTROL_METHODS = ("negative_control_region",)
 MATCHED_CONTROL_FAMILIES = (
@@ -302,9 +348,13 @@ def _run_event_level_comparison_artifacts(config: IndustrialResultsConfig) -> di
     transferability_rows: list[dict[str, object]] = []
     negative_control_summary_rows: list[dict[str, object]] = []
     negative_control_draw_rows: list[dict[str, object]] = []
+    detection_aware_rows: list[dict[str, object]] = []
+    utility_sensitivity_rows: list[dict[str, object]] = []
     decomposition_rows: list[dict[str, object]] = []
     reconciliation_rows: list[dict[str, object]] = []
-    timeline_frames: list[pd.DataFrame] = []
+    timeline_local_frames: list[pd.DataFrame] = []
+    timeline_overview_frames: list[pd.DataFrame] = []
+    timeline_metadata_rows: list[dict[str, object]] = []
     for dataset_id in ("metropt", "metropt2"):
         manifest_path = config.processed_root / dataset_id / "manifest.json"
         if not manifest_path.exists():
@@ -315,6 +365,8 @@ def _run_event_level_comparison_artifacts(config: IndustrialResultsConfig) -> di
             variants,
             control_summaries,
             control_draws,
+            detection_aware,
+            utility_sensitivity_batch,
             decomposition,
             reconciliation,
             timeline,
@@ -323,11 +375,19 @@ def _run_event_level_comparison_artifacts(config: IndustrialResultsConfig) -> di
         variant_rows.extend(variants)
         negative_control_summary_rows.extend(control_summaries)
         negative_control_draw_rows.extend(control_draws)
+        detection_aware_rows.extend(detection_aware)
+        utility_sensitivity_rows.extend(utility_sensitivity_batch)
         decomposition_rows.extend(decomposition)
         reconciliation_rows.extend(reconciliation)
         if timeline is not None:
-            timeline_frames.append(timeline)
-    transferability_rows = _target_region_transferability_rows(baseline_rows)
+            if not timeline.local.empty:
+                timeline_local_frames.append(timeline.local)
+            if not timeline.overview.empty:
+                timeline_overview_frames.append(timeline.overview)
+            timeline_metadata_rows.append(timeline.metadata)
+    transferability_rows, compatibility_rows, transfer_distances = _cross_dataset_transfer_rows(
+        config
+    )
 
     artifacts: dict[str, str] = {}
     if baseline_rows:
@@ -342,10 +402,26 @@ def _run_event_level_comparison_artifacts(config: IndustrialResultsConfig) -> di
         path = config.output_root / "target_region_transferability.csv"
         pd.DataFrame(transferability_rows).to_csv(path, index=False)
         artifacts["target_region_transferability_csv"] = str(path)
+    if compatibility_rows:
+        path = config.output_root / "transfer_schema_compatibility.csv"
+        pd.DataFrame(compatibility_rows).to_csv(path, index=False)
+        artifacts["transfer_schema_compatibility_csv"] = str(path)
+    if transfer_distances is not None and not transfer_distances.empty:
+        path = config.output_root / "transfer_distance_samples.csv"
+        transfer_distances.to_csv(path, index=False)
+        artifacts["transfer_distance_samples_csv"] = str(path)
     if negative_control_summary_rows:
         path = config.output_root / "matched_negative_controls.csv"
         pd.DataFrame(negative_control_summary_rows).to_csv(path, index=False)
         artifacts["matched_negative_controls_csv"] = str(path)
+    if detection_aware_rows:
+        path = config.output_root / "detection_aware_controls.csv"
+        pd.DataFrame(detection_aware_rows).to_csv(path, index=False)
+        artifacts["detection_aware_controls_csv"] = str(path)
+    if utility_sensitivity_rows:
+        path = config.output_root / "control_utility_sensitivity.csv"
+        pd.DataFrame(utility_sensitivity_rows).to_csv(path, index=False)
+        artifacts["control_utility_sensitivity_csv"] = str(path)
     if negative_control_draw_rows:
         path = config.output_root / "matched_negative_control_draws.csv"
         pd.DataFrame(negative_control_draw_rows).to_csv(path, index=False)
@@ -358,10 +434,18 @@ def _run_event_level_comparison_artifacts(config: IndustrialResultsConfig) -> di
         path = config.output_root / "timeline_reconciliation.csv"
         pd.DataFrame(reconciliation_rows).to_csv(path, index=False)
         artifacts["timeline_reconciliation_csv"] = str(path)
-    if timeline_frames:
+    if timeline_local_frames:
         path = config.output_root / "event_timeline_trace.csv"
-        pd.concat(timeline_frames, ignore_index=True).to_csv(path, index=False)
+        pd.concat(timeline_local_frames, ignore_index=True).to_csv(path, index=False)
         artifacts["event_timeline_csv"] = str(path)
+    if timeline_overview_frames:
+        path = config.output_root / "event_timeline_overview.csv"
+        pd.concat(timeline_overview_frames, ignore_index=True).to_csv(path, index=False)
+        artifacts["event_timeline_overview_csv"] = str(path)
+    if timeline_metadata_rows:
+        path = config.output_root / "event_timeline_metadata.csv"
+        pd.DataFrame(timeline_metadata_rows).to_csv(path, index=False)
+        artifacts["event_timeline_metadata_csv"] = str(path)
     manifest_path = config.output_root / "event_level_comparison_manifest.json"
     manifest_path.write_text(json.dumps(artifacts, indent=2), encoding="utf-8")
     return artifacts
@@ -378,17 +462,19 @@ def _run_metropt_event_comparison(
     list[dict[str, object]],
     list[dict[str, object]],
     list[dict[str, object]],
-    pd.DataFrame | None,
+    list[dict[str, object]],
+    list[dict[str, object]],
+    TimelineViews | None,
 ]:
     files = _manifest_files(manifest)
     rows = int(manifest.get("rows", 0))
     feature_columns = _available_columns(manifest, METROPT_FEATURE_PRIORITY)
     if not files or rows <= 0 or not feature_columns:
-        return [], [], [], [], [], [], None
+        return [], [], [], [], [], [], [], [], None
 
     train = _collect_metropt_split(files, rows, feature_columns, config, split_name="train")
     if train.empty:
-        return [], [], [], [], [], [], None
+        return [], [], [], [], [], [], [], [], None
     center, scale = _robust_center_scale(train, feature_columns)
     train_refs = _event_method_references(train, feature_columns, center=center, scale=scale)
     train_scores = _event_method_scores(
@@ -396,10 +482,13 @@ def _run_metropt_event_comparison(
     )
     thresholds = _event_method_thresholds(train_scores, config)
     if not thresholds:
-        return [], [], [], [], [], [], None
+        return [], [], [], [], [], [], [], [], None
 
     flags_by_method: dict[str, list[np.ndarray[Any, Any]]] = {method: [] for method in thresholds}
     scores_by_method: dict[str, list[np.ndarray[Any, Any]]] = {method: [] for method in thresholds}
+    exceedances_by_method: dict[str, list[np.ndarray[Any, Any]]] = {
+        method: [] for method in thresholds
+    }
     target_parts: list[np.ndarray[Any, Any]] = []
     timestamp_parts: list[np.ndarray[Any, Any]] = []
     robust_score_parts: list[np.ndarray[Any, Any]] = []
@@ -414,7 +503,15 @@ def _run_metropt_event_comparison(
                 test, feature_columns, center=center, scale=scale, refs=train_refs
             )
             for method, threshold in thresholds.items():
-                flags_by_method[method].append(scores[method] > threshold)
+                raw_exceedances, onset_flags = _method_alarm_flags(
+                    method,
+                    scores[method],
+                    threshold,
+                    refs=train_refs,
+                    config=config,
+                )
+                flags_by_method[method].append(onset_flags)
+                exceedances_by_method[method].append(raw_exceedances)
                 scores_by_method[method].append(scores[method])
             target_parts.append(test["is_failure"].astype(bool).to_numpy())
             timestamp_parts.append(test["timestamp"].to_numpy())
@@ -424,16 +521,33 @@ def _run_metropt_event_comparison(
     target_flags = np.concatenate(target_parts) if target_parts else np.array([], dtype=bool)
     failures = flags_to_events(target_flags, label="failure")
     if not failures:
-        return [], [], [], [], [], [], None
+        return [], [], [], [], [], [], [], [], None
     baseline_rows: list[dict[str, object]] = []
     variant_rows: list[dict[str, object]] = []
     negative_control_summary_rows: list[dict[str, object]] = []
     negative_control_draw_rows: list[dict[str, object]] = []
+    detection_aware_rows: list[dict[str, object]] = []
+    utility_sensitivity_rows: list[dict[str, object]] = []
     decomposition_rows: list[dict[str, object]] = []
     reconciliation_rows: list[dict[str, object]] = []
+    configuration_hash = _event_configuration_hash(config)
     for method, parts in flags_by_method.items():
         alarm_flags = np.concatenate(parts) if parts else np.array([], dtype=bool)
-        alarms = flags_to_events(alarm_flags, label="alarm", merge_gap=config.merge_gap)
+        # The decomposition reports exceedances before the event policy collapses them,
+        # so a declustering method shows the reduction it performed rather than an
+        # exceedance count identical to its cluster count.
+        raw_exceedance_flags = (
+            np.concatenate(exceedances_by_method[method])
+            if exceedances_by_method.get(method)
+            else alarm_flags
+        )
+        # Runtime and peak memory cover the alarm-conversion and evaluation stage, which
+        # is the part that differs between methods sharing a score. The caption states
+        # this scope so the numbers are not read as end-to-end cost.
+        merge_gap = method_merge_gap(method, default_merge_gap=config.merge_gap)
+        tracemalloc.start()
+        started = time.perf_counter()
+        alarms = flags_to_events(alarm_flags, label="alarm", merge_gap=merge_gap)
         evaluation = evaluate_event_predictions(
             alarms,
             failures,
@@ -445,6 +559,11 @@ def _run_metropt_event_comparison(
             total_operating_time=len(target_flags),
             samples_per_day=config.samples_per_day,
         )
+        runtime_seconds = time.perf_counter() - started
+        _current, peak_memory_bytes = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+
+        spec = SPECS_BY_NAME.get(method)
         row = {
             "dataset_id": dataset_id,
             "failure_id": f"{dataset_id}_test_failure_001",
@@ -452,14 +571,44 @@ def _run_metropt_event_comparison(
             "method_family": _event_method_family(method),
             "target_events": len(failures),
             "predicted_alarm_events": len(alarms),
+            "detected": bool(evaluation.recall > 0.0),
             "event_recall": evaluation.recall,
             "event_precision": evaluation.precision,
             "event_f1": evaluation.f1,
             "false_alarm_events_per_day": evaluation.false_alarm_events_per_operating_day,
+            # Absolute counts alongside the rate: the timeline caption has to state them,
+            # and deriving them from the total silently folded duplicates into false alarms.
+            "false_alarm_events": len(evaluation.matching.false_alarm_indices),
+            "matched_alarm_events": len(evaluation.matching.assignments),
             "duplicate_alarm_events": evaluation.duplicate_alarm_events,
             "median_warning_lead_time": evaluation.median_warning_lead_time,
             "time_under_warning": evaluation.time_under_warning,
+            "event_utility": evaluation.utility,
+            # Share of the test period spent under warning. An always-on detector scores
+            # a perfect episode-level precision and recall because merging leaves one
+            # episode that contains the failure and no unmatched episodes to count as
+            # false alarms. This column, and the flag below, are what expose that.
+            "alarm_coverage_fraction": (
+                float(evaluation.time_under_warning) / float(len(target_flags))
+                if len(target_flags)
+                else float("nan")
+            ),
+            "degenerate_always_on": bool(
+                len(target_flags)
+                and float(evaluation.time_under_warning) / float(len(target_flags))
+                > _MAX_ALARM_COVERAGE_FRACTION
+            ),
             "threshold": thresholds[method],
+            "merge_gap_used": int(merge_gap),
+            "score_kind": spec.score_kind if spec else "",
+            "threshold_rule": spec.threshold_rule if spec else "",
+            "event_policy": spec.event_policy if spec else "",
+            "parameter_count": spec.parameter_count if spec else 0,
+            "calibration_status": spec.calibration_status if spec else "",
+            "tuning_partition": spec.tuning_partition if spec else "",
+            "runtime_seconds": float(runtime_seconds),
+            "peak_memory_bytes": int(peak_memory_bytes),
+            "configuration_hash": configuration_hash,
             "leakage_control": "train thresholds and references only",
         }
         baseline_rows.append(row)
@@ -477,10 +626,23 @@ def _run_metropt_event_comparison(
                 method=method,
                 scores=np.concatenate(scores_by_method[method]),
                 threshold=thresholds[method],
-                alarm_flags=alarm_flags,
+                alarm_flags=raw_exceedance_flags,
                 target_flags=target_flags,
                 alarm_count=len(alarms),
                 target_count=len(failures),
+                # Clusters are counted under the method's own event policy, so the
+                # decomposition reflects the conversion that method actually performed.
+                cluster_count=len(
+                    extract_clusters(raw_exceedance_flags, run_length=max(0, merge_gap))
+                ),
+                matched_alarm_count=len(evaluation.matching.assignments),
+                false_alarm_count=len(evaluation.matching.false_alarm_indices),
+                duplicate_alarm_count=evaluation.duplicate_alarm_events,
+                time_under_warning=evaluation.time_under_warning,
+                event_recall=evaluation.recall,
+                event_precision=evaluation.precision,
+                horizon=config.horizon,
+                tolerance_after=config.matching_tolerance_after,
             )
         )
         if method in TARGET_REGION_METHODS:
@@ -522,30 +684,63 @@ def _run_metropt_event_comparison(
             observed_row=observed,
             draw_rows=negative_control_draw_rows,
         )
+        detection_rows, sensitivity_rows = _detection_aware_control_rows(
+            observed_row=observed,
+            draw_rows=negative_control_draw_rows,
+            total_samples=len(target_flags),
+        )
+        detection_aware_rows.extend(detection_rows)
+        utility_sensitivity_rows.extend(sensitivity_rows)
 
     timeline = None
-    if dataset_id == "metropt" and timestamp_parts and robust_score_parts:
-        timestamps = np.concatenate(timestamp_parts)
-        robust_scores = np.concatenate(robust_score_parts)
-        robust_flags = (
-            np.concatenate(flags_by_method["dynamical_evt_robust_score"])
-            if "dynamical_evt_robust_score" in flags_by_method
-            else np.zeros(len(target_flags), dtype=bool)
-        )
-        timeline = _event_timeline_trace(
-            dataset_id,
-            timestamps=timestamps,
-            scores=robust_scores,
-            alarm_flags=robust_flags,
+    # Built for both compressor datasets, not just MetroPT: the local window is the
+    # part a reader trusts, and it is only trustworthy next to the global burden.
+    if timestamp_parts and robust_score_parts and TIMELINE_METHOD in flags_by_method:
+        timeline = _build_timeline_views(
+            dataset_id=dataset_id,
+            timestamps=np.concatenate(timestamp_parts),
+            scores=np.concatenate(robust_score_parts),
+            exceedance_flags=np.concatenate(exceedances_by_method[TIMELINE_METHOD]),
+            alarm_onset_flags=np.concatenate(flags_by_method[TIMELINE_METHOD]),
             target_flags=target_flags,
-            threshold=thresholds["dynamical_evt_robust_score"],
-            samples_per_day=config.samples_per_day,
+            threshold=thresholds[TIMELINE_METHOD],
+            regime_edges=np.asarray(
+                train_refs.get("regime_edges", np.array([], dtype=float)), dtype=float
+            ),
+            baseline_rows=baseline_rows,
+            config=config,
+        )
+    # Every method in the main comparison gets a global overview for the supplement.
+    # The binned form is 240 rows per method, so covering all of them is cheap; the
+    # per-sample local trace stays limited to the registered method.
+    if timeline is not None:
+        timeline = TimelineViews(
+            local=timeline.local,
+            overview=pd.concat(
+                [
+                    _method_global_overview(
+                        dataset_id=dataset_id,
+                        method=method,
+                        exceedance_flags=np.concatenate(exceedances_by_method[method]),
+                        alarm_onset_flags=np.concatenate(parts),
+                        target_flags=target_flags,
+                        threshold=thresholds[method],
+                        config=config,
+                    )
+                    for method, parts in flags_by_method.items()
+                    if parts
+                ],
+                ignore_index=True,
+            ),
+            metadata=timeline.metadata,
         )
     return (
         baseline_rows,
         variant_rows,
         negative_control_summary_rows,
         negative_control_draw_rows,
+        detection_aware_rows,
+        utility_sensitivity_rows,
         decomposition_rows,
         reconciliation_rows,
         timeline,
@@ -591,11 +786,11 @@ def _event_method_references(
     *,
     center: pd.Series,
     scale: pd.Series,
-) -> dict[str, np.ndarray[Any, Any]]:
+) -> dict[str, Any]:
     scaled = _scaled_matrix(train, feature_columns, center=center, scale=scale)
     robust = _nanmax_abs(pd.DataFrame(scaled, columns=list(feature_columns)), feature_columns)
     targets = train["is_failure"].astype(bool).to_numpy()
-    references: dict[str, np.ndarray[Any, Any]] = {}
+    references: dict[str, Any] = {}
     references["failure_prototype_region"] = _reference_subset(scaled[targets], limit=16)
     rare_count = min(16, len(scaled))
     if rare_count:
@@ -613,6 +808,17 @@ def _event_method_references(
         np.tanh(clean),
         max_components=2,
     )
+
+    # Models and selections fitted on training rows only. These were previously absent,
+    # which is why several declared methods fell back to the shared robust score.
+    references["best_sensor_index"] = best_single_sensor_index(clean, targets)
+    try:
+        references["isolation_forest_model"] = fit_isolation_forest(clean)
+    except ValueError:
+        references["isolation_forest_model"] = None
+    # Regime bin edges are fitted here and reused unchanged on the test split, so the
+    # regime-conditioned threshold never sees held-out data.
+    references["regime_edges"] = np.quantile(robust, (1.0 / 3.0, 2.0 / 3.0))
     return references
 
 
@@ -622,7 +828,7 @@ def _event_method_scores(
     *,
     center: pd.Series,
     scale: pd.Series,
-    refs: dict[str, np.ndarray[Any, Any]],
+    refs: dict[str, Any],
 ) -> dict[str, np.ndarray[Any, Any]]:
     scaled = _scaled_matrix(frame, feature_columns, center=center, scale=scale)
     robust = np.nanmax(np.abs(np.where(np.isfinite(scaled), scaled, np.nan)), axis=1)
@@ -643,25 +849,40 @@ def _event_method_scores(
     )
     linear_components = refs.get("linear_autoencoder_components")
     nonlinear_components = refs.get("compact_nonlinear_autoencoder_components")
+
+    forest = refs.get("isolation_forest_model")
+    if forest is not None:
+        isolation_scores = isolation_forest_score(forest, clean)
+    else:
+        # Reported explicitly rather than silently substituted: without a fitted model
+        # this method has no result, and row energy is not an isolation forest.
+        isolation_scores = np.full(len(robust), np.nan, dtype=float)
+    sensor_index = int(refs.get("best_sensor_index", 0))
+    sensor_index = min(sensor_index, max(0, clean.shape[1] - 1))
+
     scores: dict[str, np.ndarray[Any, Any]] = {
+        # These eight share the recurrence score by design; they are separated by their
+        # threshold rule or their event policy, declared in EVENT_METHOD_SPECS.
         "engineering_threshold": robust,
-        "best_individual_sensor_threshold": robust,
         "global_empirical_threshold": robust,
         "regime_conditioned_empirical_threshold": robust,
         "classical_pot_gpd": robust,
         "fixed_run_declustering": robust,
         "ferro_segers_event_policy": robust,
         "k_gaps_event_policy": robust,
+        "dynamical_evt_robust_score": robust,
+        # These carry genuinely distinct scores.
+        "best_individual_sensor_threshold": single_sensor_score(clean, sensor_index=sensor_index),
         "spot": _spot_like_score(robust),
-        "isolation_forest": row_energy,
+        "isolation_forest": isolation_scores,
         "robust_online_changepoint": changepoint,
         "linear_autoencoder": _projection_residual(clean, linear_components),
         "compact_nonlinear_autoencoder": _projection_residual(np.tanh(clean), nonlinear_components),
         "conformal_anomaly": conformal,
         "empirical_horizon_risk": risk,
-        "dynamical_evt_robust_score": robust,
         "max_abs_robust_z": robust,
     }
+    del row_energy
     for column in (
         "pressure_tp2",
         "pressure_tp3",
@@ -679,9 +900,22 @@ def _event_method_scores(
         reference = refs.get(method)
         if reference is not None and len(reference):
             scores[method] = -_minimum_distance(scaled, reference)
-    for method in (*EVENT_BASELINE_METHODS, *EVENT_CONTROL_METHODS):
-        if method not in scores:
-            scores[method] = robust
+    # No silent fallback. Assigning the shared recurrence score to any unmapped method
+    # is what previously collapsed nine declared baselines onto one computation, so an
+    # unmapped method is now a hard error rather than a duplicate row.
+    missing = [
+        method
+        for method in (*EVENT_BASELINE_METHODS, *EVENT_CONTROL_METHODS)
+        if method not in scores
+    ]
+    target_region_methods = set(TARGET_REGION_METHODS) | set(EVENT_CONTROL_METHODS)
+    unexplained = [method for method in missing if method not in target_region_methods]
+    if unexplained:
+        raise ValueError(
+            "no score is defined for declared event methods: "
+            + ", ".join(sorted(unexplained))
+            + ". Every declared method must compute its own score."
+        )
     return scores
 
 
@@ -703,10 +937,114 @@ def _event_method_thresholds(
             threshold = config.threshold_quantile
         elif method == "spot":
             threshold = 0.0
+        elif method == "classical_pot_gpd":
+            # A peaks-over-threshold baseline that reuses the empirical quantile is not
+            # a tail model, so this inverts a fitted generalised Pareto instead.
+            threshold = gpd_return_level(
+                finite,
+                exceedance_quantile=min(0.95, config.threshold_quantile),
+                target_quantile=max(config.threshold_quantile, 0.99),
+            )
         else:
             threshold = float(np.nanquantile(finite, config.threshold_quantile))
+
+        # Degeneracy guard. A threshold at or below the score minimum flags almost every
+        # sample; alarm merging then collapses the whole test period into one episode
+        # that trivially contains the failure, scoring recall and precision of 1.0 for a
+        # detector that is permanently on. That is a metric artifact, not a detection,
+        # so the threshold is lifted to the first value that actually discriminates.
+        if method not in {"conformal_anomaly", "spot"}:
+            implied_rate = float(np.mean(finite > threshold))
+            if implied_rate > _MAX_TRAIN_EXCEEDANCE_RATE:
+                positive = finite[finite > float(np.nanmin(finite))]
+                if positive.size:
+                    threshold = float(np.nanquantile(positive, config.threshold_quantile))
+                    implied_rate = float(np.mean(finite > threshold))
+                if implied_rate > _MAX_TRAIN_EXCEEDANCE_RATE:
+                    # Still degenerate: this score cannot support a threshold on this
+                    # dataset, and saying so is better than reporting a perfect score.
+                    continue
         thresholds[method] = float(threshold)
     return thresholds
+
+
+def _method_alarm_flags(
+    method: str,
+    scores: np.ndarray[Any, Any],
+    threshold: float,
+    *,
+    refs: dict[str, Any],
+    config: IndustrialResultsConfig,
+) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
+    """Return raw threshold exceedances and the post-policy alarm-onset flags.
+
+    Both are needed by the decomposition. A declustering policy collapses a run of
+    exceedances to a single onset, so reporting its onset flags as the exceedance stage
+    would show a method whose exceedance and cluster counts are identical and hide the
+    reduction the declustering actually performed.
+
+    Methods sharing a score are separated here: the threshold rule decides which samples
+    exceed, and the event policy decides how a run of exceedances becomes alarm onsets.
+    """
+
+    spec = SPECS_BY_NAME.get(method)
+    values = np.asarray(scores, dtype=float)
+
+    if spec is not None and spec.threshold_rule == "regime_conditioned_quantile":
+        edges = np.asarray(refs.get("regime_edges", np.array([], dtype=float)), dtype=float)
+        if edges.size:
+            regimes = np.asarray(np.digitize(values, edges), dtype=int)
+            regime_thresholds = {int(regime): float(threshold) for regime in np.unique(regimes)}
+            train_scores = np.asarray(
+                refs.get("train_robust_scores", np.array([], dtype=float)), dtype=float
+            )
+            train_regimes = np.asarray(np.digitize(train_scores, edges), dtype=int)
+            if train_scores.size:
+                regime_thresholds = regime_conditioned_thresholds(
+                    train_scores, train_regimes, quantile=config.threshold_quantile
+                )
+            exceedances = apply_regime_thresholds(
+                values, regimes, regime_thresholds, fallback=threshold
+            )
+        else:
+            exceedances = values > threshold
+    else:
+        exceedances = np.asarray(values > threshold, dtype=bool)
+
+    policy = spec.event_policy if spec is not None else "merge_gap"
+    if policy == "fixed_run_declustering":
+        return exceedances, declustered_flags(exceedances, run_length=config.merge_gap)
+    if policy == "ferro_segers_run_length":
+        run_length = derived_run_length(exceedances, estimator="ferro_segers")
+        return exceedances, declustered_flags(exceedances, run_length=run_length)
+    if policy == "k_gaps_run_length":
+        run_length = derived_run_length(exceedances, estimator="k_gaps")
+        return exceedances, declustered_flags(exceedances, run_length=run_length)
+    if policy == "extremal_index_declustering":
+        run_length = derived_run_length(exceedances, estimator="ferro_segers")
+        return exceedances, declustered_flags(exceedances, run_length=max(1, run_length // 2))
+    return exceedances, exceedances
+
+
+def _method_run_length(method: str, exceedances: BoolArray, config: IndustrialResultsConfig) -> int:
+    """Return the declustering run length a method actually used.
+
+    The timeline caption has to state this, and for the estimator-driven policies it is
+    derived from the exceedance pattern rather than declared, so it cannot be read off
+    the configuration.
+    """
+
+    spec = SPECS_BY_NAME.get(method)
+    policy = spec.event_policy if spec is not None else "merge_gap"
+    if policy == "fixed_run_declustering":
+        return int(config.merge_gap)
+    if policy == "ferro_segers_run_length":
+        return derived_run_length(exceedances, estimator="ferro_segers")
+    if policy == "k_gaps_run_length":
+        return derived_run_length(exceedances, estimator="k_gaps")
+    if policy == "extremal_index_declustering":
+        return max(1, derived_run_length(exceedances, estimator="ferro_segers") // 2)
+    return 0
 
 
 def _principal_components(
@@ -854,9 +1192,30 @@ def _matched_negative_control_draw_rows(
                     "false_alarm_events_per_day": evaluation.false_alarm_events_per_operating_day,
                     "median_warning_lead_time": evaluation.median_warning_lead_time,
                     "time_under_warning": evaluation.time_under_warning,
+                    # The observed method's occupancy is constant across draws and is
+                    # kept for reference; the control's own occupancy is what an
+                    # occupancy-matched comparison must condition on, and recording the
+                    # observed value in its place made that comparison impossible.
                     "region_occupancy": float(len(observed_indices) / max(1, len(targets))),
+                    "control_occupancy": float(
+                        sum(alarm.duration for alarm in alarms) / max(1, len(targets))
+                    ),
                     "cluster_count": len(alarms),
-                    "event_utility": float(evaluation.recall - 0.01 * len(alarms)),
+                    "duplicate_alarm_events": evaluation.duplicate_alarm_events,
+                    "alarm_coverage_fraction": (
+                        float(evaluation.time_under_warning) / float(max(1, len(targets)))
+                    ),
+                    "detected": bool(evaluation.recall > 0.0),
+                    "event_utility": joint_utility(
+                        detected=bool(evaluation.recall > 0.0),
+                        false_alarm_events_per_day=float(
+                            evaluation.false_alarm_events_per_operating_day or 0.0
+                        ),
+                        alarm_coverage_fraction=(
+                            float(evaluation.time_under_warning) / float(max(1, len(targets)))
+                        ),
+                        median_warning_lead_time=evaluation.median_warning_lead_time,
+                    ),
                     "matching_basis": _control_matching_basis(family),
                 }
             )
@@ -1022,6 +1381,66 @@ def _matched_negative_control_summary_rows(
     return rows
 
 
+def _detection_aware_control_rows(
+    *,
+    observed_row: dict[str, object],
+    draw_rows: list[dict[str, object]],
+    total_samples: int,
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Build the detection-aware control comparison and its weight sensitivity.
+
+    The per-metric summary compares burden without reference to whether the failure was
+    found. That rewards a region for not detecting: a region raising no alarms has a
+    false-alarm rate of zero and beats every control on burden while missing the event.
+    These rows carry the control detection rate and a predeclared joint utility, and
+    repeat the comparison restricted to controls that detect, that match the observed
+    recall, and that match the observed occupancy.
+    """
+
+    if not draw_rows:
+        return [], []
+    draws = add_detection_columns(pd.DataFrame(draw_rows), total_samples=total_samples)
+    observed_recall = _object_float(observed_row["event_recall"])
+    observed_coverage = _object_float(observed_row.get("alarm_coverage_fraction", float("nan")))
+    if not np.isfinite(observed_coverage):
+        observed_coverage = _object_float(observed_row["time_under_warning"]) / float(
+            max(1, total_samples)
+        )
+    lead = observed_row.get("median_warning_lead_time")
+    observed_lead = _object_float(lead) if lead is not None else None
+
+    summary = detection_aware_summary(
+        draws,
+        observed_detected=observed_recall > 0.0,
+        observed_recall=observed_recall,
+        observed_occupancy=_object_float(observed_row.get("alarm_coverage_fraction", float("nan"))),
+        observed_false_alarms_per_day=_object_float(observed_row["false_alarm_events_per_day"]),
+        observed_alarm_coverage=observed_coverage,
+        observed_lead_time=observed_lead if observed_lead and np.isfinite(observed_lead) else None,
+    )
+    sensitivity = utility_sensitivity(
+        draws,
+        observed_detected=observed_recall > 0.0,
+        observed_false_alarms_per_day=_object_float(observed_row["false_alarm_events_per_day"]),
+        observed_alarm_coverage=observed_coverage,
+        observed_lead_time=observed_lead if observed_lead and np.isfinite(observed_lead) else None,
+    )
+    if not sensitivity.empty:
+        sensitivity.insert(0, "observed_method", str(observed_row["method"]))
+        sensitivity.insert(0, "dataset_id", str(observed_row["dataset_id"]))
+
+    def _to_records(frame: pd.DataFrame) -> list[dict[str, object]]:
+        return [
+            {str(key): value for key, value in record.items()}
+            for record in frame.to_dict("records")
+        ]
+
+    return (
+        _to_records(summary) if not summary.empty else [],
+        _to_records(sensitivity) if not sensitivity.empty else [],
+    )
+
+
 def _object_float(value: object) -> float:
     if isinstance(value, int | float | np.integer | np.floating):
         return float(value)
@@ -1067,6 +1486,74 @@ def _stable_seed(*parts: str) -> int:
     return int(digest[:8], 16)
 
 
+def _warning_window_separation(
+    scores: np.ndarray[Any, Any],
+    target_flags: np.ndarray[Any, Any],
+    *,
+    horizon: int,
+) -> float:
+    """Rank separation between scores in the warning window and scores outside it.
+
+    This is the Mann-Whitney statistic, ``P(score inside > score outside)``, computed on
+    ranks so it does not depend on the score's units and is comparable across methods.
+    0.5 means the score is uninformative about the window; 1.0 means every warning-window
+    sample outranks every other sample.
+
+    The window is the declared horizon before each labelled failure onset, which is the
+    interval a detector would have to score highly to be useful. Scoring the failure
+    interval itself would reward a method for reacting after the fact.
+    """
+
+    values = np.asarray(scores, dtype=float)
+    targets = np.asarray(target_flags, dtype=bool)
+    if values.size == 0 or values.size != targets.size:
+        return float("nan")
+
+    window = np.zeros(values.size, dtype=bool)
+    for event in flags_to_events(targets, label="failure"):
+        window[max(0, int(event.start) - horizon) : int(event.start) + 1] = True
+
+    finite = np.isfinite(values)
+    inside = window & finite
+    outside = (~window) & finite
+    if not inside.any() or not outside.any():
+        return float("nan")
+
+    # Midranks, not ordinal ranks. Industrial scores tie heavily during idle operation,
+    # and breaking ties by position makes a constant score look informative purely
+    # because the warning window sits at one end of the series.
+    ranks = np.empty(values.size, dtype=float)
+    ranks[finite] = rankdata(values[finite], method="average")
+    n_inside = int(inside.sum())
+    n_outside = int(outside.sum())
+    rank_sum = float(ranks[inside].sum())
+    return float((rank_sum - n_inside * (n_inside + 1) / 2.0) / (n_inside * n_outside))
+
+
+def _chance_match_probability(
+    *,
+    alarm_count: int,
+    target_flags: np.ndarray[Any, Any],
+    horizon: int,
+    tolerance_after: int,
+) -> float:
+    """Probability that a detector this busy matches the failure with no signal at all.
+
+    Under a homogeneous Poisson model with the method's own episode rate, this is
+    ``1 - exp(-N W / T)`` for ``N`` episodes, matching window width ``W`` and test span
+    ``T``. It is the analytic counterpart of the matched-control comparison: a recall of
+    1.0 is only evidence of early warning when this probability is well below one.
+    """
+
+    targets = np.asarray(target_flags, dtype=bool)
+    total = int(targets.size)
+    events = flags_to_events(targets, label="failure")
+    if total <= 0 or alarm_count <= 0 or not events:
+        return float("nan")
+    window = float(len(events) * (horizon + tolerance_after + 1))
+    return float(1.0 - np.exp(-alarm_count * window / total))
+
+
 def _score_threshold_alarm_decomposition_row(
     *,
     dataset_id: str,
@@ -1077,24 +1564,183 @@ def _score_threshold_alarm_decomposition_row(
     target_flags: np.ndarray[Any, Any],
     alarm_count: int,
     target_count: int,
+    cluster_count: int,
+    matched_alarm_count: int,
+    false_alarm_count: int,
+    duplicate_alarm_count: int,
+    time_under_warning: int,
+    event_recall: float,
+    event_precision: float,
+    horizon: int,
+    tolerance_after: int,
 ) -> dict[str, object]:
+    """Record one method's decomposition, keeping detector counts and ground truth apart.
+
+    The detector track runs test observations, threshold exceedances, extreme clusters,
+    alarm episodes, matched alarm episodes. Labelled failures are ground truth and are
+    recorded separately: they are not produced by the detector, and placing them at the
+    end of a detector count flow implies a derivation that does not exist.
+
+    Units differ by stage and are named in the column, because a count of samples, a
+    count of clusters and a count of episodes are not comparable quantities.
+    """
+
     finite = scores[np.isfinite(scores)]
+    exceedances = int(np.count_nonzero(alarm_flags))
     return {
         "dataset_id": dataset_id,
         "failure_id": f"{dataset_id}_test_failure_001",
         "method": method,
         "score_median": float(np.median(finite)) if len(finite) else np.nan,
         "score_p95": float(np.quantile(finite, 0.95)) if len(finite) else np.nan,
-        "threshold": threshold,
-        "point_exceedances": int(np.count_nonzero(alarm_flags)),
-        "alarm_events": alarm_count,
-        "target_events": target_count,
-        "target_points": int(np.count_nonzero(target_flags)),
-        "exceedance_to_alarm_ratio": (
-            float(np.count_nonzero(alarm_flags) / alarm_count) if alarm_count else np.nan
+        # Separates a score that carries no warning information from a threshold that
+        # discarded it. Both produce zero exceedances, and the counts alone cannot tell
+        # them apart, so the repair they imply cannot be named without this.
+        "score_separation_auc": _warning_window_separation(scores, target_flags, horizon=horizon),
+        # Probability that a detector alarming this often lands at least one episode in
+        # the warning window with no signal at all. Recall of 1.0 means little when this
+        # is near 1: the match is what an equally busy random detector would produce.
+        "chance_match_probability": _chance_match_probability(
+            alarm_count=alarm_count,
+            target_flags=target_flags,
+            horizon=horizon,
+            tolerance_after=tolerance_after,
         ),
+        "threshold": threshold,
+        # Detector evidence track.
+        "test_observations_samples": int(len(alarm_flags)),
+        "threshold_exceedances_samples": exceedances,
+        "extreme_clusters_count": cluster_count,
+        "alarm_episodes_count": alarm_count,
+        "matched_alarm_episodes_count": matched_alarm_count,
+        "false_alarm_episodes_count": false_alarm_count,
+        "duplicate_alarm_episodes_count": duplicate_alarm_count,
+        # Ground-truth track, kept separate from the detector counts above.
+        "labelled_failure_events_count": target_count,
+        "labelled_failure_samples": int(np.count_nonzero(target_flags)),
+        # Outcome.
+        "event_recall": event_recall,
+        "event_precision": event_precision,
+        "time_under_warning_samples": time_under_warning,
+        "exceedance_to_alarm_ratio": (float(exceedances / alarm_count) if alarm_count else np.nan),
         "leakage_control": "scores evaluated on test split; thresholds fitted before test split",
     }
+
+
+#: The registered method the main-paper timeline is drawn for.
+TIMELINE_METHOD = "dynamical_evt_robust_score"
+
+
+@dataclass(frozen=True)
+class TimelineViews:
+    """The two scales plus the metadata needed to identify what produced them."""
+
+    local: pd.DataFrame
+    overview: pd.DataFrame
+    metadata: dict[str, object]
+
+
+def _build_timeline_views(
+    *,
+    dataset_id: str,
+    timestamps: np.ndarray[Any, Any],
+    scores: np.ndarray[Any, Any],
+    exceedance_flags: np.ndarray[Any, Any],
+    alarm_onset_flags: np.ndarray[Any, Any],
+    target_flags: np.ndarray[Any, Any],
+    threshold: float,
+    regime_edges: np.ndarray[Any, Any],
+    baseline_rows: list[dict[str, object]],
+    config: IndustrialResultsConfig,
+) -> TimelineViews | None:
+    """Assemble both timeline scales from the series the event tables were built from.
+
+    The counts are taken from the same ``baseline_rows`` entry the event table prints,
+    rather than recomputed here, so the reconciliation check compares the figure against
+    the table instead of comparing two copies of the same calculation.
+    """
+    row = next(
+        (
+            candidate
+            for candidate in baseline_rows
+            if candidate["dataset_id"] == dataset_id and candidate["method"] == TIMELINE_METHOD
+        ),
+        None,
+    )
+    if row is None:
+        return None
+
+    merge_gap = method_merge_gap(TIMELINE_METHOD, default_merge_gap=config.merge_gap)
+    spec = SPECS_BY_NAME.get(TIMELINE_METHOD)
+    inputs = TimelineInputs(
+        dataset_id=dataset_id,
+        failure_id=f"{dataset_id}_test_failure_001",
+        method=TIMELINE_METHOD,
+        timestamps=timestamps,
+        scores=np.asarray(scores, dtype=float),
+        threshold=float(threshold),
+        exceedance_flags=np.asarray(exceedance_flags, dtype=bool),
+        alarm_onset_flags=np.asarray(alarm_onset_flags, dtype=bool),
+        target_flags=np.asarray(target_flags, dtype=bool),
+        regime_edges=np.asarray(regime_edges, dtype=float),
+        samples_per_day=config.samples_per_day,
+        merge_gap=int(merge_gap),
+        horizon=int(config.horizon),
+        matching_tolerance_after=int(config.matching_tolerance_after),
+        threshold_quantile=float(config.threshold_quantile),
+        run_length=_method_run_length(
+            TIMELINE_METHOD, np.asarray(exceedance_flags, dtype=bool), config
+        ),
+        target_region_variant=spec.score_kind if spec is not None else "",
+    )
+
+    local = build_local_trace(inputs)
+    overview = build_global_overview(inputs)
+    lead = row.get("median_warning_lead_time")
+    lead_value = float(lead) if isinstance(lead, int | float) and not pd.isna(lead) else None
+    metadata = build_timeline_metadata(
+        inputs,
+        local_trace=local,
+        matched_alarm_count=int(cast(float, row.get("matched_alarm_events", 0)) or 0),
+        false_alarm_count=int(cast(float, row.get("false_alarm_events", 0)) or 0),
+        false_alarms_per_day=float(cast(float, row.get("false_alarm_events_per_day", 0.0)) or 0.0),
+        lead_time_samples=lead_value,
+        time_under_warning=int(cast(float, row.get("time_under_warning", 0)) or 0),
+    )
+    return TimelineViews(local=local, overview=overview, metadata=metadata)
+
+
+def _method_global_overview(
+    *,
+    dataset_id: str,
+    method: str,
+    exceedance_flags: np.ndarray[Any, Any],
+    alarm_onset_flags: np.ndarray[Any, Any],
+    target_flags: np.ndarray[Any, Any],
+    threshold: float,
+    config: IndustrialResultsConfig,
+) -> pd.DataFrame:
+    """Binned global alarm burden for one method, for the supplementary timelines."""
+    inputs = TimelineInputs(
+        dataset_id=dataset_id,
+        failure_id=f"{dataset_id}_test_failure_001",
+        method=method,
+        timestamps=np.empty(0),
+        scores=np.zeros(target_flags.shape[0], dtype=float),
+        threshold=float(threshold),
+        exceedance_flags=np.asarray(exceedance_flags, dtype=bool),
+        alarm_onset_flags=np.asarray(alarm_onset_flags, dtype=bool),
+        target_flags=np.asarray(target_flags, dtype=bool),
+        regime_edges=np.array([], dtype=float),
+        samples_per_day=config.samples_per_day,
+        merge_gap=int(method_merge_gap(method, default_merge_gap=config.merge_gap)),
+        horizon=int(config.horizon),
+        matching_tolerance_after=int(config.matching_tolerance_after),
+        threshold_quantile=float(config.threshold_quantile),
+        run_length=0,
+        target_region_variant="",
+    )
+    return build_global_overview(inputs)
 
 
 def _timeline_reconciliation_row(
@@ -1139,44 +1785,147 @@ def _timeline_reconciliation_row(
     }
 
 
-def _target_region_transferability_rows(
-    baseline_rows: list[dict[str, object]],
-) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-    by_dataset_method = {
-        (str(row["dataset_id"]), str(row["method"])): row
-        for row in baseline_rows
-        if str(row.get("method")) in TARGET_REGION_METHODS
-    }
-    datasets = sorted({dataset_id for dataset_id, _method in by_dataset_method})
-    for source_dataset in datasets:
-        for target_dataset in datasets:
-            for method in TARGET_REGION_METHODS:
-                target_row = by_dataset_method.get((target_dataset, method))
-                if target_row is None:
-                    continue
-                rows.append(
-                    {
-                        "source_dataset_id": source_dataset,
-                        "target_dataset_id": target_dataset,
-                        "method": method,
-                        "transfer_type": "within_dataset"
-                        if source_dataset == target_dataset
-                        else "cross_dataset_metric_projection",
-                        "target_events": target_row["target_events"],
-                        "predicted_alarm_events": target_row["predicted_alarm_events"],
-                        "event_recall": target_row["event_recall"],
-                        "event_precision": target_row["event_precision"],
-                        "event_f1": target_row["event_f1"],
-                        "false_alarm_events_per_day": target_row["false_alarm_events_per_day"],
-                        "limitation": (
-                            "cross-dataset rows compare held-out event behavior under the "
-                            "same registered target-region rule; they are not pooled "
-                            "independent failures"
-                        ),
-                    }
-                )
-    return rows
+def _transfer_splits(
+    dataset_id: str,
+    config: IndustrialResultsConfig,
+    features: tuple[str, ...],
+) -> TransferSplits | None:
+    """Load one dataset's registered train, validation and test splits for transfer.
+
+    The splits come from the same temporal partition the rest of the benchmark uses, so
+    transfer numbers are comparable with the event-level rows rather than produced under
+    an ad-hoc split of their own.
+    """
+
+    manifest_path = config.processed_root / dataset_id / "manifest.json"
+    if not manifest_path.exists():
+        return None
+    manifest = _read_json_object(manifest_path)
+    files = _manifest_files(manifest)
+    rows = int(manifest.get("rows", 0))
+    if not files or rows <= 0:
+        return None
+    available = _available_columns(manifest, features)
+    if not available:
+        return None
+    columns = tuple([*available, "timestamp", "is_failure"])
+    parts: dict[str, list[pd.DataFrame]] = {"train": [], "validation": [], "test": []}
+    offset = 0
+    for path in files:
+        frame = pd.read_parquet(path, columns=list(columns))
+        split = _temporal_split(offset, len(frame), rows, config)
+        for name in parts:
+            selected = frame.loc[split == name]
+            if not selected.empty:
+                parts[name].append(selected)
+        offset += len(frame)
+    if not parts["train"] or not parts["test"]:
+        return None
+    return TransferSplits(
+        dataset=dataset_id,
+        train=pd.concat(parts["train"], ignore_index=True),
+        validation=(
+            pd.concat(parts["validation"], ignore_index=True)
+            if parts["validation"]
+            else pd.concat(parts["train"], ignore_index=True)
+        ),
+        test=pd.concat(parts["test"], ignore_index=True),
+    )
+
+
+def _cross_dataset_transfer_rows(
+    config: IndustrialResultsConfig,
+) -> tuple[list[dict[str, object]], list[dict[str, object]], pd.DataFrame | None]:
+    """Run genuine transfer between the compressor datasets, in both directions.
+
+    This replaces a table whose cross-dataset rows were byte-for-byte copies of the
+    destination's own within-dataset row: the source label was decorative and nothing
+    crossed between datasets. Every row here applies a region fitted on the source to
+    the destination's test split, and records what was frozen and what was refitted.
+    """
+
+    candidates = METROPT_FEATURE_PRIORITY
+    splits: dict[str, TransferSplits] = {}
+    for dataset_id in ("metropt", "metropt2"):
+        loaded = _transfer_splits(dataset_id, config, candidates)
+        if loaded is not None:
+            splits[dataset_id] = loaded
+    if len(splits) < 2:
+        return [], [], None
+
+    source_id, destination_id = "metropt", "metropt2"
+    report = assess_schema_compatibility(
+        splits[source_id].train,
+        splits[destination_id].train,
+        source=source_id,
+        destination=destination_id,
+        candidate_features=candidates,
+    )
+    compatibility = report.to_frame()
+    compatibility.insert(0, "destination_dataset_id", destination_id)
+    compatibility.insert(0, "source_dataset_id", source_id)
+    compatibility_rows: list[dict[str, object]] = [
+        {str(key): value for key, value in record.items()}
+        for record in compatibility.to_dict("records")
+    ]
+
+    if not report.transferable:
+        return [], compatibility_rows, None
+
+    features = report.compatible_features
+    results: list[TransferResult] = []
+    for source_name, destination_name in ((source_id, destination_id), (destination_id, source_id)):
+        results.extend(
+            run_transfer_protocols(
+                splits[source_name],
+                splits[destination_name],
+                features,
+                samples_per_day=config.samples_per_day,
+                merge_gap=config.merge_gap,
+                horizon=config.horizon,
+                matching_tolerance_after=config.matching_tolerance_after,
+                threshold_quantile=config.threshold_quantile,
+            )
+        )
+    frame = transfer_results_frame(results)
+    if frame.empty:
+        return [], compatibility_rows, None
+    frame["excluded_features"] = ", ".join(
+        item.feature for item in report.features if not item.compatible
+    )
+    # The transfer runs on the transferable feature subset, so its destination_refit is
+    # not the same construction as the full-feature failure-prototype region in the
+    # event-level benchmark. Labelling the feature set prevents the two within-dataset
+    # numbers from being read as a contradiction.
+    frame["feature_set"] = f"transferable subset ({len(features)} of {len(candidates)})"
+    distance_frames: list[pd.DataFrame] = []
+    for source_name, destination_name in ((source_id, destination_id), (destination_id, source_id)):
+        region = fit_target_region(
+            splits[source_name].train,
+            features,
+            dataset=source_name,
+            threshold_quantile=config.threshold_quantile,
+        )
+        if region is None:
+            continue
+        distance_frames.append(
+            transfer_distance_samples(
+                region,
+                splits[source_name].train,
+                splits[destination_name].test,
+                source=source_name,
+                destination=destination_name,
+                center=region.center,
+                scale=region.scale,
+                threshold=region.threshold,
+            )
+        )
+    distances = pd.concat(distance_frames, ignore_index=True) if distance_frames else None
+
+    transfer_rows: list[dict[str, object]] = [
+        {str(key): value for key, value in record.items()} for record in frame.to_dict("records")
+    ]
+    return transfer_rows, compatibility_rows, distances
 
 
 def _scaled_matrix(
@@ -1209,6 +1958,27 @@ def _minimum_distance(
         distance = np.sqrt(np.sum((clean_values - reference) ** 2, axis=1))
         best = np.minimum(best, distance)
     return best
+
+
+def _event_configuration_hash(config: IndustrialResultsConfig) -> str:
+    """Return a stable hash of the settings that define one benchmark run.
+
+    Every method in a run shares this hash, so a reader can confirm that the rows were
+    produced under one event policy rather than assembled from different runs.
+    """
+
+    payload = json.dumps(
+        {
+            "threshold_quantile": config.threshold_quantile,
+            "merge_gap": config.merge_gap,
+            "horizon": config.horizon,
+            "matching_tolerance_after": config.matching_tolerance_after,
+            "samples_per_day": config.samples_per_day,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 def _event_method_family(method: str) -> str:

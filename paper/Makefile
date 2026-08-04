@@ -1,6 +1,8 @@
 .PHONY: paper supplement clean
 
-paper:
+# The main document resolves supplementary table numbers through xr, which reads
+# supplement/supplement.aux, so the supplement is built first.
+paper: supplement
 	latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex
 
 supplement:

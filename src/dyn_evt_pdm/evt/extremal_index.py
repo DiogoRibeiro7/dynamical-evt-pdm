@@ -2,10 +2,27 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
 from dyn_evt_pdm.evt.clusters import extract_clusters
 from dyn_evt_pdm.types import BoolArray, IntArray
+
+ESTIMATOR_NAMES: tuple[str, ...] = (
+    "runs",
+    "ferro_segers_intervals",
+    "k_gaps",
+    "reciprocal_mean_cluster",
+    "block",
+    "no_declustering",
+)
+
+#: Estimators whose tuning parameter is the declustering run length.
+RUN_LENGTH_ESTIMATORS: frozenset[str] = frozenset({"runs", "k_gaps"})
+
+#: Estimators whose tuning parameter is the disjoint block size.
+BLOCK_SIZE_ESTIMATORS: frozenset[str] = frozenset({"block", "reciprocal_mean_cluster"})
 
 
 def runs_extremal_index(exceedances: BoolArray, *, run_length: int) -> float:
@@ -145,3 +162,195 @@ def mean_cluster_size_from_extremal_index(theta: float) -> float:
     if not 0.0 < theta <= 1.0:
         raise ValueError("theta must be in (0, 1]")
     return 1.0 / theta
+
+
+def reciprocal_block_cluster_extremal_index(exceedances: BoolArray, *, block_size: int) -> float:
+    """Estimate the extremal index as the reciprocal mean block-cluster size.
+
+    Clusters are identified as the exceedance groups falling inside disjoint blocks
+    of length ``block_size``. This is deliberately distinct from the runs estimator:
+    when clusters are taken from runs declustering, the reciprocal mean cluster size
+    reduces algebraically to the runs estimator and carries no separate information.
+    """
+
+    if block_size < 1:
+        raise ValueError("block_size must be positive")
+    flags = np.asarray(exceedances, dtype=bool)
+    if flags.ndim != 1:
+        raise ValueError("exceedances must be one-dimensional")
+    if len(flags) < block_size:
+        raise ValueError("series must contain at least one complete block")
+    n_blocks = len(flags) // block_size
+    blocks = flags[: n_blocks * block_size].reshape(n_blocks, block_size)
+    per_block = blocks.sum(axis=1)
+    occupied = per_block[per_block > 0]
+    if occupied.size == 0:
+        raise ValueError("at least one exceedance is required")
+    mean_cluster_size = float(np.mean(occupied))
+    if mean_cluster_size <= 0.0:
+        raise ValueError("mean block-cluster size must be positive")
+    return float(np.clip(1.0 / mean_cluster_size, np.finfo(float).eps, 1.0))
+
+
+def default_block_size(n_samples: int) -> int:
+    """Return the declared disjoint-block size ``round(sqrt(n))`` used by the study."""
+
+    if n_samples < 1:
+        raise ValueError("n_samples must be positive")
+    return max(2, int(round(float(np.sqrt(float(n_samples))))))
+
+
+def default_bootstrap_block_length(n_samples: int) -> int:
+    """Return the declared circular-bootstrap block length ``round(n ** (1/3))``."""
+
+    if n_samples < 1:
+        raise ValueError("n_samples must be positive")
+    return max(2, int(round(float(n_samples) ** (1.0 / 3.0))))
+
+
+def extremal_index_point_estimate(
+    name: str,
+    exceedances: BoolArray,
+    *,
+    run_length: int,
+    block_size: int,
+) -> float:
+    """Return the named extremal-index estimate for one exceedance indicator series.
+
+    Every estimator in :data:`ESTIMATOR_NAMES` is reachable through this dispatch so
+    that point estimation and bootstrap resampling share a single code path.
+    """
+
+    if name not in ESTIMATOR_NAMES:
+        raise ValueError(f"unknown estimator: {name}")
+    flags = np.asarray(exceedances, dtype=bool)
+    if flags.ndim != 1:
+        raise ValueError("exceedances must be one-dimensional")
+    indices = np.flatnonzero(flags).astype(np.int64)
+
+    if name == "no_declustering":
+        if indices.size == 0:
+            raise ValueError("at least one exceedance is required")
+        return 1.0
+    if name == "runs":
+        return runs_extremal_index(flags, run_length=run_length)
+    if name == "ferro_segers_intervals":
+        return intervals_extremal_index(indices)
+    if name == "k_gaps":
+        return k_gaps_extremal_index(indices, run_length=run_length, n_samples=int(len(flags)))
+    if name == "block":
+        return disjoint_blocks_extremal_index(flags, block_size=block_size)
+    return reciprocal_block_cluster_extremal_index(flags, block_size=block_size)
+
+
+@dataclass(frozen=True, slots=True)
+class IntervalEstimate:
+    """Bootstrap interval for one extremal-index estimate."""
+
+    lower: float
+    upper: float
+    n_resamples: int
+    n_valid: int
+    n_clipped: int
+
+    @property
+    def width(self) -> float:
+        """Return the interval width, or NaN when the interval is not estimable."""
+
+        if not np.isfinite(self.lower) or not np.isfinite(self.upper):
+            return float("nan")
+        return float(self.upper - self.lower)
+
+    def covers(self, value: float) -> bool:
+        """Return whether the interval covers ``value``."""
+
+        if not np.isfinite(self.lower) or not np.isfinite(self.upper):
+            return False
+        return bool(self.lower <= value <= self.upper)
+
+
+def circular_block_bootstrap(
+    exceedances: BoolArray, *, block_length: int, rng: np.random.Generator
+) -> BoolArray:
+    """Resample an exceedance indicator series with a circular block bootstrap.
+
+    Resampling whole blocks preserves the short-range clustering that the extremal
+    index measures. An IID bootstrap would destroy exactly the dependence structure
+    under study and produce intervals centred on one.
+    """
+
+    if block_length < 1:
+        raise ValueError("block_length must be positive")
+    flags = np.asarray(exceedances, dtype=bool)
+    if flags.ndim != 1:
+        raise ValueError("exceedances must be one-dimensional")
+    n_samples = int(len(flags))
+    if n_samples < block_length:
+        raise ValueError("series must be at least as long as the block length")
+    n_blocks = int(np.ceil(n_samples / block_length))
+    starts = rng.integers(0, n_samples, size=n_blocks)
+    offsets = np.arange(block_length, dtype=np.int64)
+    positions = (starts[:, None] + offsets[None, :]) % n_samples
+    resampled = flags[positions.reshape(-1)][:n_samples]
+    return np.asarray(resampled, dtype=bool)
+
+
+def bootstrap_extremal_index_interval(
+    name: str,
+    exceedances: BoolArray,
+    *,
+    run_length: int,
+    block_size: int,
+    n_resamples: int,
+    block_length: int,
+    level: float,
+    rng: np.random.Generator,
+) -> IntervalEstimate:
+    """Return a percentile bootstrap interval for the named estimator.
+
+    Resamples that raise :class:`ValueError` are counted as invalid rather than
+    silently dropped, so the caller can report an honest resample success rate.
+    """
+
+    if n_resamples < 2:
+        raise ValueError("n_resamples must be at least two")
+    if not 0.0 < level < 1.0:
+        raise ValueError("level must lie in (0, 1)")
+
+    estimates: list[float] = []
+    n_clipped = 0
+    epsilon = float(np.finfo(float).eps)
+    for _ in range(n_resamples):
+        resampled = circular_block_bootstrap(exceedances, block_length=block_length, rng=rng)
+        try:
+            estimate = extremal_index_point_estimate(
+                name, resampled, run_length=run_length, block_size=block_size
+            )
+        except ValueError:
+            continue
+        if not np.isfinite(estimate):
+            continue
+        if estimate <= epsilon or estimate >= 1.0:
+            n_clipped += 1
+        estimates.append(float(estimate))
+
+    if len(estimates) < 2:
+        return IntervalEstimate(
+            lower=float("nan"),
+            upper=float("nan"),
+            n_resamples=n_resamples,
+            n_valid=len(estimates),
+            n_clipped=n_clipped,
+        )
+
+    tail = (1.0 - level) / 2.0
+    values = np.asarray(estimates, dtype=np.float64)
+    lower = float(np.quantile(values, tail))
+    upper = float(np.quantile(values, 1.0 - tail))
+    return IntervalEstimate(
+        lower=lower,
+        upper=upper,
+        n_resamples=n_resamples,
+        n_valid=len(estimates),
+        n_clipped=n_clipped,
+    )

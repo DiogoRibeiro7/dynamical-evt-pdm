@@ -1,3 +1,22 @@
+\section{Complete Event-Level Benchmark}
+\label{supp:event-benchmark}
+
+Table~\ref{tab:supp-event-benchmark} reports the complete held-out event-level benchmark under the shared alarm policy: every declared method on every compressor dataset, with detection status, event recall and precision, both alarm-burden axes, duplicate alarms and event utility. Table~\ref{tab:supp-event-provenance} records what each method actually computes, and Table~\ref{tab:supp-event-fairness} is the fairness audit.
+
+Two properties of this benchmark are worth stating explicitly, because both were previously invisible.
+
+First, method identity is enforced rather than assumed. Each method is declared by its score, its threshold rule and its event policy, and no two methods share all three. An earlier version of this benchmark reported nineteen methods of which nine produced bit-identical results, because a fallback assigned one shared score to any method lacking an explicit implementation; the classical peaks-over-threshold entry fitted no tail model and the declustering entries declustered nothing differently. The audit now reports any methods whose results coincide, so numerical agreement is visible as agreement rather than presented as independent evidence.
+
+Second, alarm merging belongs to the detector. Four methods exist to vary declustering, so requiring one event conversion across the benchmark would make them indistinguishable by construction. The shared elements are the warning horizon, the matching tolerance, the matching rule, the operating exposure and the independent unit; the merge gap each method used is reported per row.
+
+\input{../../reports/paper/latex/event_benchmark_detection.tex}
+
+\input{../../reports/paper/latex/event_benchmark_provenance.tex}
+
+\input{../../reports/paper/latex/event_benchmark_fairness_audit.tex}
+
+The complete benchmark including runtime, peak memory and configuration hashes is distributed as \texttt{event\_benchmark\_full.csv} in the reproducibility package; every value in the compact main-paper table is recomputable from it.
+
 \section{Additional Real-Data Results}
 \label{supp:realdata}
 
@@ -11,3 +30,55 @@ The event timeline artifact is retained because it can reveal aligned-axis mista
   \caption{Supplementary alarm timeline generated from the cached processed data.}
   \label{fig:supp-timeline}
 \end{figure}
+
+\subsection{Global alarm burden for every method}
+\label{supp:all-method-timelines}
+
+The main paper shows the two-scale timeline for the registered recurrence score on each compressor dataset. Figures~\ref{fig:supp-timeline-metropt} and~\ref{fig:supp-timeline-metropt2} extend the global scale to every method in the benchmark, binned identically and drawn on a shared vertical axis.
+
+The shared axis is the point of these figures. Two methods can report similar episode counts and distribute those episodes very differently over the test split, and only the second property determines what an operator experiences. Reading down each column shows which methods alarm continuously, which alarm in bursts, and which produce nothing at all; the episode total printed on each strip ties the panel to the corresponding row of Table~\ref{tab:supp-event-benchmark}.
+
+Only the registered method carries a per-sample local trace, because the local view exists to explain one detection and the per-sample series for nineteen methods on two datasets is not a reviewable artifact. The binned global series for every method is distributed as \texttt{event\_timeline\_overview.csv}, and the local trace as \texttt{event\_timeline\_trace.csv}.
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.95\linewidth]{../../reports/paper/figures/timeline_all_methods_metropt.png}
+  \caption{MetroPT global alarm burden for every benchmark method over the held-out test split, on a shared vertical scale. Vertical rules mark the labelled failure onset; the count on each strip is that method's total alarm episodes.}
+  \label{fig:supp-timeline-metropt}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.95\linewidth]{../../reports/paper/figures/timeline_all_methods_metropt2.png}
+  \caption{MetroPT2 global alarm burden for every benchmark method over the held-out test split, on a shared vertical scale. Vertical rules mark the labelled failure onset; the count on each strip is that method's total alarm episodes.}
+  \label{fig:supp-timeline-metropt2}
+\end{figure}
+
+\subsection{Non-event stress-test results}
+\label{supp:non-event}
+
+Table~\ref{tab:non-event-results} gives the high-quantile diagnostic on Hydraulic Systems, SCANIA Component X, and SECOM. All three attain \(F_1 = 0\). These are not hidden failures of the method: their independent units are cycles, vehicles, and wafers rather than compressor failure episodes, so the estimand differs from the one the main results address. They are evidence that a simple extreme-score adapter does not transfer across laboratory cycle states, vehicle-level repair risk, and wafer-level yield labels without redesigning the target and the evaluation, and they are reported here rather than in the main text for that reason.
+
+\input{../../reports/paper/latex/industrial_non_event_results.tex}
+
+\subsection{Full decomposition and control tables}
+\label{supp:full-tables}
+
+Table~\ref{tab:score-alarm-decomposition} is the complete score, threshold, cluster and alarm decomposition for all 38 dataset-method rows. The main text reports the failure layer derived from it; this is the underlying stage-by-stage evidence.
+
+\input{../../reports/paper/latex/score_alarm_decomposition.tex}
+
+Table~\ref{tab:matched-negative-controls} reports the unconditioned matched-control comparison, with component metrics for each control family. The main text uses the detection-conditioned version, because comparing alarm burden without conditioning on detection rewards a region for not detecting; this table is retained so the component metrics behind that comparison remain inspectable.
+
+\input{../../reports/paper/latex/matched_negative_controls.tex}
+
+\subsection{Dataset roles and leakage audit}
+\label{supp:roles-leakage}
+
+Table~\ref{tab:dataset-roles} records the empirical role, sampling structure, independent unit, independent positives, rows, and target type for every dataset. The independent-unit column is the quantity that governs which datasets can carry the primary claim.
+
+\input{../../reports/paper/latex/dataset_role_summary.tex}
+
+Table~\ref{tab:leakage-audit} gives the terminal result of each registered leakage check: held-out failures excluded from feature construction, from scaling, and from regime inference, with thresholds and references fitted on the training split alone.
+
+\input{../../reports/paper/latex/leakage_audit.tex}

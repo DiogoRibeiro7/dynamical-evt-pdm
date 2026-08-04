@@ -1,0 +1,43 @@
+# Fifth review response matrix
+
+Covers the ten blockers raised in the final scientific revision contract (prompts 71–80).
+Every row has a terminal status. "Closed" means the blocker is resolved and verified by a
+test or a rendered page; "Closed with residual limitation" means resolved as specified,
+with a limitation that is stated in the manuscript rather than hidden; "Open" means not
+resolved.
+
+| # | Review issue | Action taken | Experiment or check | Manuscript change | Artifact | Status | Residual limitation |
+|---|---|---|---|---|---|---|---|
+| SR5-01 | Simulation results under-presented | Reported all fourteen process families at 500 replications, with 1000 on a preregistered subset; added bias, RMSE, interval coverage and boundary clipping per estimator; separated theoretical from numerical references and excluded configurations where no reference could be established | `simulation_study_broad.parquet`; reference-availability audit; bootstrap standard errors on every RMSE | Results §1 rewritten around the ranking inversion; three figures added; abstract now states the Monte Carlo scale and the validity result | `estimator_main_summary.tex`, `estimator_full_grid.tex`, `estimator_*.png` | Closed | Coverage at θ=1 is structurally distorted for every estimator by boundary clipping; reported beside the coverage rather than corrected |
+| SR5-02 | Full baselines not visible | Published all nineteen methods on both datasets under one shared alarm policy, with a provenance table recording what each method computes and a fairness audit | Method identity asserted on (score, threshold rule, event policy); nine methods that had been bit-identical through a silent score fallback were given real implementations | Compact benchmark in the main text; complete benchmark, provenance and fairness audit in the supplement | `event_benchmark_detection.tex`, `event_benchmark_provenance.tex`, `event_benchmark_fairness_audit.tex` | Closed | Merge gap varies by method by design, since four methods exist to vary declustering; the audit reports which conversion each used |
+| SR5-03 | Transfer experiment not genuine | Replaced the cross-dataset comparison with a real transfer: fit a region on one dataset, apply it to the other, under four protocols in both directions | Schema compatibility checked before transfer; two of seven features excluded for zero distributional overlap; prototypes stored in raw units so scaling recalibration is genuine | New transfer subsection with the asymmetry, the recalibration result, and the distance-distribution figure explaining why the directions differ | `target_region_transferability.tex`, `transfer_distance_distributions.png`, `transfer_schema_compatibility.csv` | Closed | Two datasets give one transfer pair; direction-specific conclusions rest on a single comparison each |
+| SR5-04 | Controls ignore detection | Conditioned every control comparison on detection, and replaced the ad-hoc burden score with a predeclared joint utility with weight sensitivity sweeps | 3000 draws across six families; comparisons repeated for all draws, detecting draws, recall-matched and occupancy-matched draws | Controls subsection rewritten; the MetroPT2 advantage is reported as weakening in every family and reversing in two | `detection_aware_controls.tex`, `control_utility_sensitivity.csv` | Closed | Only the families whose draws rarely detect are informative; the residual advantage rests on families that discriminate least |
+| SR5-05 | Failure points mislabelled | Separated the detector evidence track from the ground-truth track; labelled failures now enter only at the matching step | Raw exceedances carried separately from post-declustering onsets, which had made the declustering stage invisible for four methods | Decomposition figure redrawn as two tracks with per-stage units; discussion states that the counts change unit along the flow | `metric_collapse_decomposition.png`, `score_alarm_decomposition.tex` | Closed | — |
+| SR5-06 | Decomposition incomplete | Extended to all 38 dataset-method rows through five stages, with monotonicity enforced | Regression tests for monotonicity, for declustering reducing raw exceedances, and for ground truth being invariant to the method | Full decomposition in the supplement; the failure layer derived from it in the main text | `score_threshold_alarm_decomposition.csv` | Closed | — |
+| SR5-07 | Timeline local-only | Added a global scale above the local one, both drawn from the same per-sample alarm series | Reconciliation tests: binned episodes sum to the global total, the local window is a strict subset, the plotted threshold is the frozen one, and the false-alarm rate matches the event table | Two two-scale figures with full metadata captions; per-method global burden for all nineteen methods in the supplement | `event_timeline_overview.csv`, `event_timeline_metadata.csv`, `timeline_metropt*.png` | Closed | Maintenance boundaries are the ends of labelled failure intervals; the processed schema records no separate repair log, and the metadata says so |
+| SR5-08 | Root causes not method-specific | Rebuilt at dataset-method level with evidence, a competing explanation, and a confidence level for every row | Added warning-window rank separation and chance-match probability, which separate a score failure from a threshold failure; the counts alone cannot | New subsection and table; abstract, discussion and conclusion revised to the corrected finding | `root_cause_summary.tex` | Closed | Separation is measured against one failure window per dataset, so it describes these events rather than estimating a population quantity; recorded as low or medium confidence per row |
+| SR5-09 | Non-event tests dilute main text | Moved Hydraulic Systems and SECOM to the supplement; SCANIA retained as a short external-estimand paragraph | Main text reduced to five tables: estimator comparison, compact benchmark, transfer, detection-aware controls, failure layers | Duplicate event-level and baseline tables removed; dataset registry, leakage audit and grids moved to the supplement | `industrial_non_event_results.tex` (supplement) | Closed | — |
+| SR5-10 | References incomplete | Added twelve entries covering Isolation Forest, change-point detection, autoencoder and conformal anomaly detection, range-aware time-series evaluation, the point-adjust critique, both alarm-management standards, peaks-over-threshold and nonstationary EVT, and the extremal index | Related Work reorganised into the five axes those support; false-alarm rates now compared against the alarm-management recommendations | Related Work restructured; availability statement rewritten | `references.bib` (25 entries) | Closed | Archival DOI not minted; see below |
+
+## Findings not in the review, discovered while closing it
+
+| Finding | How it surfaced | Resolution |
+|---|---|---|
+| The registered score ranks the MetroPT pre-onset window *below* chance (0.46), so its recall of 1.0 there is incidental to raising 2,631 episodes | Added the rank-separation measure to distinguish score from threshold failure, then applied it to every row | Reclassified as a score failure; abstract, results, discussion and conclusion revised. Fourteen of nineteen MetroPT methods are in the same position |
+| The supplementary 38-row benchmark had been silently dropping its last rows from the published PDF | Added a float-overflow guard reading the LaTeX logs | Converted to `longtable`; the writer now selects `longtable` by row count, and a test fails the build on any float overflow |
+| The detection-aware control table overran its page by 1,715pt | Same guard | Converted to `longtable` |
+| Nine of nineteen benchmark methods were bit-identical via a silent score fallback | Distinctness assertion on method identity | Real implementations wired; the fallback now raises |
+| Six extremal-index estimators were three distinct quantities | Pairwise-distinctness regression test | Unused estimator wired in |
+
+## Software archive
+
+| Item | Status |
+|---|---|
+| Semantic version tag | Present (`v0.2.2`; a release tag for this revision is pending) |
+| Licence | Present (BSD-3-Clause) |
+| `CITATION.cff` | Present |
+| `codemeta.json` | Present |
+| Release notes | Present |
+| Artifact manifest with per-file hashes | Present |
+| Exact commit hash | Recorded in the manifest |
+| **Archival DOI** | **Not minted.** Depositing the release requires an account action on the archive service that the build cannot perform: the repository must be connected to Zenodo and a GitHub release published against the version tag. Stated as unresolved in the Code and Data Availability section; the paper does not claim a persistent software identifier. |
