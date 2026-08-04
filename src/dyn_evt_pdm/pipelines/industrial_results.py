@@ -12,6 +12,7 @@ from typing import Any, Literal, cast
 
 import numpy as np
 import pandas as pd
+from scipy.stats import rankdata
 
 from dyn_evt_pdm.evaluation.events import EarlyWarningPolicy, flags_to_events
 from dyn_evt_pdm.evaluation.metrics import evaluate_event_predictions
@@ -1518,11 +1519,11 @@ def _warning_window_separation(
     if not inside.any() or not outside.any():
         return float("nan")
 
+    # Midranks, not ordinal ranks. Industrial scores tie heavily during idle operation,
+    # and breaking ties by position makes a constant score look informative purely
+    # because the warning window sits at one end of the series.
     ranks = np.empty(values.size, dtype=float)
-    order = np.argsort(values[finite], kind="mergesort")
-    finite_ranks = np.empty(order.size, dtype=float)
-    finite_ranks[order] = np.arange(1, order.size + 1, dtype=float)
-    ranks[finite] = finite_ranks
+    ranks[finite] = rankdata(values[finite], method="average")
     n_inside = int(inside.sum())
     n_outside = int(outside.sum())
     rank_sum = float(ranks[inside].sum())

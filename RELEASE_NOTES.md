@@ -13,6 +13,11 @@ minor version rather than a patch.
   signal. Its recall of 1.0 there is not evidence of early warning. Fourteen of the
   nineteen MetroPT methods are in the same position. MetroPT2 separates at 0.86 and its
   methods do fail on alarm conversion, as previously reported.
+- The rank separation uses midranks. An earlier form of this measure broke ties by
+  position, which biases the statistic when a score is constant over long stretches, as
+  industrial telemetry is during idle operation; a constant score returned something
+  other than the chance value of 0.50 purely because the warning window sits at one end
+  of the series.
 - Root-cause analysis is now per dataset-method, with evidence, a competing explanation
   and a confidence level on every row, over an eight-layer taxonomy used consistently by
   the decomposition and root-cause tables.
