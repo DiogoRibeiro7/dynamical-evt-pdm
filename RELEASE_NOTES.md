@@ -38,9 +38,14 @@ minor version rather than a patch.
   against alarm-management standards.
 - Supplementary table numbers now resolve through `xr` rather than being hardcoded.
 
-The archival DOI remains unminted. It requires connecting the repository to Zenodo and
-publishing a GitHub release against the version tag, which the build cannot perform. The
-manuscript states this rather than claiming a persistent identifier.
+The repository is private and no archival DOI has been minted, so there is currently no
+public code-availability route: the address cited in the manuscript does not resolve for
+a reader. Making the repository public and depositing a release snapshot are two separate
+steps, and neither is performed by the build. The automated GitHub-Zenodo integration is
+unavailable while the repository is private, but a DOI does not require publishing the
+development history; uploading a release archive directly to an archive service mints one
+for that snapshot. The manuscript states both gaps rather than claiming public code or a
+persistent identifier.
 
 ## 0.2.2 - 2026-07-28
 
