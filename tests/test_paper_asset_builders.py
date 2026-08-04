@@ -23,16 +23,31 @@ from dyn_evt_pdm.paper.assets import (
     _all_method_timeline_figure,
     _best_full_family_baseline,
     _decomposition_assets,
+    _detection_aware_control_figure,
+    _detection_aware_control_table,
     _exposure_text,
+    _matched_negative_control_assets,
     _method_root_cause_rows,
     _non_event_root_cause_rows,
     _root_cause_assets,
     _score_alarm_flow_figure,
+    _target_region_transferability_assets,
     _timeline_caption,
     _timeline_caption_macro,
     _timeline_traceability_assets,
+    _transfer_distance_figure,
     _two_scale_timeline_figure,
 )
+
+CONTROL_FAMILIES = (
+    "random_occupancy",
+    "prototype_permutation",
+    "phase_randomised",
+    "regime_matched_rare",
+    "time_shifted",
+    "block_bootstrap",
+)
+CONDITIONS = ("all_draws", "detecting_draws", "recall_matched", "occupancy_matched")
 
 DATASETS = ("metropt", "metropt2")
 METHODS = (
@@ -194,6 +209,194 @@ def _metadata_frame() -> pd.DataFrame:
     )
 
 
+def _transfer_frame() -> pd.DataFrame:
+    rows = []
+    for source, destination in (("metropt", "metropt2"), ("metropt2", "metropt")):
+        for protocol in (
+            "direct",
+            "threshold recalibration",
+            "scaling recalibration",
+            "destination refit",
+        ):
+            rows.append(
+                {
+                    "source": source,
+                    "destination": destination,
+                    "protocol": protocol,
+                    "features": 5,
+                    "scaling_fitted_on": source,
+                    "prototypes_fitted_on": source,
+                    "threshold_fitted_on": source,
+                    "threshold": 3.5,
+                    "region_occupancy": 0.05,
+                    "failure_state_coverage": 0.5,
+                    "event_recall": 1.0,
+                    "event_precision": 0.0057,
+                    "false_alarm_events_per_day": 10.5,
+                    "median_warning_lead_time": 2_000.0,
+                    "time_under_warning": 4_000,
+                    "alarm_coverage_fraction": 0.04,
+                    "predicted_alarm_events": 175,
+                    "distance_shift": 0.2,
+                    "score_distribution_shift": 0.3,
+                    "status": "completed",
+                    "note": "",
+                    "transfer_degradation_precision": -0.0035,
+                    "excluded_features": "reservoir_pressure;flowmeter",
+                    "feature_set": "compatible",
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _compatibility_frame() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "source_dataset_id": "metropt",
+                "destination_dataset_id": "metropt2",
+                "feature": feature,
+                "present_in_both": True,
+                "source_median": 1.0,
+                "destination_median": 1.0 if compatible else 120.0,
+                "standardised_shift": 0.1 if compatible else 122.0,
+                "distribution_overlap": 0.9 if compatible else 0.0,
+                "source_missing": 0.0,
+                "destination_missing": 0.0,
+                "compatible": compatible,
+                "reason": "" if compatible else "no distributional overlap",
+            }
+            for feature, compatible in (
+                ("motor_current", True),
+                ("oil_temperature", True),
+                ("reservoir_pressure", False),
+            )
+        ]
+    )
+
+
+def _distance_frame() -> pd.DataFrame:
+    rows = []
+    for source, destination in (("metropt", "metropt2"), ("metropt2", "metropt")):
+        for population in ("source training", "destination normal", "destination failure"):
+            for index in range(40):
+                rows.append(
+                    {
+                        "source": source,
+                        "destination": destination,
+                        "population": population,
+                        "distance": 1.0 + index * 0.25,
+                        "threshold": 3.5,
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
+def _detection_control_frame() -> pd.DataFrame:
+    rows = []
+    for dataset in DATASETS:
+        for family in CONTROL_FAMILIES:
+            for condition in CONDITIONS:
+                rows.append(
+                    {
+                        "dataset_id": dataset,
+                        "failure_id": f"{dataset}_test_failure_001",
+                        "observed_method": "failure_prototype_region",
+                        "control_family": family,
+                        "condition": condition,
+                        "control_draws": 500,
+                        "control_detection_rate": 0.42,
+                        "observed_detected": dataset == "metropt2",
+                        "observed_utility": -30.1,
+                        "control_utility_median": -45.0,
+                        "control_utility_p025": -80.0,
+                        "control_utility_p975": -10.0,
+                        "observed_percentile": 0.28,
+                        "interpretation": "weakens under conditioning",
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
+def _sensitivity_frame() -> pd.DataFrame:
+    rows = []
+    for dataset in DATASETS:
+        for condition in ("all_draws", "detecting_draws"):
+            for weight in ("detection", "false_alarm_per_day", "time_under_warning", "lead_time"):
+                for multiplier in (0.25, 0.5, 1.0, 2.0, 4.0):
+                    rows.append(
+                        {
+                            "dataset_id": dataset,
+                            "observed_method": "failure_prototype_region",
+                            "condition": condition,
+                            "varied_weight": weight,
+                            "multiplier": multiplier,
+                            "control_draws": 500,
+                            "observed_utility": -30.1,
+                            "control_utility_median": -45.0,
+                            "observed_percentile": 0.72,
+                        }
+                    )
+    return pd.DataFrame(rows)
+
+
+def _matched_control_frame() -> pd.DataFrame:
+    rows = []
+    for dataset in DATASETS:
+        for family in CONTROL_FAMILIES:
+            rows.append(
+                {
+                    "dataset_id": dataset,
+                    "failure_id": f"{dataset}_test_failure_001",
+                    "observed_method": "failure_prototype_region",
+                    "control_family": family,
+                    "metric": "false_alarm_events_per_day",
+                    "observed_value": 9.41,
+                    "control_median": 8.01,
+                    "control_p025": 7.53,
+                    "control_p975": 8.44,
+                    "observed_percentile": 1.0,
+                    "empirical_p_value": 0.002,
+                    "draws": 500,
+                    "interpretation": "not lower burden",
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _control_draw_frame() -> pd.DataFrame:
+    rows = []
+    for dataset in DATASETS:
+        for family in CONTROL_FAMILIES:
+            for draw in range(25):
+                # Alternate detection so the detection-conditioned panels have both
+                # populations to draw; an all-or-nothing column would hide the split.
+                detected = draw % 2 == 0
+                rows.append(
+                    {
+                        "dataset_id": dataset,
+                        "failure_id": f"{dataset}_test_failure_001",
+                        "observed_method": "failure_prototype_region",
+                        "control_family": family,
+                        "draw": draw,
+                        "event_recall": 1.0 if detected else 0.0,
+                        "event_precision": 0.002 if detected else 0.0,
+                        "false_alarm_events_per_day": 8.0 + draw * 0.1,
+                        "median_warning_lead_time": 1_500.0,
+                        "time_under_warning": 3_000 + draw,
+                        "region_occupancy": 0.03,
+                        "control_occupancy": 0.03,
+                        "cluster_count": 120,
+                        "duplicate_alarm_events": 2,
+                        "alarm_coverage_fraction": 0.03,
+                        "detected": detected,
+                        "event_utility": -40.0 - draw,
+                        "matching_basis": "occupancy",
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
 @pytest.fixture
 def artifact_root(tmp_path: Path) -> Path:
     """A synthetic stand-in for the real-data artifact directory."""
@@ -204,6 +407,13 @@ def artifact_root(tmp_path: Path) -> Path:
     _overview_frame().to_csv(root / "event_timeline_overview.csv", index=False)
     _trace_frame().to_csv(root / "event_timeline_trace.csv", index=False)
     _metadata_frame().to_csv(root / "event_timeline_metadata.csv", index=False)
+    _transfer_frame().to_csv(root / "target_region_transferability.csv", index=False)
+    _compatibility_frame().to_csv(root / "transfer_schema_compatibility.csv", index=False)
+    _distance_frame().to_csv(root / "transfer_distance_samples.csv", index=False)
+    _detection_control_frame().to_csv(root / "detection_aware_controls.csv", index=False)
+    _sensitivity_frame().to_csv(root / "control_utility_sensitivity.csv", index=False)
+    _matched_control_frame().to_csv(root / "matched_negative_controls.csv", index=False)
+    _control_draw_frame().to_csv(root / "matched_negative_control_draws.csv", index=False)
     pd.DataFrame(
         [
             {
@@ -361,3 +571,51 @@ def test_root_cause_assets_combine_both_row_sources(artifact_root: Path, tmp_pat
     frame = pd.read_csv(tables / "root_cause_summary.csv")
     assert "estimand mismatch" in set(frame["Primary failure layer"])
     assert len(set(frame["Primary failure layer"])) > 1
+
+
+def test_transferability_assets_report_both_directions(artifact_root: Path, tmp_path: Path) -> None:
+    tables, latex = tmp_path / "t", tmp_path / "l"
+    tables.mkdir()
+    latex.mkdir()
+    config = PaperAssetConfig(real_data_matrix_root=artifact_root)
+    generated = _target_region_transferability_assets(config, tables, latex)
+    assert len(generated) == 2
+    text = (latex / "target_region_transferability.tex").read_text(encoding="utf-8")
+    # The excluded channels belong in the caption: a transfer run on a reduced feature
+    # set is not the same experiment as one run on all of them.
+    assert "reservoir pressure" in text or r"reservoir\_pressure" in text
+
+
+def test_transfer_distance_figure_renders_both_directions(
+    artifact_root: Path, tmp_path: Path
+) -> None:
+    figures = tmp_path / "f"
+    figures.mkdir()
+    config = PaperAssetConfig(real_data_matrix_root=artifact_root)
+    generated = _transfer_distance_figure(config, figures)
+    assert generated
+    assert all(path.exists() and path.stat().st_size > 0 for path in generated)
+
+
+def test_detection_aware_control_assets_build(artifact_root: Path, tmp_path: Path) -> None:
+    figures, tables, latex = tmp_path / "f", tmp_path / "t", tmp_path / "l"
+    for directory in (figures, tables, latex):
+        directory.mkdir()
+    config = PaperAssetConfig(real_data_matrix_root=artifact_root)
+    figure_paths = _detection_aware_control_figure(config, figures)
+    table_paths = _detection_aware_control_table(config, tables, latex)
+    assert figure_paths and all(path.exists() for path in figure_paths)
+    assert len(table_paths) == 2
+    text = (latex / "detection_aware_controls.tex").read_text(encoding="utf-8")
+    # Every row must state the control detection rate; that is the whole point.
+    assert "det." in text.lower() or "detection" in text.lower()
+
+
+def test_matched_negative_control_assets_build(artifact_root: Path, tmp_path: Path) -> None:
+    tables, latex = tmp_path / "t", tmp_path / "l"
+    tables.mkdir()
+    latex.mkdir()
+    config = PaperAssetConfig(real_data_matrix_root=artifact_root)
+    generated = _matched_negative_control_assets(config, tables, latex)
+    assert len(generated) == 2
+    assert (tables / "matched_negative_controls.csv").exists()
