@@ -12,13 +12,19 @@ Manuscript presentation. No code or results change.
 - The manuscript and the software citation name this release as the state the reported
   numbers correspond to.
 
-The `v0.3.2` snapshot is archived on Zenodo. Version DOI
-[10.5281/zenodo.21803769](https://doi.org/10.5281/zenodo.21803769) names this snapshot
-and is what the manuscript cites; concept DOI
-[10.5281/zenodo.21803768](https://doi.org/10.5281/zenodo.21803768) names the software
-across all versions and resolves to the latest. A deposit cannot contain its own
-identifier, so the manuscript inside the archived `v0.3.2` tarball predates the DOI
-minted for it; the DOI text is on `main` from this point forward.
+The `v0.3.2` snapshot is archived on Zenodo. The manuscript cites the concept DOI
+[10.5281/zenodo.21803768](https://doi.org/10.5281/zenodo.21803768), which is fixed across
+versions, and names release `v0.3.2` in the text as the state that produced the reported
+numbers. The snapshot DOI
+[10.5281/zenodo.21803769](https://doi.org/10.5281/zenodo.21803769) is given for readers
+who want an identifier for that version alone.
+
+Citing the concept DOI rather than the version DOI is deliberate. A version DOI is minted
+from a snapshot after that snapshot is frozen, so an archive can never contain the
+identifier issued for it, and a paper pinned to one is pinned to an archive that does not
+describe itself. The concept DOI does not change, so it stays correct as the software
+continues, and the version string in the text supplies the precision the identifier gives
+up. This is the Zenodo and FORCE11 recommendation.
 
 ## 0.3.1 - 2026-08-04
 

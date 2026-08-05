@@ -42,11 +42,12 @@ resolved.
 | Exact commit hash | Recorded in the manifest |
 | Author identity | ORCID, email and affiliation recorded in `CITATION.cff`, `codemeta.json`, `.zenodo.json` and on the manuscript title page |
 | **Public availability** | **Resolved.** The repository is public and the cited address resolves. An earlier version of this matrix recorded only the DOI as outstanding while the repository was private, which understated the gap; that error is noted here rather than removed. |
-| **Archival DOI** | **Minted.** Version DOI `10.5281/zenodo.21803769` for the archived `v0.3.2` snapshot; concept DOI `10.5281/zenodo.21803768` across all versions. The paper cites the version DOI, since it fixes the state that produced the reported numbers, and names the concept DOI as resolving to the latest version. |
+| **Archival DOI** | **Minted.** The paper cites the concept DOI `10.5281/zenodo.21803768`, which is fixed across versions, and names release `v0.3.2` in the text as the state that produced the reported numbers. The snapshot DOI `10.5281/zenodo.21803769` is given for readers who want an identifier for that version alone. |
 
-The Code and Data Availability section states which identifier does what and why the
-version DOI is the one cited. It also records that a deposit cannot contain its own
-identifier, so the manuscript inside the `v0.3.2` archive predates the DOI minted for
-that archive; the version tag and the commit hash tie the two together.
+The Code and Data Availability section explains the choice. A version DOI is minted from
+a snapshot after that snapshot is frozen, so an archive can never contain the identifier
+issued for it; a paper pinned to one is pinned to an archive that does not describe
+itself. The concept DOI does not change, and the version string in the text supplies the
+precision the identifier gives up. This follows the Zenodo and FORCE11 recommendation.
 
 **All ten review blockers and both software-archive items are now closed.**
