@@ -1,5 +1,20 @@
 # Release Notes
 
+## 0.3.2 - 2026-08-05
+
+Manuscript presentation. No code or results change.
+
+- The abstract is condensed from 604 words across four paragraphs to 270 words in one,
+  and now ends on page one. All eight elements required by the revision contract are
+  retained, including the 0.45 warning-window separation and the 0.99 chance-match
+  probability, which carry the paper's central finding. What was cut is detail the
+  results section already reports at length.
+- The manuscript and the software citation name this release as the state the reported
+  numbers correspond to.
+
+The archival DOI remains the one outstanding item. The repository is public, so both the
+Zenodo GitHub integration and a direct upload of the release archive are available.
+
 ## 0.3.1 - 2026-08-04
 
 Metadata and availability release. No scientific results change.
