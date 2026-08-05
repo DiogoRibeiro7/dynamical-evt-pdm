@@ -104,7 +104,9 @@ def build_submission_package(config: SubmissionPackageConfig) -> SubmissionPacka
     )
     real_data_audit = audit_real_data_matrix(config.real_data_matrix_root)
     industrial_results_audit = audit_industrial_results(config.industrial_results_root)
-    issues = adversarial_review_issues(real_data_audit, industrial_results_audit)
+    issues = adversarial_review_issues(
+        real_data_audit, industrial_results_audit, citation_path=config.citation_path
+    )
     decision = final_submission_decision(issues, paper_check.failures)
     blockers = _submission_blockers(issues, paper_check.failures)
 
@@ -529,8 +531,15 @@ def _json_object_artifact_error(path: Path, label: str) -> str:
 def adversarial_review_issues(
     real_data_audit: RealDataMatrixAudit | None = None,
     industrial_results_audit: IndustrialResultsAudit | None = None,
+    citation_path: Path | None = None,
 ) -> tuple[ReviewIssue, ...]:
-    """Return the final adversarial review matrix."""
+    """Return the final adversarial review matrix.
+
+    ``citation_path`` is injected like the two audits above. It previously read
+    ``CITATION.cff`` from the process working directory, so the software-archive
+    verdict depended on where the command was invoked from and a test could not
+    control it: the DOI check silently consulted the real repository file.
+    """
 
     audit = real_data_audit or audit_real_data_matrix(Path("artifacts/real_data_matrix"))
     industrial_audit = industrial_results_audit or audit_industrial_results(
@@ -600,7 +609,9 @@ def adversarial_review_issues(
             )
         )
     )
-    software_archive_resolved = _software_archive_doi_present(Path("CITATION.cff"))
+    software_archive_resolved = _software_archive_doi_present(
+        citation_path if citation_path is not None else Path("CITATION.cff")
+    )
     legacy_issues = (
         ReviewIssue(
             issue_id="REV-001",

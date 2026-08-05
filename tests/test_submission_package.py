@@ -99,6 +99,30 @@ def test_build_submission_package_with_complete_legacy_artifacts_still_blocks_ad
     assert (output_root / "artifacts" / "real_data_matrix" / "industrial_results.tex").exists()
 
 
+def test_software_archive_blocker_clears_once_the_citation_carries_a_doi(
+    tmp_path: Path,
+) -> None:
+    """The DOI check must respond to the configured citation file, in both directions.
+
+    Its counterpart above asserts the blocking case. Without this one the check could
+    be hardwired to block and still pass, which is what happened while it read the
+    repository's own CITATION.cff instead of the fixture's.
+    """
+    paper_root, asset_root = _write_package_fixture(tmp_path)
+    config = _write_submission_config(
+        tmp_path,
+        paper_root,
+        asset_root,
+        real_data_matrix_root=_write_terminal_real_data_matrix_fixture(tmp_path),
+        industrial_results_root=_write_industrial_results_fixture(tmp_path),
+        citation_has_doi=True,
+    )
+
+    manifest = build_submission_package(config)
+
+    assert "DOI-backed software archive is incomplete" not in manifest.unresolved_blockers
+
+
 def test_build_submission_package_reports_paper_check_failures_as_blockers(
     tmp_path: Path,
 ) -> None:
@@ -399,16 +423,27 @@ def _write_submission_config(
     *,
     real_data_matrix_root: Path,
     industrial_results_root: Path,
+    citation_has_doi: bool = False,
 ) -> SubmissionPackageConfig:
     output_root = tmp_path / "submission"
     protocol_path = tmp_path / "protocol.yaml"
     lock_path = tmp_path / "poetry.lock"
     license_path = tmp_path / "LICENSE"
     readme_path = tmp_path / "README.md"
+    # The software-archive verdict reads this file. It must come from the fixture, not
+    # from the repository root: the check previously consulted the real CITATION.cff
+    # through the process working directory, so these tests passed only while the
+    # project itself had no DOI and broke the moment one was minted.
+    citation_path = tmp_path / "CITATION.cff"
     protocol_path.write_text("protocol_id: fixture\n", encoding="utf-8")
     lock_path.write_text("# lock\n", encoding="utf-8")
     license_path.write_text("BSD-3-Clause\n", encoding="utf-8")
     readme_path.write_text("# fixture\n", encoding="utf-8")
+    citation_path.write_text(
+        "cff-version: 1.2.0\ntitle: fixture\n"
+        + ("doi: 10.5281/zenodo.1\n" if citation_has_doi else ""),
+        encoding="utf-8",
+    )
     return SubmissionPackageConfig(
         paper_root=paper_root,
         asset_root=asset_root,
@@ -419,6 +454,7 @@ def _write_submission_config(
         lock_path=lock_path,
         license_path=license_path,
         readme_path=readme_path,
+        citation_path=citation_path,
     )
 
 

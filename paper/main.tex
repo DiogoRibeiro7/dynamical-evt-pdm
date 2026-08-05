@@ -55,7 +55,9 @@ Code, configuration files, data-acquisition scripts, generated-paper tooling, an
 
 The repository is public, and the results in this paper correspond to the tagged release \texttt{v0.3.2}. A reader can retrieve that state, install the pinned environment from the lock file, and re-run the pipeline that produced every figure and table reported here.
 
-\textbf{No archival DOI has been minted.} The citation above therefore resolves to a hosted repository, which is mutable and could in principle be moved or deleted, rather than to an immutable deposit. Minting one requires depositing a release snapshot with an archive service, which is an account action outside the build. Until that is done this paper does not claim a persistent software identifier, and the version tag together with the commit hash recorded in the artifact manifest is what fixes the state that produced these results.
+That release is archived, and the software citation resolves to an immutable deposit rather than to a mutable host. Two identifiers exist and they are not interchangeable. The version DOI \href{https://doi.org/10.5281/zenodo.21803769}{10.5281/zenodo.21803769} names the \texttt{v0.3.2} snapshot specifically and is the one cited here, because it fixes the exact state that produced every number reported in this paper. The concept DOI \href{https://doi.org/10.5281/zenodo.21803768}{10.5281/zenodo.21803768} names the software across all its versions and resolves to whichever is most recent, so it is the right identifier for referring to the project but not for reproducing these results.
+
+One consequence is worth stating, since it is a general property of archived software rather than an oversight here: a deposit cannot contain its own identifier, so the manuscript inside the \texttt{v0.3.2} archive predates the DOI minted for that archive. The version tag and the commit hash in the artifact manifest are what tie the two together.
 
 Raw third-party datasets are not redistributed by this repository; the acquisition pipeline stores them locally under \texttt{data/raw/} and documents their public sources through the dataset registry.
 
