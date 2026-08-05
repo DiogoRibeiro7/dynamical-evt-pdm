@@ -1,6 +1,6 @@
 [project]
 name = "dyn-evt-pdm"
-version = "0.3.0"
+version = "0.3.1"
 description = "Regime-conditioned dynamical extreme value theory for cluster-aware predictive maintenance"
 authors = [{ name = "Diogo" }]
 readme = "README.md"

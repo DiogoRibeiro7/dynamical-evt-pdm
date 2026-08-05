@@ -7,13 +7,19 @@
   "programmingLanguage": "Python",
   "runtimePlatform": "Python >=3.11,<3.13",
   "license": "https://spdx.org/licenses/BSD-3-Clause.html",
-  "version": "0.3.0",
-  "dateModified": "2026-08-03",
+  "version": "0.3.1",
+  "dateModified": "2026-08-04",
   "author": [
     {
       "@type": "Person",
       "givenName": "Diogo",
-      "familyName": "Ribeiro"
+      "familyName": "Ribeiro",
+      "@id": "https://orcid.org/0009-0001-2022-7072",
+      "email": "dfr@esmad.ipp.pt",
+      "affiliation": {
+        "@type": "Organization",
+        "name": "ESMAD - School of Media Arts and Design, Polytechnic of Porto"
+      }
     }
   ],
   "keywords": [

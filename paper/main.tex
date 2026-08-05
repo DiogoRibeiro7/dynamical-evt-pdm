@@ -21,8 +21,13 @@
 \input{generated/result_macros.tex}
 
 \title{When Clustered Extremes Do Not Become Early Warnings: A Negative-Result Dynamical-EVT Study for Public Industrial Monitoring Data}
-\author{Diogo Ribeiro}
-\date{August 3, 2026}
+\author{%
+  Diogo Ribeiro\\
+  ESMAD --- School of Media Arts and Design, Polytechnic of Porto\\
+  \texttt{dfr@esmad.ipp.pt}\\
+  ORCID: \href{https://orcid.org/0009-0001-2022-7072}{0009-0001-2022-7072}%
+}
+\date{August 4, 2026}
 
 \begin{document}
 \maketitle
@@ -54,9 +59,9 @@ The strongest target-region result, on MetroPT2, weakens once controls are condi
 
 Code, configuration files, data-acquisition scripts, generated-paper tooling, and reproducibility materials are maintained in the project repository \citep{Ribeiro2026DynEvtPdmRepository}. It carries a semantic version tag, a BSD-3-Clause licence, \texttt{CITATION.cff} and \texttt{codemeta.json} metadata, release notes, and an artifact manifest recording the hash of every generated figure and table, so every number in this paper is traceable to the commit that produced it.
 
-\textbf{At the time of writing that repository is private, and no archival DOI has been minted.} A reader cannot currently retrieve the code: the cited address does not resolve without access, and there is no public snapshot behind it. This paper therefore has no working code-availability route today, and it claims neither public code nor a persistent software identifier. The version tag and the commit hash recorded in the artifact manifest identify the state that produced these results, but they are only useful to someone who already has the repository.
+The repository is public, and the results in this paper correspond to the tagged release \texttt{v0.3.1}. A reader can retrieve that state, install the pinned environment from the lock file, and re-run the pipeline that produced every figure and table reported here.
 
-Two independent steps are required, and neither is performed by the build. The repository must be made public for the citation above to resolve. Separately, a persistent identifier requires depositing a release snapshot with an archive service; the automated GitHub integration is unavailable while the repository is private, but that path is not the only one, since uploading a release archive directly to Zenodo or an equivalent service mints a DOI for the deposited snapshot without publishing the development history. Until both are done the reproducibility claims in this paper are internal: they establish that the results follow from a recorded pipeline, not that a reader can re-run it.
+\textbf{No archival DOI has been minted.} The citation above therefore resolves to a hosted repository, which is mutable and could in principle be moved or deleted, rather than to an immutable deposit. Minting one requires depositing a release snapshot with an archive service, which is an account action outside the build. Until that is done this paper does not claim a persistent software identifier, and the version tag together with the commit hash recorded in the artifact manifest is what fixes the state that produced these results.
 
 Raw third-party datasets are not redistributed by this repository; the acquisition pipeline stores them locally under \texttt{data/raw/} and documents their public sources through the dataset registry.
 
