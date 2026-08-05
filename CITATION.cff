@@ -8,8 +8,8 @@ authors:
     orcid: "https://orcid.org/0009-0001-2022-7072"
     email: "dfr@esmad.ipp.pt"
     affiliation: "ESMAD - School of Media Arts and Design, Polytechnic of Porto"
-version: 0.3.1
-date-released: 2026-08-04
+version: 0.3.2
+date-released: 2026-08-05
 license: BSD-3-Clause
 repository-code: "https://github.com/DiogoRibeiro7/dynamical-evt-pdm"
 abstract: "Reproducible negative-result dynamical extreme-value diagnostics, high-replication Monte Carlo artifacts, real-data acquisition scripts, event-level alarm evaluation, matched controls, and manuscript assets for predictive-maintenance research."
