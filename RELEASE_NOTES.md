@@ -12,8 +12,13 @@ Manuscript presentation. No code or results change.
 - The manuscript and the software citation name this release as the state the reported
   numbers correspond to.
 
-The archival DOI remains the one outstanding item. The repository is public, so both the
-Zenodo GitHub integration and a direct upload of the release archive are available.
+The `v0.3.2` snapshot is archived on Zenodo. Version DOI
+[10.5281/zenodo.21803769](https://doi.org/10.5281/zenodo.21803769) names this snapshot
+and is what the manuscript cites; concept DOI
+[10.5281/zenodo.21803768](https://doi.org/10.5281/zenodo.21803768) names the software
+across all versions and resolves to the latest. A deposit cannot contain its own
+identifier, so the manuscript inside the archived `v0.3.2` tarball predates the DOI
+minted for it; the DOI text is on `main` from this point forward.
 
 ## 0.3.1 - 2026-08-04
 

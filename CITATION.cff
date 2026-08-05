@@ -9,6 +9,14 @@ authors:
     email: "dfr@esmad.ipp.pt"
     affiliation: "ESMAD - School of Media Arts and Design, Polytechnic of Porto"
 version: 0.3.2
+doi: 10.5281/zenodo.21803768
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.21803768
+    description: Concept DOI, resolves to the latest version
+  - type: doi
+    value: 10.5281/zenodo.21803769
+    description: Version DOI for the v0.3.2 snapshot
 date-released: 2026-08-05
 license: BSD-3-Clause
 repository-code: "https://github.com/DiogoRibeiro7/dynamical-evt-pdm"

@@ -42,8 +42,11 @@ resolved.
 | Exact commit hash | Recorded in the manifest |
 | Author identity | ORCID, email and affiliation recorded in `CITATION.cff`, `codemeta.json`, `.zenodo.json` and on the manuscript title page |
 | **Public availability** | **Resolved.** The repository is public and the cited address resolves. An earlier version of this matrix recorded only the DOI as outstanding while the repository was private, which understated the gap; that error is noted here rather than removed. |
-| **Archival DOI** | **Not minted.** Now that the repository is public the automated GitHub–Zenodo integration is available, as is a direct upload of a release archive. Either mints a DOI for the deposited snapshot. This is an account action outside the build and remains the one outstanding item. |
+| **Archival DOI** | **Minted.** Version DOI `10.5281/zenodo.21803769` for the archived `v0.3.2` snapshot; concept DOI `10.5281/zenodo.21803768` across all versions. The paper cites the version DOI, since it fixes the state that produced the reported numbers, and names the concept DOI as resolving to the latest version. |
 
-The Code and Data Availability section states that the repository is public at release
-`v0.3.1` and that no persistent identifier has been minted, so the citation resolves to a
-mutable host rather than an immutable deposit.
+The Code and Data Availability section states which identifier does what and why the
+version DOI is the one cited. It also records that a deposit cannot contain its own
+identifier, so the manuscript inside the `v0.3.2` archive predates the DOI minted for
+that archive; the version tag and the commit hash tie the two together.
+
+**All ten review blockers and both software-archive items are now closed.**
