@@ -4,11 +4,13 @@
   "description": "Reproducible negative-result dynamical extreme-value diagnostics, high-replication Monte Carlo artifacts, real-data acquisition scripts, event-level alarm evaluation, matched controls, and manuscript assets for predictive-maintenance research.",
   "creators": [
     {
-      "name": "Ribeiro, Diogo"
+      "name": "Ribeiro, Diogo",
+      "orcid": "0009-0001-2022-7072",
+      "affiliation": "ESMAD - School of Media Arts and Design, Polytechnic of Porto"
     }
   ],
   "license": "bsd-3-clause",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "keywords": [
     "extreme value theory",
     "dynamical systems",

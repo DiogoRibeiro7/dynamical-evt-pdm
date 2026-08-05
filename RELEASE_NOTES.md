@@ -1,5 +1,21 @@
 # Release Notes
 
+## 0.3.1 - 2026-08-04
+
+Metadata and availability release. No scientific results change.
+
+- The repository is public. The Code and Data Availability section previously described
+  it as private and stated that a reader could not retrieve the code; that is now
+  resolved, and the section states that the results correspond to the tagged release.
+- Author identity recorded across the citation metadata and the manuscript title page:
+  ORCID 0009-0001-2022-7072, dfr@esmad.ipp.pt, ESMAD - School of Media Arts and Design,
+  Polytechnic of Porto.
+- The archival DOI remains unminted and is the one outstanding item. Now that the
+  repository is public both the automated Zenodo integration and a direct upload of a
+  release archive are available; either mints a DOI for the deposited snapshot. This is
+  an account action outside the build, so the paper still does not claim a persistent
+  software identifier.
+
 ## 0.3.0 - 2026-08-03
 
 Fifth-review revision. This release changes a headline scientific conclusion, so it is a

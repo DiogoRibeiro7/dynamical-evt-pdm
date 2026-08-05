@@ -40,9 +40,10 @@ resolved.
 | Release notes | Present |
 | Artifact manifest with per-file hashes | Present |
 | Exact commit hash | Recorded in the manifest |
-| **Public availability** | **Blocked. The repository is private.** The address cited in the manuscript does not resolve for a reader, so there is currently no code-availability route at all. This is a stronger blocker than the missing DOI and was recorded incorrectly in the first version of this matrix, which described only the DOI as outstanding. |
-| **Archival DOI** | **Not minted.** The automated GitHub–Zenodo integration is unavailable while the repository is private. A DOI does not require publishing the development history: depositing a release archive directly with Zenodo or an equivalent service mints one for that snapshot. Neither step is performed by the build. |
+| Author identity | ORCID, email and affiliation recorded in `CITATION.cff`, `codemeta.json`, `.zenodo.json` and on the manuscript title page |
+| **Public availability** | **Resolved.** The repository is public and the cited address resolves. An earlier version of this matrix recorded only the DOI as outstanding while the repository was private, which understated the gap; that error is noted here rather than removed. |
+| **Archival DOI** | **Not minted.** Now that the repository is public the automated GitHub–Zenodo integration is available, as is a direct upload of a release archive. Either mints a DOI for the deposited snapshot. This is an account action outside the build and remains the one outstanding item. |
 
-Both are stated in the Code and Data Availability section. The paper claims neither
-public code nor a persistent identifier, and says explicitly that its reproducibility
-claims are internal until they are resolved.
+The Code and Data Availability section states that the repository is public at release
+`v0.3.1` and that no persistent identifier has been minted, so the citation resolves to a
+mutable host rather than an immutable deposit.
