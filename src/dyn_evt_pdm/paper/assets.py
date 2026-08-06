@@ -1024,7 +1024,9 @@ def _registered_event_level_frame(config: PaperAssetConfig, summary: pd.DataFram
                     "Exposure %": exposure.map(
                         lambda value: "" if pd.isna(value) else f"{float(value) * 100:.2f}"
                     ),
-                    "Lead": registered["median_warning_lead_time"].map(_format_optional_int),
+                    "Lead (samples)": registered["median_warning_lead_time"].map(
+                        _format_optional_int
+                    ),
                 }
             )
 
@@ -1043,7 +1045,7 @@ def _registered_event_level_frame(config: PaperAssetConfig, summary: pd.DataFram
             "Recall": event_source["recall"].map(_format_metric),
             "Precision": event_source["precision"].map(_format_metric),
             "FA/day": event_source["false_alarm_events_per_day"].map(_format_metric),
-            "Lead": event_source["median_warning_lead_time"].map(_format_optional_int),
+            "Lead (samples)": event_source["median_warning_lead_time"].map(_format_optional_int),
         }
     )
 
@@ -1715,7 +1717,7 @@ def _event_baseline_comparison_assets(
             "Recall": source["event_recall"].map(_format_metric),
             "Precision": source["event_precision"].map(_format_metric),
             "FA/day": source["false_alarm_events_per_day"].map(_format_metric),
-            "Lead": source["median_warning_lead_time"].map(_format_optional_int),
+            "Lead (samples)": source["median_warning_lead_time"].map(_format_optional_int),
         }
     )
     csv_path = tables / "event_baseline_comparison.csv"

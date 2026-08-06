@@ -394,7 +394,7 @@ _COMPACT_LAYOUT: tuple[tuple[str, str, str], ...] = (
     ("detected", "Det.", "c"),
     ("event_precision", "Precision", "r"),
     ("false_alarm_events_per_day", "FA/day", "r"),
-    ("median_warning_lead_time", "Lead", "r"),
+    ("median_warning_lead_time", "Lead (samples)", "r"),
     ("event_utility", "Utility", "r"),
 )
 
