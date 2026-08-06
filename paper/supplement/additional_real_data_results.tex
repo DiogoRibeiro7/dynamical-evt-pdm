@@ -82,3 +82,16 @@ Table~\ref{tab:dataset-roles} records the empirical role, sampling structure, in
 Table~\ref{tab:leakage-audit} gives the terminal result of each registered leakage check: held-out failures excluded from feature construction, from scaling, and from regime inference, with thresholds and references fitted on the training split alone.
 
 \input{../../reports/paper/latex/leakage_audit.tex}
+
+\subsection{Matched controls under all conditions}
+\label{supp:all-conditions}
+
+Table~ef{tab:detection-aware-controls} gives every control family under all four
+conditions: all draws, detecting draws only, recall-matched draws and
+occupancy-matched draws. The main text reports the detecting-only rows, because
+conditioning on detection is what makes a burden comparison meaningful, but the
+unconditioned rows are what show how much the unconditioned comparison flattered the
+observed region, and the two matched conditions are the ones that preserve its
+structure while breaking its relation to the failure.
+
+\input{../../reports/paper/latex/detection_aware_controls.tex}

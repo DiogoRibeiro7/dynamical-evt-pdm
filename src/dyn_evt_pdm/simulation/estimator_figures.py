@@ -211,9 +211,11 @@ def plot_coverage_by_family(summary: pd.DataFrame, path: Path) -> Path:
     if not families:
         raise ValueError("no referenced configurations available for the coverage figure")
 
-    figure, axis = plt.subplots(figsize=(max(7.0, 0.95 * len(families) + 3.0), 5.0))
+    # Horizontal bars: with eleven families and six estimators the vertical form needed
+    # rotated tick labels that were unreadable at print size, and family names are long.
+    figure, axis = plt.subplots(figsize=(8.0, max(5.0, 0.62 * len(families) + 1.6)))
     positions = np.arange(len(families), dtype=float)
-    width = 0.13
+    height_step = 0.13
     for index, name in enumerate(ESTIMATOR_NAMES):
         rows = frame[frame["estimator"] == name]
         values: list[float] = []
@@ -224,13 +226,13 @@ def plot_coverage_by_family(summary: pd.DataFrame, path: Path) -> Path:
             errors.append(
                 float(family_rows["coverage_standard_error"].mean()) if len(family_rows) else 0.0
             )
-        offset = (index - (len(ESTIMATOR_NAMES) - 1) / 2.0) * width
-        heights = np.asarray(values, dtype=float)
-        axis.bar(
+        offset = (index - (len(ESTIMATOR_NAMES) - 1) / 2.0) * height_step
+        lengths = np.asarray(values, dtype=float)
+        axis.barh(
             positions + offset,
-            np.nan_to_num(heights),
-            width=width * 0.88,
-            yerr=1.96 * np.nan_to_num(np.asarray(errors, dtype=float)),
+            np.nan_to_num(lengths),
+            height=height_step * 0.88,
+            xerr=1.96 * np.nan_to_num(np.asarray(errors, dtype=float)),
             capsize=2,
             color=ESTIMATOR_COLOURS[name],
             label=ESTIMATOR_LABELS[name],
@@ -238,40 +240,40 @@ def plot_coverage_by_family(summary: pd.DataFrame, path: Path) -> Path:
         )
         # A coverage of exactly zero and an unestimable coverage both draw no bar, so
         # they are marked apart explicitly rather than left to look like the same gap.
-        for position, height in zip(positions + offset, heights, strict=True):
-            if np.isnan(height):
+        for position, length in zip(positions + offset, lengths, strict=True):
+            if np.isnan(length):
                 axis.annotate(
                     "n/a",
-                    xy=(position, 0.01),
-                    ha="center",
-                    va="bottom",
+                    xy=(0.012, position),
+                    ha="left",
+                    va="center",
                     fontsize=5.5,
-                    rotation=90,
                     color="#777777",
                 )
-            elif height <= 0.005:
+            elif length <= 0.005:
                 axis.plot(
-                    [position - width * 0.3, position + width * 0.3],
                     [0.006, 0.006],
+                    [position - height_step * 0.3, position + height_step * 0.3],
                     color=ESTIMATOR_COLOURS[name],
                     linewidth=2.0,
                     solid_capstyle="butt",
                 )
-    axis.axhline(NOMINAL_LEVEL, color="#444444", linestyle="--", linewidth=1.2, zorder=5)
+    axis.axvline(NOMINAL_LEVEL, color="#444444", linestyle="--", linewidth=1.2, zorder=5)
     axis.annotate(
         f"Nominal {NOMINAL_LEVEL:.2f}",
-        xy=(-0.45, NOMINAL_LEVEL),
-        xytext=(0, 5),
+        xy=(NOMINAL_LEVEL, len(families) - 0.45),
+        xytext=(4, 0),
         textcoords="offset points",
         ha="left",
+        va="center",
         fontsize=8,
         color="#444444",
     )
-    axis.set_xticks(positions)
-    axis.set_xticklabels([family.replace("_", " ") for family in families], rotation=30, ha="right")
-    axis.set_xlim(-0.6, len(families) - 0.4)
-    axis.set_ylim(0.0, 1.10)
-    _style_axis(axis, xlabel="Process family", ylabel="Empirical coverage")
+    axis.set_yticks(positions)
+    axis.set_yticklabels([family.replace("_", " ") for family in families], fontsize=8.5)
+    axis.set_ylim(-0.6, len(families) - 0.4)
+    axis.set_xlim(0.0, 1.10)
+    _style_axis(axis, xlabel="Empirical coverage", ylabel="Process family")
     rows_used = _estimator_legend(figure, axis)
     return _save(figure, path, legend_rows=rows_used)
 

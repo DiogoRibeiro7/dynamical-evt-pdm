@@ -605,10 +605,16 @@ def test_detection_aware_control_assets_build(artifact_root: Path, tmp_path: Pat
     figure_paths = _detection_aware_control_figure(config, figures)
     table_paths = _detection_aware_control_table(config, tables, latex)
     assert figure_paths and all(path.exists() for path in figure_paths)
-    assert len(table_paths) == 2
-    text = (latex / "detection_aware_controls.tex").read_text(encoding="utf-8")
+    # CSV, the compact detection-conditioned table for the main text, and the full grid.
+    assert len(table_paths) == 3
+    full = (latex / "detection_aware_controls.tex").read_text(encoding="utf-8")
+    compact = (latex / "detection_aware_controls_compact.tex").read_text(encoding="utf-8")
     # Every row must state the control detection rate; that is the whole point.
-    assert "det." in text.lower() or "detection" in text.lower()
+    assert "det." in full.lower() or "detection" in full.lower()
+    # The compact table drops the condition column because it holds one condition, and
+    # must therefore be strictly shorter than the grid it is drawn from.
+    assert "Condition" not in compact
+    assert compact.count("\\\\") < full.count("\\\\")
 
 
 def test_matched_negative_control_assets_build(artifact_root: Path, tmp_path: Path) -> None:

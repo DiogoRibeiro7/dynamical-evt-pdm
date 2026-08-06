@@ -74,6 +74,24 @@ def test_percent_signs_are_not_pre_escaped(path: Path) -> None:
     )
 
 
+@pytest.mark.parametrize("path", _table_files(), ids=lambda p: p.name)
+def test_captions_contain_no_escaped_markup(path: Path) -> None:
+    r"""Generated captions cannot carry LaTeX commands.
+
+    The writer escapes specials, so a ``\ref`` or ``\%`` placed in a caption renders as
+    literal text in the PDF. Cross-references and section numbers belong in the prose
+    around the table, where the manuscript controls the markup; a hardcoded number would
+    drift anyway. This has produced a visible defect twice.
+    """
+    text = path.read_text(encoding="utf-8")
+    head = text.split("\\midrule", 1)[0]
+    for marker in ("textbackslash", "\\\\ref{", "\\\\cite"):
+        assert marker not in head, (
+            f"{path.name} has escaped markup in its caption; move the reference into the "
+            f"surrounding prose"
+        )
+
+
 def test_at_least_one_table_was_checked() -> None:
     """Guard against the parametrised tests silently covering nothing."""
     if not LATEX_DIR.exists():

@@ -1877,28 +1877,48 @@ def _detection_aware_control_table(
         }
     )
     csv_path = tables / "detection_aware_controls.csv"
-    tex_path = latex / "detection_aware_controls.tex"
     frame.to_csv(csv_path, index=False)
+
+    # No cross-references or section numbers in generated captions: the writer escapes
+    # LaTeX specials, so a \ref here renders as literal text, and a hardcoded number
+    # drifts when sections move. Both belong in the surrounding prose.
+    shared_caption = (
+        "Every comparison reports the share of control draws that detected the failure, "
+        "because a burden advantage means nothing if the observed region did not detect "
+        "while the controls did. Utility is the predeclared joint utility, which charges "
+        "false alarms per operating day and warning exposure separately and pays a "
+        "capped early-warning reward only when the failure was detected."
+    )
+    # The main text carries the detection-conditioned rows only. All four conditions on
+    # six families and two datasets ran to four pages there, which buries the comparison
+    # the section is actually making; the full grid is in the supplement.
+    compact = frame[frame["Condition"] == "Detecting only"].drop(columns=["Condition"])
+    compact_path = latex / "detection_aware_controls_compact.tex"
+    _write_latex_table(
+        compact,
+        compact_path,
+        caption=(
+            "Matched controls restricted to draws that detected the failure. "
+            + shared_caption
+            + " The unconditioned comparison and the recall- and occupancy-matched "
+            "conditions are in the supplement."
+        ),
+        label="tab:detection-aware-controls-compact",
+        column_weights=(1.25, 1.5, 0.7, 1.0, 1.0, 1.0, 0.75, 0.8),
+    )
+
+    tex_path = latex / "detection_aware_controls.tex"
     _write_latex_table(
         frame,
         tex_path,
-        caption=(
-            "Detection-aware matched controls. Every comparison reports the share of "
-            "control draws that detected the failure, because a burden advantage means "
-            "nothing if the observed region did not detect while the controls did. "
-            "Utility is the predeclared joint utility, which charges false alarms per "
-            "operating day and warning exposure separately and pays a capped early-warning "
-            "reward only when the failure was detected."
-        ),
+        caption="Detection-aware matched controls, all conditions. " + shared_caption,
         label="tab:detection-aware-controls",
-        # Six families times four conditions on two datasets does not fit a float; as a
-        # table environment it overran the page and dropped its last rows silently.
         # The dataset column must fit "MetroPT2" unbroken: it has no hyphenation point,
         # so a narrower column pushes it into the neighbouring cell.
         column_weights=(1.25, 1.35, 1.25, 0.6, 0.9, 0.9, 0.9, 0.9, 0.95),
         long=True,
     )
-    return [csv_path, tex_path]
+    return [csv_path, compact_path, tex_path]
 
 
 def _detection_aware_control_figure(config: PaperAssetConfig, figures: Path) -> list[Path]:
