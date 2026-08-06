@@ -1,8 +1,8 @@
-"""Tests for the measures that separate a score failure from a threshold failure.
+"""Tests for the rank separation that distinguishes a score from a threshold failure.
 
-The reclassification of the MetroPT result rests on these two functions, so they are
-tested directly against cases whose answer is known analytically rather than only
-through the artifacts they are applied to.
+The layer diagnosis rests on this statistic, so it is tested against cases whose answer
+is known analytically rather than only through the artifacts it is applied to. The
+chance-match null that accompanies it lives in ``test_chance_match_null``.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ import pytest
 
 from dyn_evt_pdm.pipelines.industrial_results import (
     IndustrialResultsConfig,
-    _chance_match_probability,
     _method_run_length,
     _warning_window_separation,
 )
@@ -73,38 +72,6 @@ def test_separation_ignores_non_finite_scores() -> None:
     scores[80:101] = 10.0
     scores[0:10] = np.nan
     assert _warning_window_separation(scores, targets, horizon=horizon) == pytest.approx(1.0)
-
-
-def test_chance_match_probability_rises_with_the_alarm_rate() -> None:
-    """A busier detector matches by coincidence more often."""
-    targets = _flags(100_000, 50_000, 50_100)
-    sparse = _chance_match_probability(
-        alarm_count=1, target_flags=targets, horizon=3_600, tolerance_after=300
-    )
-    busy = _chance_match_probability(
-        alarm_count=2_631, target_flags=targets, horizon=3_600, tolerance_after=300
-    )
-    # The busy value saturates to 1.0 in float64, so it is bounded from below only.
-    assert 0.0 < sparse < busy
-    assert sparse < 0.05
-    assert busy > 0.99
-
-
-def test_chance_match_probability_is_not_computable_without_alarms_or_failures() -> None:
-    targets = _flags(1_000, 500, 600)
-    assert np.isnan(
-        _chance_match_probability(
-            alarm_count=0, target_flags=targets, horizon=100, tolerance_after=10
-        )
-    )
-    assert np.isnan(
-        _chance_match_probability(
-            alarm_count=5,
-            target_flags=np.zeros(1_000, dtype=bool),
-            horizon=100,
-            tolerance_after=10,
-        )
-    )
 
 
 def test_run_length_reflects_the_method_event_policy() -> None:

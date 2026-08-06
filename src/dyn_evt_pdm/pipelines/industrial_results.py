@@ -627,6 +627,8 @@ def _run_metropt_event_comparison(
                 scores=np.concatenate(scores_by_method[method]),
                 threshold=thresholds[method],
                 alarm_flags=raw_exceedance_flags,
+                # The chance-match null shifts alarm episodes, not raw exceedances.
+                onset_flags=alarm_flags,
                 target_flags=target_flags,
                 alarm_count=len(alarms),
                 target_count=len(failures),
@@ -643,6 +645,7 @@ def _run_metropt_event_comparison(
                 event_precision=evaluation.precision,
                 horizon=config.horizon,
                 tolerance_after=config.matching_tolerance_after,
+                merge_gap=merge_gap,
             )
         )
         if method in TARGET_REGION_METHODS:
@@ -768,16 +771,47 @@ def _collect_metropt_split(
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=columns)
 
 
+#: Minimum share of a feature's central range that its interquartile range must occupy
+#: for the IQR to be usable as a scale. Below this the bulk of the feature is nearly
+#: constant, so the IQR measures quantisation rather than variation.
+_MIN_RELATIVE_IQR = 0.01
+
+
 def _robust_center_scale(
     frame: pd.DataFrame,
     feature_columns: tuple[str, ...],
 ) -> tuple[pd.Series, pd.Series]:
+    """Median centre and a floored interquartile scale for each feature.
+
+    Guarding only against an exactly zero interquartile range is not enough. MetroPT's
+    ``pressure_tp2`` sits near zero for most of its operation, with an IQR of 0.004
+    against a 1st-to-99th-percentile range of about 10, so its central half occupies
+    0.04% of its range. Dividing by that IQR multiplies ordinary variation by roughly
+    250 and lets one near-constant channel dominate a max-abs-z score: the resulting
+    98th-percentile threshold is in the thousands, and the score at its operating point
+    is a detector for that one channel.
+
+    The denominator is therefore floored at a fraction of the feature's own range, which
+    leaves well-behaved features untouched and stops a quantised or mostly idle channel
+    from setting the scale for every other one.
+
+    The range is measured between the 0.1st and 99.9th percentiles rather than the 1st
+    and 99th. A channel that idles except for excursions rarer than one percent has a
+    narrow 1-to-99 range too, so that choice would leave the floor as degenerate as the
+    interquartile range it is meant to bound, while staying inside the tails keeps a
+    single corrupt sample from setting the scale.
+    """
+
     numeric = frame.loc[:, feature_columns].apply(pd.to_numeric, errors="coerce")
     center = numeric.median(numeric_only=True)
-    q75 = numeric.quantile(0.75, numeric_only=True)
-    q25 = numeric.quantile(0.25, numeric_only=True)
-    scale = (q75 - q25).replace(0.0, np.nan).fillna(1.0)
-    return center, scale
+    iqr = numeric.quantile(0.75, numeric_only=True) - numeric.quantile(0.25, numeric_only=True)
+    spread = numeric.quantile(0.999, numeric_only=True) - numeric.quantile(0.001, numeric_only=True)
+    floor = (_MIN_RELATIVE_IQR * spread).fillna(0.0)
+    scale = pd.Series(
+        np.maximum(iqr.to_numpy(dtype=float), floor.to_numpy(dtype=float)),
+        index=iqr.index,
+    )
+    return center, scale.replace(0.0, np.nan).fillna(1.0)
 
 
 def _event_method_references(
@@ -1532,26 +1566,70 @@ def _warning_window_separation(
 
 def _chance_match_probability(
     *,
-    alarm_count: int,
+    alarm_flags: BoolArray,
     target_flags: np.ndarray[Any, Any],
     horizon: int,
     tolerance_after: int,
+    merge_gap: int,
 ) -> float:
-    """Probability that a detector this busy matches the failure with no signal at all.
+    """Probability that this detector matches the failure once its alignment is broken.
 
-    Under a homogeneous Poisson model with the method's own episode rate, this is
-    ``1 - exp(-N W / T)`` for ``N`` episodes, matching window width ``W`` and test span
-    ``T``. It is the analytic counterpart of the matched-control comparison: a recall of
-    1.0 is only evidence of early warning when this probability is well below one.
+    The null circularly shifts the whole alarm series by a uniformly random offset and
+    asks how often at least one episode still lands in a matching window. Shifting
+    preserves everything about the detector except its alignment to the failure: the
+    episode count, their durations, and the burstiness and regime structure of their
+    spacing all carry over intact.
+
+    An earlier version assumed a homogeneous Poisson process with the method's episode
+    rate. That is the wrong null for this paper. Poisson arrivals are independent and
+    occur at a constant rate, whereas these episodes are produced by declustering a
+    dependent score, their rate varies with operating regime, and the merge rule induces
+    further dependence between neighbouring episodes. The whole argument of the paper is
+    that these extremes cluster, so a null that assumes they do not cannot calibrate it.
+
+    The value is computed exactly rather than sampled. Episode ``[s, s+L]`` intersects
+    window ``[a, b]`` after a shift of ``d`` exactly when ``(s + d) mod n`` falls in an
+    interval of length ``b - a + L + 1``, so the answer is the measure of a union of
+    circular intervals, which a difference array gives in one pass.
     """
 
     targets = np.asarray(target_flags, dtype=bool)
     total = int(targets.size)
     events = flags_to_events(targets, label="failure")
-    if total <= 0 or alarm_count <= 0 or not events:
+    alarms = flags_to_events(
+        np.asarray(alarm_flags, dtype=bool), label="alarm", merge_gap=merge_gap
+    )
+    if total <= 0 or not events or not alarms:
         return float("nan")
-    window = float(len(events) * (horizon + tolerance_after + 1))
-    return float(1.0 - np.exp(-alarm_count * window / total))
+
+    # Difference array over shift offsets; +1 entering a hitting interval, -1 leaving.
+    delta = np.zeros(total + 1, dtype=np.int32)
+
+    def mark(start: int, length: int) -> None:
+        if length <= 0:
+            return
+        start %= total
+        end = start + length
+        if end <= total:
+            delta[start] += 1
+            delta[end] -= 1
+        else:  # wraps past the end of the shift range
+            delta[start] += 1
+            delta[total] -= 1
+            delta[0] += 1
+            delta[end - total] -= 1
+
+    for event in events:
+        window_start = max(0, int(event.start) - horizon)
+        window_end = int(event.start) + tolerance_after
+        for alarm in alarms:
+            span = int(alarm.end) - int(alarm.start)
+            width = window_end - window_start + span + 1
+            if width >= total:
+                return 1.0
+            mark(window_start - span - int(alarm.start), width)
+
+    return float(np.count_nonzero(np.cumsum(delta[:total]) > 0) / total)
 
 
 def _score_threshold_alarm_decomposition_row(
@@ -1561,6 +1639,7 @@ def _score_threshold_alarm_decomposition_row(
     scores: np.ndarray[Any, Any],
     threshold: float,
     alarm_flags: np.ndarray[Any, Any],
+    onset_flags: np.ndarray[Any, Any],
     target_flags: np.ndarray[Any, Any],
     alarm_count: int,
     target_count: int,
@@ -1573,6 +1652,7 @@ def _score_threshold_alarm_decomposition_row(
     event_precision: float,
     horizon: int,
     tolerance_after: int,
+    merge_gap: int,
 ) -> dict[str, object]:
     """Record one method's decomposition, keeping detector counts and ground truth apart.
 
@@ -1601,10 +1681,11 @@ def _score_threshold_alarm_decomposition_row(
         # the warning window with no signal at all. Recall of 1.0 means little when this
         # is near 1: the match is what an equally busy random detector would produce.
         "chance_match_probability": _chance_match_probability(
-            alarm_count=alarm_count,
+            alarm_flags=np.asarray(onset_flags, dtype=bool),
             target_flags=target_flags,
             horizon=horizon,
             tolerance_after=tolerance_after,
+            merge_gap=merge_gap,
         ),
         "threshold": threshold,
         # Detector evidence track.
