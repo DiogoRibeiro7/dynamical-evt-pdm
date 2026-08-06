@@ -17,6 +17,36 @@ The numerical construction is deliberately conservative, because a reference obt
 
 Theoretical and numerical references are never pooled within a reported row, and every table states which kind it used.
 
+\paragraph{Grid structure.} Three grids contribute, and they differ in a way that matters for how precise any given row is.
+
+\begin{center}
+\begin{tabular}{lrrrrr}
+\toprule
+Grid & Families & Reps/cell & Thresholds & Run lengths & Noise levels \\
+\midrule
+High replication & 14 & 500 & 1 & 1 & 1 \\
+Focused coverage & 2 & 1000 & 1 & 1 & 1 \\
+Broad sensitivity & 8 & 10 & 3 & 3 & 2 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The high-replication grid is one cell per family: a single threshold, run length and noise level, at 500 replications. It is what supports the precise statements about bias and RMSE, and it is the source of the ``500 replications per cell'' figure quoted in the abstract. The broad grid varies threshold, run length and noise, which is what makes it useful for sensitivity, but it does so at 10 replications per cell across 8 families, so any single row of it is imprecise. Statements about clustered regimes draw on both, and rows sourced from the broad grid carry correspondingly wide uncertainty.
+
+Where a reported quantity aggregates over the threshold range, each threshold-by-replication combination is treated as one observation, and the bootstrap standard errors accompanying those aggregates resample replications rather than thresholds. Estimates at neighbouring thresholds of the same replication are not independent, since they share a realisation, so those standard errors understate the true dispersion of the aggregate. They are reported as an indication of Monte Carlo precision within the grid, not as an interval for the underlying quantity.
+
+\paragraph{Interval construction, and why coverage is not a headline quantity.} Uncertainty for each point estimate comes from a circular block bootstrap over the exceedance indicator, with block length \(\lceil n^{1/3}\rfloor\) and percentile intervals at the nominal \(95\%\) level. A dependent bootstrap is required because exceedances of a clustered process are not exchangeable; the \(n^{1/3}\) rate is the standard order for block-bootstrap consistency under weak dependence, and it is declared rather than tuned per configuration. We have not established its sensitivity: the reported intervals use this one rule, and a block length chosen per process family could change the coverage numbers materially.
+
+That matters less than it might because coverage is not used as a principal comparison here, and the reason is structural rather than a matter of taste. The admissible range is \(\theta \in (0,1]\), so at an independent process the reference sits exactly on the boundary. An estimate can then only err in one direction, a symmetric percentile interval misses systematically downwards, and an estimator whose estimate saturates at \(1\) attains high coverage by clipping rather than by calibration. Both effects are present in this study: runs and K-gaps undercover at \(\theta = 1\), while Ferro--Segers and disjoint blocks reach coverage \(1.000\) there with boundary-clipping probabilities between \(0.50\) and \(0.70\). Neither number describes interval quality. A boundary-aware procedure --- a variance-stabilising transform, a one-sided interval, or a constrained bootstrap --- would be needed to make coverage interpretable at \(\theta = 1\), and none is implemented here.
+
+The principal estimator comparison is therefore bias, root mean squared error and boundary-clipping rate, and coverage is reported beside them for the clustered regimes, where the reference is interior and the interval is interpretable. Coverage at \(\theta = 1\) is retained only as a diagnostic of the boundary effect itself, and should not be read as evidence that one estimator quantifies uncertainty better than another.
+
+The no-declustering control is excluded from every estimator ranking. Its value is fixed at \(\theta = 1\) by construction rather than estimated, so its zero error and perfect boundary coverage are properties of the harness. It is reported to show that the comparison measures extremal clustering rather than an artifact of the pipeline.
+
+\paragraph{What agreement with a numerical reference does and does not establish.} Two structurally different estimators agreeing to within \(0.05\) is weaker evidence than it may appear, and the reported quantities should be read accordingly. Agreement bounds the disagreement between two finite-sample procedures; it does not bound either one's distance from the true extremal index, and two estimators sharing a bias would agree while both being wrong. The tolerance is also loose relative to some of the differences it is used to adjudicate: several estimator gaps in the strongly clustered rows are smaller than \(0.05\), so for those configurations the reference is not sharp enough to rank estimators that differ by less than it.
+
+Where the reference is numerical, we therefore describe performance as \emph{agreement with a numerical benchmark} rather than as bias against a known truth, and the tables mark which rows are which. Only the independent systems and the noiseless logistic map at its periodic target support the stronger reading. Strengthening the numerical references would require reporting an uncertainty for each one, checking stability against longer trajectories and against the reference threshold, block size and run length, and adding structurally distinct third estimators; none of that is done here, and the numerical rows should be weighted accordingly.
+
 \subsection{Interval estimation}
 
 None of the six estimators has a usable closed-form interval in this setting, so intervals are obtained by a circular block bootstrap over the exceedance indicator series. Resampling whole blocks preserves the short-range dependence that the extremal index measures; an independent bootstrap would destroy exactly the structure under study and return intervals centred on one. Resamples that fail to yield an admissible estimate are counted rather than discarded, so the reported resample success rate is honest.
