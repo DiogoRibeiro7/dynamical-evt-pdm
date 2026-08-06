@@ -315,3 +315,71 @@ def method_merge_gap(method: str, *, default_merge_gap: int) -> int:
     if spec.event_policy in DECLUSTERING_POLICIES:
         return 0
     return default_merge_gap
+
+
+#: What each score is a measurement of. Review asked for this because a method's name and
+#: its family do not say whether it measures proximity to a recurrent state, the size of
+#: an anomaly, or a probability in a tail, and those are not interchangeable claims.
+SCORE_SEMANTICS: dict[ScoreKind, str] = {
+    "robust_max_abs_z": "anomaly magnitude",
+    "best_single_sensor_z": "anomaly magnitude",
+    "isolation_forest": "anomaly magnitude",
+    "absolute_first_difference": "change magnitude",
+    "linear_projection_residual": "reconstruction error",
+    "nonlinear_projection_residual": "reconstruction error",
+    "spot_streaming_excess": "tail probability",
+    "conformal_tail_probability": "tail probability",
+    "empirical_horizon_risk": "estimated event probability",
+    "negative_prototype_distance": "recurrence proximity",
+    "negative_rare_state_distance": "recurrence proximity",
+    "negative_control_distance": "recurrence proximity",
+}
+
+#: Threshold rules that are derived from an extreme-value model.
+_EVT_THRESHOLD_RULES = frozenset({"gpd_return_level", "spot_zero"})
+
+
+def score_semantics(method: str) -> str:
+    """Return what this method's score measures."""
+    spec = SPECS_BY_NAME.get(method)
+    if spec is None:
+        raise ValueError(f"undeclared event method: {method}")
+    semantics = SCORE_SEMANTICS.get(spec.score_kind)
+    if semantics is None:
+        raise ValueError(f"score kind {spec.score_kind!r} has no declared semantics")
+    return semantics
+
+
+def evt_role(method: str) -> str:
+    """Return where extreme-value theory enters this method, if anywhere.
+
+    The distinction review asked for is whether an extreme-value quantity changes the
+    alarms a method raises or is only reported alongside them. It changes the alarms in
+    two ways here: a tail model can set the threshold, or an estimated extremal index can
+    set the declustering run length. Everywhere else the extremal-index estimates in this
+    paper are diagnostics computed on the side, and the alarms would be identical without
+    them.
+    """
+    spec = SPECS_BY_NAME.get(method)
+    if spec is None:
+        raise ValueError(f"undeclared event method: {method}")
+    sets_threshold = spec.threshold_rule in _EVT_THRESHOLD_RULES
+    sets_declustering = spec.event_policy in {
+        "ferro_segers_run_length",
+        "k_gaps_run_length",
+        "extremal_index_declustering",
+    }
+    if sets_threshold and sets_declustering:
+        return "sets threshold and declustering"
+    if sets_threshold:
+        return "sets threshold"
+    if sets_declustering:
+        return "sets declustering"
+    return "diagnostic only"
+
+
+def assert_semantics_are_declared() -> None:
+    """Every declared method must have score semantics and an EVT role."""
+    missing = [spec.name for spec in EVENT_METHOD_SPECS if spec.score_kind not in SCORE_SEMANTICS]
+    if missing:
+        raise ValueError(f"methods without declared score semantics: {sorted(missing)}")

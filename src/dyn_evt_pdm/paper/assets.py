@@ -34,6 +34,11 @@ from dyn_evt_pdm.paper.claims import (
     sha256_file,
     write_asset_provenance,
 )
+from dyn_evt_pdm.pipelines.event_method_specs import (
+    EVENT_METHOD_SPECS,
+    evt_role,
+    score_semantics,
+)
 from dyn_evt_pdm.simulation.study import (
     simulation_study_config_from_mapping,
     write_simulation_study,
@@ -1126,6 +1131,7 @@ def _revision_summary_assets(
     generated += _decomposition_assets(config, tables, latex)
     generated += _matched_negative_control_assets(config, tables, latex)
     generated += _metric_provenance_assets(config, figures, tables, latex)
+    generated += _method_taxonomy_assets(tables, latex)
     generated += _method_scope_assets(config, tables, latex)
     generated += _timeline_traceability_assets(config, figures, tables, latex)
     generated += _leakage_audit_assets(tables, latex)
@@ -2159,6 +2165,51 @@ def _matched_negative_control_assets(
         tex_path,
         caption="Observed failure-prototype alarm burden against 500 matched-control draws per family.",
         label="tab:matched-negative-controls",
+    )
+    return [csv_path, tex_path]
+
+
+def _method_taxonomy_assets(tables: Path, latex: Path) -> list[Path]:
+    """Write the taxonomy that says what each benchmarked method actually is.
+
+    Review observed that a reader could not tell from the manuscript whether the central
+    object was a recurrence observable, an extremal-index analysis of a generic anomaly
+    score, the target-region construction, or the whole workflow. The answer is visible
+    once each method's score semantics and the role of extreme-value theory are stated
+    beside its name, and it is not the answer the framing implied.
+    """
+
+    rows = [
+        {
+            "Method": _event_method_label(spec.name),
+            "Family": _event_family_label(spec.family),
+            "Score measures": score_semantics(spec.name),
+            "Threshold rule": spec.threshold_rule.replace("_", " "),
+            "Event policy": spec.event_policy.replace("_", " "),
+            "Fitted on": spec.tuning_partition,
+            "Role of EVT": evt_role(spec.name),
+        }
+        for spec in EVENT_METHOD_SPECS
+    ]
+    frame = pd.DataFrame(rows)
+    csv_path = tables / "method_taxonomy.csv"
+    tex_path = latex / "method_taxonomy.tex"
+    frame.to_csv(csv_path, index=False)
+    _write_latex_table(
+        frame,
+        tex_path,
+        caption=(
+            "What each benchmarked method is. The score column says what the quantity "
+            "measures rather than how it is named: proximity to a recurrent state, the "
+            "magnitude of an anomaly, a reconstruction error, or a probability in a "
+            "tail. The last column says where extreme-value theory enters. It changes "
+            "the alarms a method raises only when a tail model sets the threshold or an "
+            "estimated extremal index sets the declustering run length; elsewhere the "
+            "extremal-index estimates reported in this paper are diagnostics computed "
+            "beside the alarms, and the alarms would be identical without them."
+        ),
+        label="tab:method-taxonomy",
+        column_weights=(1.15, 0.75, 1.0, 1.1, 1.05, 0.95, 1.0),
     )
     return [csv_path, tex_path]
 
