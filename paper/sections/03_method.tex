@@ -39,6 +39,32 @@ A recall of one is only evidence of anticipation if a detector could not have ac
 
 We do not use a homogeneous Poisson model for this null. Poisson arrivals are independent and occur at a constant rate, whereas these episodes are produced by declustering a temporally dependent score, their rate varies with operating regime, and the merge rule induces further dependence between neighbouring episodes. A null that assumes extremes do not cluster cannot calibrate a paper about clustered extremes.
 
+\paragraph{Event matching.} Let \(P=(p_1,\dots,p_m)\) be the alarm episodes after merging and \(F=(f_1,\dots,f_k)\) the labelled failures. For failure \(f\) with onset \(f^{\mathrm{start}}\), the matching window under horizon \(h\), pre-tolerance \(\tau_-\) and post-tolerance \(\tau_+\) is
+\[
+    W(f)=\left[\max\{0,\ f^{\mathrm{start}}-h-\tau_-\},\ f^{\mathrm{start}}+\tau_+\right].
+\]
+The window ends at onset plus \(\tau_+\), not at the end of the failure interval, so an alarm raised well inside a multi-day failure is not counted as a warning. An alarm \(p\) is \emph{eligible} for \(f\) when \(p\cap W(f)\neq\emptyset\); an alarm that begins before the window and extends into it is eligible, since only intersection is required. Matching is one-to-one: each alarm may be assigned to at most one failure and each failure to at most one alarm, chosen by a maximum-cardinality assignment over the eligible pairs, with ties broken toward the longer lead time. Alarm reuse across failures is available in the protocol but disabled here. Every alarm then falls in exactly one of three classes:
+\[
+\begin{array}{ll}
+\text{matched} & \text{assigned to some failure;}\\
+\text{duplicate} & \text{eligible for some failure but not assigned;}\\
+\text{false} & \text{eligible for no failure.}
+\end{array}
+\]
+Event recall is matched failures over \(|F|\). Event precision is
+\[
+    \mathrm{precision}=\frac{\#\text{matched}}{\#\text{matched}+\#\text{duplicate}+\#\text{false}}=\frac{\#\text{matched}}{m},
+\]
+so duplicates \emph{do} enter the denominator and precision is matched alarms over all alarms raised. This is deliberate: an operator responds to a duplicate exactly as to any other alarm, and excluding duplicates would let a detector improve its precision by emitting more alarms near a failure it has already matched.
+
+These conventions determine the reported numbers, and one consequence deserves emphasis. Because episodes are formed by merging before matching, a detector that is permanently on produces a single episode that is matched, with no duplicates and no false alarms, and therefore attains precision and recall of one. Episode-level metrics cannot detect that state, which is why every alarm-burden comparison in this paper reports time under warning alongside episode counts, and why the benchmark flags any method whose warning exposure exceeds half the test period.
+
+\paragraph{Joint utility.} The control comparisons use one scalar, declared before the comparison that consumes it. For a detector with detection indicator \(D\in\{0,1\}\), false alarms per operating day \(a\), warning exposure fraction \(c\), and lead time \(\ell\) in samples,
+\[
+    U=w_D D-w_a a-w_c c+w_\ell D\,\frac{\min\{\ell,\ell_{\max}\}}{\ell_{\max}},
+\]
+with \(w_D=100\), \(w_a=1\), \(w_c=10\), \(w_\ell=5\) and \(\ell_{\max}=7200\) samples. The units are therefore: one detection is worth 100, one false alarm per operating day costs 1, being under warning for the whole test period costs 10, and a lead time at or beyond two hours adds 5. The ordering is the substantive claim. Detection dominates by construction, so a method must avoid more than a hundred false alarms per day to justify missing a failure, which no method here approaches; the lead-time reward is capped and paid only on detection, so it cannot make a missed failure look competitive. Section~\ref{sec:results} reports a sensitivity sweep varying each weight by factors from \(0.25\) to \(4\), and the component metrics are reported separately so a reader who prefers different weights can recompute.
+
 The score-stratification target for horizon \(h\) is
 \[
     Y_t^{(h)}=\mathbf{1}\{\hbox{a labelled event begins within }h\hbox{ after }t\}.
