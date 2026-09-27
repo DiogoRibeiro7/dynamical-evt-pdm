@@ -66,6 +66,12 @@ poetry run dyn-evt fetch-data --dataset all
 
 You can fetch one dataset at a time with `--dataset metropt`, `--dataset metropt2`, `--dataset scania_component_x`, `--dataset hydraulic_systems`, or `--dataset secom`. Each run writes a local `manifest.json` with source URLs, byte counts, SHA-256 hashes, and any published checksum.
 
+DataExcept reports exhausted network retries and malformed source records as
+`DataLoadingError`, failed file reads as `FileReadError`, and artifact writes
+as `FileWriteError`. Each error records its source or path and preserves the
+underlying exception as `original` and `__cause__`. Invalid parameters and
+checksum mismatches retain their existing validation errors.
+
 Prepare the raw files into processed Parquet parts:
 
 ```bash
