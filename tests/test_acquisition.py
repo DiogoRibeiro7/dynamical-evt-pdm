@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from dataexcept import DataLoadingError, FileWriteError
 
 from dyn_evt_pdm.data import acquisition
 
@@ -141,3 +142,65 @@ def test_fetch_datasets_downloads_validates_and_reuses_manifest(
 def test_planned_files_rejects_unknown_dataset() -> None:
     with pytest.raises(ValueError, match="unknown dataset"):
         acquisition.planned_files(["not-a-dataset"])
+
+
+def test_download_retries_and_preserves_network_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cause = OSError("connection reset")
+    calls: list[object] = []
+
+    def fail_urlopen(request: object, timeout: int) -> FakeResponse:
+        calls.append(request)
+        raise cause
+
+    monkeypatch.setattr(acquisition.urllib.request, "urlopen", fail_urlopen)
+    monkeypatch.setattr(acquisition.time, "sleep", lambda _: None)
+    remote = acquisition.RemoteFile(
+        dataset="metropt",
+        filename="source.csv",
+        url="https://example.test/source.csv",
+        destination=tmp_path / "source.csv",
+    )
+
+    with pytest.raises(DataLoadingError) as caught:
+        acquisition.download_file(remote, retries=1)
+
+    assert len(calls) == 2
+    assert caught.value.source == remote.url
+    assert caught.value.original is cause
+    assert caught.value.__cause__ is cause
+
+
+def test_download_local_write_failure_is_not_retried(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cause = PermissionError("read-only directory")
+    calls: list[object] = []
+    real_open = Path.open
+
+    def fake_urlopen(request: object, timeout: int) -> FakeResponse:
+        calls.append(request)
+        return FakeResponse(b"payload")
+
+    def fail_temporary_open(self: Path, *args: object, **kwargs: object) -> Any:
+        if self.suffix == ".part":
+            raise cause
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(acquisition.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(Path, "open", fail_temporary_open)
+    remote = acquisition.RemoteFile(
+        dataset="metropt",
+        filename="source.csv",
+        url="https://example.test/source.csv",
+        destination=tmp_path / "source.csv",
+    )
+
+    with pytest.raises(FileWriteError) as caught:
+        acquisition.download_file(remote, retries=2)
+
+    assert len(calls) == 1
+    assert caught.value.path == str(remote.destination.with_suffix(".csv.part"))
+    assert caught.value.original is cause
+    assert caught.value.__cause__ is cause

@@ -12,6 +12,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from dataexcept import DataLoadingError, FileReadError, FileWriteError, wrap, wrapping
+
+from dyn_evt_pdm.data.io import ensure_parent, write_text
+
 ZENODO_API = "https://zenodo.org/api/records/{record_id}"
 SCANIA_DATASET_PAGE = "https://researchdata.se/en/catalogue/dataset/2024-34"
 UCI_STATIC_PUBLIC = "https://archive.ics.uci.edu/static/public/{dataset_id}/{slug}.zip"
@@ -110,10 +114,9 @@ def fetch_datasets(
         by_dataset.setdefault(result.dataset, []).append(result)
     for dataset, dataset_results in by_dataset.items():
         manifest_path = raw_root / dataset / "manifest.json"
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        manifest_path.write_text(
-            json.dumps([asdict(result) for result in dataset_results], indent=2),
-            encoding="utf-8",
+        ensure_parent(manifest_path)
+        write_text(
+            manifest_path, json.dumps([asdict(result) for result in dataset_results], indent=2)
         )
     return results
 
@@ -131,7 +134,7 @@ def download_file(
         raise ValueError("timeout_seconds must be positive")
     if retries < 0:
         raise ValueError("retries must be non-negative")
-    remote.destination.parent.mkdir(parents=True, exist_ok=True)
+    ensure_parent(remote.destination)
     if remote.destination.exists() and not overwrite:
         result = _local_result(remote, status="exists")
         _validate_result(result, remote)
@@ -139,34 +142,46 @@ def download_file(
 
     temporary = remote.destination.with_suffix(remote.destination.suffix + ".part")
     if overwrite and temporary.exists():
-        temporary.unlink()
+        with wrapping(OSError, FileWriteError, path=str(temporary)):
+            temporary.unlink()
 
     request = urllib.request.Request(remote.url, headers={"User-Agent": "dyn-evt-pdm/0.1"})
-    last_error: BaseException | None = None
+    last_error: OSError | DataLoadingError | None = None
     for attempt in range(retries + 1):
         try:
             with (
                 urllib.request.urlopen(request, timeout=timeout_seconds) as response,
+                wrapping(OSError, FileWriteError, path=str(temporary)),
                 temporary.open("wb") as handle,
             ):
                 while True:
-                    chunk = response.read(1024 * 1024)
+                    with wrapping(OSError, DataLoadingError, source=remote.url):
+                        chunk = response.read(1024 * 1024)
                     if not chunk:
                         break
                     handle.write(chunk)
             last_error = None
             break
-        except (OSError, TimeoutError) as exc:
+        except FileWriteError:
+            if temporary.exists():
+                with wrapping(OSError, FileWriteError, path=str(temporary)):
+                    temporary.unlink()
+            raise
+        except (OSError, DataLoadingError) as exc:
             last_error = exc
             if temporary.exists():
-                temporary.unlink()
+                with wrapping(OSError, FileWriteError, path=str(temporary)):
+                    temporary.unlink()
             if attempt >= retries:
                 break
             time.sleep(min(2.0**attempt, 8.0))
     if last_error is not None:
-        raise RuntimeError(f"failed to download {remote.filename}: {last_error}") from last_error
+        if isinstance(last_error, DataLoadingError):
+            raise last_error
+        raise wrap(last_error, DataLoadingError, source=remote.url) from last_error
 
-    temporary.replace(remote.destination)
+    with wrapping(OSError, FileWriteError, path=str(remote.destination)):
+        temporary.replace(remote.destination)
     result = _local_result(remote, status="downloaded")
     _validate_result(result, remote)
     return result
@@ -201,7 +216,12 @@ def _zenodo_files(
     *,
     only: set[str],
 ) -> list[RemoteFile]:
-    with urllib.request.urlopen(ZENODO_API.format(record_id=record_id), timeout=30) as response:
+    url = ZENODO_API.format(record_id=record_id)
+    with (
+        wrapping(OSError, DataLoadingError, source=url),
+        wrapping(json.JSONDecodeError, DataLoadingError, source=url),
+        urllib.request.urlopen(url, timeout=30) as response,
+    ):
         record: dict[str, Any] = json.load(response)
 
     files: list[RemoteFile] = []
@@ -228,7 +248,12 @@ def _zenodo_files(
 
 
 def _scania_files(destination_root: Path) -> list[RemoteFile]:
-    html = urllib.request.urlopen(SCANIA_DATASET_PAGE, timeout=30).read().decode("utf-8", "replace")
+    with wrapping(OSError, DataLoadingError, source=SCANIA_DATASET_PAGE):
+        html = (
+            urllib.request.urlopen(SCANIA_DATASET_PAGE, timeout=30)
+            .read()
+            .decode("utf-8", "replace")
+        )
     urls = sorted(set(re.findall(r'https://api\.researchdata\.se/[^"]+', html)))
     selected: list[RemoteFile] = []
     for url in urls:
@@ -271,7 +296,10 @@ def _uci_zip_file(
 def _local_result(remote: RemoteFile, *, status: str) -> DownloadResult:
     digest = hashlib.sha256()
     size = 0
-    with remote.destination.open("rb") as handle:
+    with (
+        wrapping(OSError, FileReadError, path=str(remote.destination)),
+        remote.destination.open("rb") as handle,
+    ):
         while True:
             chunk = handle.read(1024 * 1024)
             if not chunk:
@@ -302,7 +330,10 @@ def _validate_result(result: DownloadResult, remote: RemoteFile) -> None:
     if algorithm.lower() != "md5" or not expected:
         raise RuntimeError(f"unsupported checksum format for {remote.filename}: {remote.checksum}")
     digest = hashlib.md5(usedforsecurity=False)
-    with remote.destination.open("rb") as handle:
+    with (
+        wrapping(OSError, FileReadError, path=str(remote.destination)),
+        remote.destination.open("rb") as handle,
+    ):
         while True:
             chunk = handle.read(1024 * 1024)
             if not chunk:

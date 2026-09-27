@@ -1,7 +1,9 @@
+from collections.abc import Iterator
 from pathlib import Path
 
 import pandas as pd
 import pytest
+from dataexcept import DataLoadingError, FileReadError, FileWriteError
 
 from dyn_evt_pdm.data.contracts import TimeSeriesContract, require_columns
 from dyn_evt_pdm.data.io import iter_csv_chunks, read_table, write_parquet
@@ -45,6 +47,68 @@ def test_csv_and_parquet_io(tmp_path: Path) -> None:
     unknown.write_text("x")
     with pytest.raises(ValueError):
         read_table(unknown)
+
+
+def test_chunk_read_failure_after_first_chunk_retains_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "partial.csv"
+    path.touch()
+    cause = pd.errors.ParserError("malformed second chunk")
+
+    def fake_chunks(*args: object, **kwargs: object) -> Iterator[pd.DataFrame]:
+        def chunks() -> Iterator[pd.DataFrame]:
+            yield pd.DataFrame({"value": [1]})
+            raise cause
+
+        return chunks()
+
+    monkeypatch.setattr(pd, "read_csv", fake_chunks)
+    chunks = iter_csv_chunks(path, chunk_size=1)
+    assert next(chunks)["value"].tolist() == [1]
+    with pytest.raises(DataLoadingError) as caught:
+        next(chunks)
+
+    assert caught.value.source == str(path)
+    assert caught.value.original is cause
+    assert caught.value.__cause__ is cause
+
+
+def test_table_read_failure_retains_path_and_cause(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "unreadable.csv"
+    path.touch()
+    cause = PermissionError("cannot read")
+
+    def fail_read(*args: object, **kwargs: object) -> None:
+        raise cause
+
+    monkeypatch.setattr(pd, "read_csv", fail_read)
+    with pytest.raises(FileReadError) as caught:
+        read_table(path)
+
+    assert caught.value.path == str(path)
+    assert caught.value.original is cause
+    assert caught.value.__cause__ is cause
+
+
+def test_parquet_write_failure_retains_temporary_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "processed.parquet"
+    frame = pd.DataFrame({"value": [1]})
+    cause = OSError("disk full")
+
+    def fail_write(*args: object, **kwargs: object) -> None:
+        raise cause
+
+    monkeypatch.setattr(frame, "to_parquet", fail_write)
+    with pytest.raises(FileWriteError) as caught:
+        write_parquet(frame, path)
+
+    assert caught.value.path == str(path.with_suffix(".parquet.tmp"))
+    assert caught.value.__cause__ is cause
 
 
 def test_metropt_loader_and_failure_annotation(tmp_path: Path) -> None:
