@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/project-logo.png" alt="dynamical-evt-pdm project logo" width="160" height="160">
+</p>
+
 # Dynamical EVT for Predictive Maintenance
 
 Research repository for **regime-conditioned, cluster-aware predictive maintenance using dynamical extreme value theory (EVT)**.

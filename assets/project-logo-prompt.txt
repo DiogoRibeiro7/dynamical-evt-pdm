@@ -1,0 +1,7 @@
+Tool: built-in image generation
+
+Use case: logo-brand.
+Asset type: square README project logo for dynamical-evt-pdm.
+Project purpose: Regime-conditioned dynamical EVT for predictive maintenance
+Design direction: A jagged charcoal mountain-like mechanical stress profile rises to one exceptional vermilion peak, with a narrow warning fracture just before the crest. Bold technical woodcut, black, vermilion and pale-grey paper. A compact asymmetric silhouette suggesting extreme loads and early maintenance warning.
+Composition: create one finished square artwork with a strong silhouette, readable at 160 pixels, and comfortable margins. This is the logo itself, not a presentation or product mockup. No text, words, letters, numbers, captions or watermark anywhere in the image. Do not use a generic navy-and-gold metallic badge.
